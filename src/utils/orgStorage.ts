@@ -1,4 +1,4 @@
-import type { Division, Employee, ExecutiveOffice, Project, Team, TrackAllocation } from '@/types';
+import type { Division, Employee, ExecutiveOffice, Project, ProjectTeamAllocation, Team, TrackAllocation } from '@/types';
 import type { LegacyExecutiveOffice } from '@/types/history';
 
 const ORG_KEY = 'performance-dashboard-org';
@@ -14,6 +14,7 @@ export interface StoredOrgState {
 export interface StoredAppState {
   projects: Project[];
   allocations: TrackAllocation[];
+  projectTeamAllocations?: ProjectTeamAllocation[];
   historySeeded?: boolean;
 }
 

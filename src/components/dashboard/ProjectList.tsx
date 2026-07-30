@@ -4,6 +4,8 @@ import type { Project } from '@/types';
 
 const STATUS_COLORS: Record<string, string> = {
   공모: 'badge--gray',
+  설계: 'badge--blue',
+  제작: 'badge--green',
   수주: 'badge--blue',
   실행: 'badge--green',
   완료: 'badge--purple',

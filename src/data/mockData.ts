@@ -4,6 +4,7 @@ import type {
   Employee,
   ExecutiveOffice,
   Project,
+  ProjectTeamAllocation,
   RoleConfig,
   Team,
   TrackAllocation,
@@ -14,12 +15,20 @@ export const EXECUTIVE_OFFICE: ExecutiveOffice = {
 };
 
 export const DIVISIONS: Division[] = [
+  { id: 'div-ex', name: '전시사업본부', headName: '김전시', headRank: '상무' },
+  { id: 'div-nm', name: '뉴미디어사업본부', headName: '박뉴', headRank: '상무' },
+  { id: 'div-os', name: '해외사업본부', headName: '이해외', headRank: '상무' },
+  { id: 'div-in', name: '인테리어사업본부', headName: '최인테', headRank: '상무' },
   { id: 'div-a', name: '건축사업본부', headName: '이본부', headRank: '상무' },
   { id: 'div-b', name: '인프라사업본부', headName: '강인프', headRank: '상무' },
   { id: 'div-c', name: '스마트시티사업본부' },
 ];
 
 export const TEAMS: Team[] = [
+  { id: 'team-ex1', name: '전시1팀', divisionId: 'div-ex', headName: '전시팀장', headRank: '수석매니저' },
+  { id: 'team-nm1', name: '뉴미디어1팀', divisionId: 'div-nm' },
+  { id: 'team-os1', name: '해외1팀', divisionId: 'div-os' },
+  { id: 'team-in1', name: '인테리어1팀', divisionId: 'div-in', headName: '인테리어팀장', headRank: '책임매니저' },
   { id: 'team-a1', name: '건축1팀', divisionId: 'div-a', headName: '최팀장', headRank: '수석매니저' },
   { id: 'team-a2', name: '건축2팀', divisionId: 'div-a' },
   { id: 'team-b1', name: '도로설계팀', divisionId: 'div-b', headName: '윤도로', headRank: '책임매니저' },
@@ -61,7 +70,7 @@ export const ROLE_CONFIGS: RoleConfig[] = [
   {
     id: 'division_head',
     label: '사업본부장',
-    description: '소속 사업부 데이터만',
+    description: '소속 사업부 + 프로젝트 팀 배분',
     userId: 'emp-div-a',
     userName: '이본부',
     divisionId: 'div-a',
@@ -91,11 +100,12 @@ export const INITIAL_PROJECTS: Project[] = [
   {
     id: 'pjt-001',
     name: '서울역 복합개발 설계',
-    divisionId: 'div-a',
-    divisionName: '건축사업본부',
-    teamId: 'team-a1',
-    teamName: '건축1팀',
-    status: '실행',
+    projectCode: '2025-4001-21',
+    divisionId: 'div-in',
+    divisionName: '인테리어사업본부',
+    teamId: 'team-in1',
+    teamName: '인테리어1팀',
+    status: '설계',
     contractAmount: 8500000000,
     startDate: '2025-03-01',
     endDate: '2026-12-31',
@@ -107,11 +117,12 @@ export const INITIAL_PROJECTS: Project[] = [
   {
     id: 'pjt-002',
     name: '판교 테크노밸리 리모델링',
-    divisionId: 'div-a',
-    divisionName: '건축사업본부',
-    teamId: 'team-a1',
-    teamName: '건축1팀',
-    status: '수주',
+    projectCode: '2025-4002-31',
+    divisionId: 'div-in',
+    divisionName: '인테리어사업본부',
+    teamId: 'team-in1',
+    teamName: '인테리어1팀',
+    status: '제작',
     contractAmount: 5200000000,
     startDate: '2025-07-01',
     pmId: 'emp-mgr-a1',
@@ -122,10 +133,11 @@ export const INITIAL_PROJECTS: Project[] = [
   {
     id: 'pjt-003',
     name: '부산 해운대 관광단지 공모',
-    divisionId: 'div-a',
-    divisionName: '건축사업본부',
-    teamId: 'team-a2',
-    teamName: '건축2팀',
+    projectCode: '2025-1001-11',
+    divisionId: 'div-ex',
+    divisionName: '전시사업본부',
+    teamId: 'team-ex1',
+    teamName: '전시1팀',
     status: '공모',
     startDate: '2025-08-01',
     pmId: 'emp-mgr-a1',
@@ -136,11 +148,12 @@ export const INITIAL_PROJECTS: Project[] = [
   {
     id: 'pjt-004',
     name: '경부고속도로 확장 설계',
-    divisionId: 'div-b',
-    divisionName: '인프라사업본부',
-    teamId: 'team-b1',
-    teamName: '도로설계팀',
-    status: '실행',
+    projectCode: '2024-3001-21',
+    divisionId: 'div-os',
+    divisionName: '해외사업본부',
+    teamId: 'team-os1',
+    teamName: '해외1팀',
+    status: '설계',
     contractAmount: 12000000000,
     startDate: '2024-09-01',
     endDate: '2027-06-30',
@@ -150,6 +163,16 @@ export const INITIAL_PROJECTS: Project[] = [
     updatedAt: '2025-05-15',
   },
 ];
+
+export function buildInitialProjectTeamAllocations(
+  projects: Project[],
+): ProjectTeamAllocation[] {
+  return projects.map((project) => ({
+    projectId: project.id,
+    teams: [{ teamId: project.teamId, teamName: project.teamName, ratio: 100 }],
+    updatedAt: project.updatedAt,
+  }));
+}
 
 export const INITIAL_ALLOCATIONS: TrackAllocation[] = [
   {

@@ -1,7 +1,8 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { RoleSwitcher } from '@/components/layout/RoleSwitcher';
 import { Button } from '@/components/ui/Button';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { useApp } from '@/context/AppContext';
 import type { PermissionFlags, RoleConfig } from '@/types';
 
@@ -13,9 +14,12 @@ const NAV_ITEMS = [
 ];
 
 export function AppLayout() {
-  const { permissions, roleConfig, divisions, teams, role } = useApp();
+  const { permissions, roleConfig, divisions, teams, role, syncPPM } = useApp();
   const location = useLocation();
   const navigate = useNavigate();
+  const [ppmConfirmOpen, setPpmConfirmOpen] = useState(false);
+  const [ppmSyncing, setPpmSyncing] = useState(false);
+  const [ppmMessage, setPpmMessage] = useState('');
 
   useEffect(() => {
     const path = location.pathname;
@@ -29,7 +33,13 @@ export function AppLayout() {
     if (allocationRoute && !permissions.canAccessAllocationForm) {
       navigate('/', { replace: true });
     }
-  }, [role, location.pathname, permissions.canCreateProject, permissions.canAccessAllocationForm, navigate]);
+  }, [
+    role,
+    location.pathname,
+    permissions.canCreateProject,
+    permissions.canAccessAllocationForm,
+    navigate,
+  ]);
 
   const visibleNav = NAV_ITEMS.filter((item) => {
     if (item.adminOnly) return permissions.canCreateProject;
@@ -39,6 +49,18 @@ export function AppLayout() {
 
   const handlePrint = () => {
     window.print();
+  };
+
+  const handlePpmSyncConfirm = async () => {
+    setPpmSyncing(true);
+    try {
+      await syncPPM();
+      setPpmMessage('PPM(DB) 원가정보 동기화가 완료되었습니다.');
+      setPpmConfirmOpen(false);
+      setTimeout(() => setPpmMessage(''), 3000);
+    } finally {
+      setPpmSyncing(false);
+    }
   };
 
   return (
@@ -78,16 +100,46 @@ export function AppLayout() {
               </NavLink>
             ))}
           </nav>
-          <div className="lnb__scope">
-            <p className="lnb__scope-label">데이터 범위</p>
-            <p className="lnb__scope-value">{getScopeLabel(roleConfig, permissions, divisions, teams)}</p>
+
+          <div className="lnb__bottom">
+            <div className="lnb__scope">
+              <p className="lnb__scope-label">데이터 범위</p>
+              <p className="lnb__scope-value">
+                {getScopeLabel(roleConfig, permissions, divisions, teams)}
+              </p>
+            </div>
+
+            {permissions.canSyncPPM && (
+              <Button
+                variant="secondary"
+                size="sm"
+                className="lnb__sync-btn"
+                onClick={() => setPpmConfirmOpen(true)}
+              >
+                PPM(DB) 동기화
+              </Button>
+            )}
           </div>
         </aside>
 
         <main className="main-content">
+          {ppmMessage && (
+            <div className="toast toast--success no-print app-toast">{ppmMessage}</div>
+          )}
           <Outlet />
         </main>
       </div>
+
+      <ConfirmDialog
+        open={ppmConfirmOpen}
+        title="PPM(DB) 동기화"
+        message="원가정보를 불러오시겠습니까?"
+        confirmLabel="네"
+        cancelLabel="아니오"
+        loading={ppmSyncing}
+        onConfirm={handlePpmSyncConfirm}
+        onCancel={() => !ppmSyncing && setPpmConfirmOpen(false)}
+      />
     </div>
   );
 }

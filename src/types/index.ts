@@ -15,11 +15,29 @@ export interface RoleConfig {
   teamId?: string;
 }
 
-export type ProjectStatus = '공모' | '수주' | '실행' | '완료';
+export type ProjectStatus = '공모' | '설계' | '제작' | '수주' | '실행' | '완료';
+
+/** 전시·뉴미·해외사업 유형 */
+export type GeneralProjectType = '공공' | '민간';
+
+/** 인테리어사업 유형 */
+export type InteriorProjectType =
+  | '건축시설'
+  | '문화공간'
+  | '복합공간'
+  | '상업공간'
+  | '업무공간'
+  | '호텔및주거공간';
+
+export type ProjectType = GeneralProjectType | InteriorProjectType;
 
 export interface Project {
   id: string;
   name: string;
+  /** 외부 집행원가 연동용 코드 (0000-0000-00) */
+  projectCode?: string;
+  /** 사업본부별 세부 유형 (분석용) */
+  projectType?: ProjectType;
   divisionId: string;
   divisionName: string;
   teamId: string;
@@ -75,6 +93,18 @@ export interface AllocationEntry {
   ratio: number;
 }
 
+export interface TeamAllocationEntry {
+  teamId: string;
+  teamName: string;
+  ratio: number;
+}
+
+export interface ProjectTeamAllocation {
+  projectId: string;
+  teams: TeamAllocationEntry[];
+  updatedAt: string;
+}
+
 export interface TrackAllocation {
   projectId: string;
   bid: AllocationEntry[];
@@ -119,6 +149,7 @@ export interface PermissionFlags {
   canEditProject: boolean;
   canSyncPPM: boolean;
   canAccessAllocationForm: boolean;
+  canAccessProjectAllocationForm: boolean;
   canExportPDF: boolean;
   isReadOnly: boolean;
 }

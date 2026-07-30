@@ -17,6 +17,7 @@ import {
   INITIAL_PROJECTS,
   ROLE_CONFIGS,
   TEAMS,
+  buildInitialProjectTeamAllocations,
 } from '@/data/mockData';
 import type {
   AllocationEntry,
@@ -27,10 +28,12 @@ import type {
   ExecutiveAdmin,
   ExecutiveOffice,
   Project,
+  ProjectTeamAllocation,
   RiskScenario,
   Role,
   RoleConfig,
   Team,
+  TeamAllocationEntry,
   TrackAllocation,
 } from '@/types';
 import type { HistoryEvent } from '@/types/history';
@@ -51,6 +54,14 @@ import {
   getPermissions,
 } from '@/utils/permissions';
 import { buildInitialAllocationHistory } from '@/utils/reportAnalytics';
+import {
+  addEmployeeToTeamProjects,
+  collectTeamParticipantIds,
+  resolveProjectOrgNames,
+  syncProjectTeamAllocationEntry,
+  syncProjectTeamAllocationNames,
+  syncProjectsWithOrg,
+} from '@/utils/projectSync';
 
 type OrgMutationResult = { ok: true } | { ok: false; reason: string };
 
@@ -81,13 +92,21 @@ function createInitialOrgState() {
 function createInitialAppState() {
   try {
     const saved = loadAppState();
-    if (saved) return saved;
+    if (saved) {
+      return {
+        ...saved,
+        projectTeamAllocations:
+          saved.projectTeamAllocations ??
+          buildInitialProjectTeamAllocations(saved.projects),
+      };
+    }
   } catch {
     // fall through to defaults
   }
   return {
     projects: INITIAL_PROJECTS,
     allocations: INITIAL_ALLOCATIONS,
+    projectTeamAllocations: buildInitialProjectTeamAllocations(INITIAL_PROJECTS),
     historySeeded: false,
   };
 }
@@ -103,6 +122,7 @@ interface AppContextValue {
   projects: Project[];
   visibleProjects: Project[];
   allocations: TrackAllocation[];
+  projectTeamAllocations: ProjectTeamAllocation[];
   budget: BudgetStatus;
   riskScenario: RiskScenario;
   contributionCards: ContributionCard[];
@@ -142,8 +162,10 @@ interface AppContextValue {
     track: 'bid' | 'design' | 'production',
     entries: AllocationEntry[],
   ) => void;
+  saveProjectTeamAllocation: (projectId: string, entries: TeamAllocationEntry[]) => void;
   setRiskScenario: (scenario: RiskScenario) => void;
   getAllocationForProject: (projectId: string) => TrackAllocation | undefined;
+  getProjectTeamAllocationForProject: (projectId: string) => ProjectTeamAllocation | undefined;
 }
 
 const AppContext = createContext<AppContextValue | null>(null);
@@ -163,6 +185,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [allocations, setAllocations] = useState<TrackAllocation[]>(
     initialApp.allocations,
   );
+  const [projectTeamAllocations, setProjectTeamAllocations] = useState<
+    ProjectTeamAllocation[]
+  >(initialApp.projectTeamAllocations);
   const [riskScenario, setRiskScenario] = useState<RiskScenario>('normal');
   const [historyEvents, setHistoryEvents] = useState<HistoryEvent[]>([]);
 
@@ -195,19 +220,32 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [executiveOffice, divisions, teams, employees]);
 
   useEffect(() => {
-    saveAppState({ projects, allocations, historySeeded: true });
-  }, [projects, allocations]);
+    saveAppState({ projects, allocations, projectTeamAllocations, historySeeded: true });
+  }, [projects, allocations, projectTeamAllocations]);
 
-  const roleConfig = useMemo(
-    () => ROLE_CONFIGS.find((r) => r.id === role)!,
-    [role],
-  );
+  useEffect(() => {
+    setProjects((prev) => syncProjectsWithOrg(prev, divisions, teams));
+    setProjectTeamAllocations((prev) => syncProjectTeamAllocationNames(prev, teams));
+  }, [divisions, teams]);
+
+  const roleConfig = useMemo(() => {
+    const base = ROLE_CONFIGS.find((r) => r.id === role)!;
+    const employee = employees.find((e) => e.id === base.userId);
+    if (!employee) return base;
+
+    return {
+      ...base,
+      userName: employee.name,
+      divisionId: employee.divisionId,
+      teamId: employee.teamId,
+    };
+  }, [role, employees]);
 
   const permissions = useMemo(() => getPermissions(role), [role]);
 
   const visibleProjects = useMemo(
-    () => filterProjectsByRole(projects, roleConfig),
-    [projects, roleConfig],
+    () => filterProjectsByRole(projects, roleConfig, projectTeamAllocations),
+    [projects, roleConfig, projectTeamAllocations],
   );
 
   const budget = useMemo(
@@ -304,13 +342,40 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const createProject = useCallback(
     (project: Omit<Project, 'id' | 'createdAt' | 'updatedAt'>) => {
       const now = new Date().toISOString().slice(0, 10);
+      const { divisionName, teamName } = resolveProjectOrgNames(
+        project.divisionId,
+        project.teamId,
+        divisions,
+        teams,
+      );
+      const pmId =
+        project.pmId ||
+        employees.find((e) => e.teamId === project.teamId && e.role === '팀장')?.id ||
+        employees.find((e) => e.teamId === project.teamId)?.id ||
+        '';
+      const participantIds = collectTeamParticipantIds(project.teamId, pmId, employees);
+
       const newProject: Project = {
         ...project,
+        divisionName,
+        teamName,
+        pmId,
+        participantIds,
         id: `pjt-${Date.now().toString(36)}`,
         createdAt: now,
         updatedAt: now,
       };
+
       setProjects((prev) => [...prev, newProject]);
+      setProjectTeamAllocations((prev) =>
+        syncProjectTeamAllocationEntry(
+          prev,
+          newProject.id,
+          newProject.teamId,
+          newProject.teamName,
+          new Date().toISOString(),
+        ),
+      );
       recordHistory({
         category: 'project',
         action: 'created',
@@ -321,7 +386,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         after: { status: newProject.status, teamName: newProject.teamName },
       });
     },
-    [recordHistory],
+    [divisions, teams, employees, recordHistory],
   );
 
   const addDivision = useCallback(
@@ -528,6 +593,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
         divisionName: division?.name ?? '',
       };
       setEmployees((prev) => [...prev, employee]);
+      setProjects((prev) =>
+        addEmployeeToTeamProjects(prev, projectTeamAllocations, teamId, employee.id),
+      );
       recordHistory({
         category: 'organization',
         action: 'created',
@@ -539,7 +607,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         metadata: { teamId, divisionId: team.divisionId },
       });
     },
-    [teams, divisions, recordHistory],
+    [teams, divisions, projectTeamAllocations, recordHistory],
   );
 
   const updateEmployee = useCallback(
@@ -579,6 +647,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
           })),
         );
       }
+      if (updates.teamId && updates.teamId !== before?.teamId) {
+        setProjects((prev) =>
+          addEmployeeToTeamProjects(prev, projectTeamAllocations, updates.teamId!, id),
+        );
+      }
       if (before) {
         recordHistory({
           category: 'organization',
@@ -592,7 +665,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         });
       }
     },
-    [employees, teams, divisions, recordHistory],
+    [employees, teams, divisions, projectTeamAllocations, recordHistory],
   );
 
   const removeEmployee = useCallback(
@@ -640,27 +713,60 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const updateProject = useCallback(
     (id: string, updates: Partial<Project>) => {
       const before = projects.find((p) => p.id === id);
-      setProjects((prev) =>
-        prev.map((p) =>
-          p.id === id
-            ? { ...p, ...updates, updatedAt: new Date().toISOString().slice(0, 10) }
-            : p,
-        ),
+      if (!before) return;
+
+      const divisionId = updates.divisionId ?? before.divisionId;
+      const teamId = updates.teamId ?? before.teamId;
+      const { divisionName, teamName } = resolveProjectOrgNames(
+        divisionId,
+        teamId,
+        divisions,
+        teams,
       );
-      if (before) {
-        recordHistory({
-          category: 'project',
-          action: 'updated',
-          entityType: 'project',
-          entityId: id,
-          entityName: before.name,
-          summary: `프로젝트 수정: ${before.name}`,
-          before: { status: before.status, contractAmount: before.contractAmount },
-          after: { status: updates.status ?? before.status, contractAmount: updates.contractAmount },
-        });
+      const teamChanged = teamId !== before.teamId;
+      const pmId = updates.pmId ?? before.pmId;
+      const participantIds = teamChanged
+        ? collectTeamParticipantIds(teamId, pmId, employees)
+        : (updates.participantIds ?? before.participantIds);
+
+      const merged: Project = {
+        ...before,
+        ...updates,
+        divisionId,
+        teamId,
+        divisionName,
+        teamName,
+        pmId,
+        participantIds,
+        updatedAt: new Date().toISOString().slice(0, 10),
+      };
+
+      setProjects((prev) => prev.map((p) => (p.id === id ? merged : p)));
+
+      if (teamChanged) {
+        setProjectTeamAllocations((prev) =>
+          syncProjectTeamAllocationEntry(
+            prev,
+            id,
+            teamId,
+            teamName,
+            new Date().toISOString(),
+          ),
+        );
       }
+
+      recordHistory({
+        category: 'project',
+        action: 'updated',
+        entityType: 'project',
+        entityId: id,
+        entityName: before.name,
+        summary: `프로젝트 수정: ${before.name}`,
+        before: { status: before.status, contractAmount: before.contractAmount },
+        after: { status: merged.status, contractAmount: merged.contractAmount },
+      });
     },
-    [projects, recordHistory],
+    [projects, divisions, teams, employees, recordHistory],
   );
 
   const syncPPM = useCallback(async () => {
@@ -732,9 +838,78 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [projects, recordHistory],
   );
 
+  const saveProjectTeamAllocation = useCallback(
+    (projectId: string, entries: TeamAllocationEntry[]) => {
+      const project = projects.find((p) => p.id === projectId);
+      const now = new Date().toISOString();
+
+      setProjectTeamAllocations((prev) => {
+        const existing = prev.find((a) => a.projectId === projectId);
+        if (existing) {
+          return prev.map((a) =>
+            a.projectId === projectId ? { ...a, teams: entries, updatedAt: now } : a,
+          );
+        }
+        return [...prev, { projectId, teams: entries, updatedAt: now }];
+      });
+
+      const primaryTeam = [...entries].sort((a, b) => b.ratio - a.ratio)[0];
+      if (project && primaryTeam) {
+        const participantIds = new Set<string>();
+        for (const entry of entries) {
+          for (const employee of employees.filter((e) => e.teamId === entry.teamId)) {
+            participantIds.add(employee.id);
+          }
+        }
+
+        setProjects((prev) =>
+          prev.map((p) =>
+            p.id === projectId
+              ? {
+                  ...p,
+                  teamId: primaryTeam.teamId,
+                  teamName: primaryTeam.teamName,
+                  participantIds: [...participantIds],
+                  updatedAt: now.slice(0, 10),
+                }
+              : p,
+          ),
+        );
+
+        for (const entry of entries) {
+          recordHistory({
+            category: 'project',
+            action: 'saved',
+            entityType: 'project_team_allocation',
+            entityId: entry.teamId,
+            entityName: entry.teamName,
+            summary: `프로젝트 팀 배분: ${project.name} · ${entry.teamName} ${entry.ratio}%`,
+            after: {
+              teamId: entry.teamId,
+              teamName: entry.teamName,
+              ratio: entry.ratio,
+              projectId,
+              projectName: project.name,
+            },
+            metadata: {
+              divisionId: project.divisionId,
+              divisionName: project.divisionName,
+            },
+          });
+        }
+      }
+    },
+    [projects, employees, recordHistory],
+  );
+
   const getAllocationForProject = useCallback(
     (projectId: string) => allocations.find((a) => a.projectId === projectId),
     [allocations],
+  );
+
+  const getProjectTeamAllocationForProject = useCallback(
+    (projectId: string) => projectTeamAllocations.find((a) => a.projectId === projectId),
+    [projectTeamAllocations],
   );
 
   const value: AppContextValue = {
@@ -748,6 +923,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     projects,
     visibleProjects,
     allocations,
+    projectTeamAllocations,
     budget,
     riskScenario,
     contributionCards,
@@ -769,8 +945,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
     updateProject,
     syncPPM,
     saveAllocation,
+    saveProjectTeamAllocation,
     setRiskScenario,
     getAllocationForProject,
+    getProjectTeamAllocationForProject,
   };
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;

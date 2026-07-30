@@ -105,14 +105,16 @@ body {
   padding: 20px 12px;
   display: flex;
   flex-direction: column;
-  gap: 24px;
   flex-shrink: 0;
+  min-height: 0;
 }
 
 .lnb__nav {
   display: flex;
   flex-direction: column;
   gap: 4px;
+  flex: 1;
+  min-height: 0;
 }
 
 .lnb__link {
@@ -143,7 +145,6 @@ body {
 }
 
 .lnb__scope {
-  margin-top: auto;
   padding: 14px;
   background: var(--color-bg);
   border-radius: var(--radius-md);
@@ -158,6 +159,62 @@ body {
 .lnb__scope-value {
   font-size: 13px;
   font-weight: 600;
+}
+
+.lnb__bottom {
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-top: 16px;
+  border-top: 1px solid var(--color-border);
+}
+
+.lnb__sync-btn {
+  width: 100%;
+}
+
+.confirm-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(15, 23, 42, 0.45);
+}
+
+.confirm-dialog {
+  width: min(100%, 420px);
+  padding: 24px;
+  background: var(--color-surface);
+  border-radius: var(--radius-md);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.16);
+}
+
+.confirm-dialog__title {
+  margin: 0 0 12px;
+  font-size: 18px;
+}
+
+.confirm-dialog__message {
+  margin: 0 0 20px;
+  color: var(--color-text-secondary);
+  line-height: 1.5;
+}
+
+.confirm-dialog__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.app-toast {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  margin-bottom: 12px;
 }
 
 .main-content {
@@ -643,6 +700,26 @@ body {
   margin-top: 8px;
 }
 
+.admin-form__readonly {
+  margin-bottom: 16px;
+  padding: 12px 14px;
+  background: var(--color-bg);
+  border-radius: var(--radius-sm);
+}
+
+.admin-form__readonly-label {
+  display: block;
+  font-size: 12px;
+  color: var(--color-text-muted);
+  margin-bottom: 4px;
+}
+
+.admin-form__readonly-value {
+  display: block;
+  font-size: 15px;
+  font-family: monospace;
+}
+
 .admin-project-list {
   display: flex;
   flex-direction: column;
@@ -656,6 +733,25 @@ body {
   padding: 12px;
   background: var(--color-bg);
   border-radius: var(--radius-sm);
+}
+
+.admin-project-item--active {
+  outline: 2px solid var(--color-primary);
+  background: #eef5ff;
+}
+
+.admin-project-item__code {
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--color-text-muted);
+  font-family: monospace;
+}
+
+.form-field__hint {
+  margin: -8px 0 12px;
+  font-size: 12px;
+  color: var(--color-text-muted);
 }
 
 .admin-sync {
@@ -875,6 +971,12 @@ body {
 
 .allocation-budget {
   margin-top: 16px;
+}
+
+.project-allocation__desc {
+  padding: 0 24px 12px;
+  font-size: 13px;
+  color: var(--color-text-muted);
 }
 
 .allocation-page {

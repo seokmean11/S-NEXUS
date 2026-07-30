@@ -2,9 +2,22 @@ import type {
   ContributionCard,
   PermissionFlags,
   Project,
+  ProjectTeamAllocation,
   Role,
   RoleConfig,
 } from '@/types';
+
+function projectVisibleToTeam(
+  project: Project,
+  teamId: string,
+  projectTeamAllocations: ProjectTeamAllocation[],
+): boolean {
+  const allocation = projectTeamAllocations.find((a) => a.projectId === project.id);
+  if (allocation && allocation.teams.length > 0) {
+    return allocation.teams.some((entry) => entry.teamId === teamId);
+  }
+  return project.teamId === teamId;
+}
 
 export function getPermissions(role: Role): PermissionFlags {
   switch (role) {
@@ -15,6 +28,7 @@ export function getPermissions(role: Role): PermissionFlags {
         canEditProject: true,
         canSyncPPM: true,
         canAccessAllocationForm: true,
+        canAccessProjectAllocationForm: true,
         canExportPDF: false,
         isReadOnly: false,
       };
@@ -25,6 +39,7 @@ export function getPermissions(role: Role): PermissionFlags {
         canEditProject: false,
         canSyncPPM: false,
         canAccessAllocationForm: false,
+        canAccessProjectAllocationForm: false,
         canExportPDF: true,
         isReadOnly: true,
       };
@@ -35,6 +50,7 @@ export function getPermissions(role: Role): PermissionFlags {
         canEditProject: false,
         canSyncPPM: false,
         canAccessAllocationForm: false,
+        canAccessProjectAllocationForm: true,
         canExportPDF: false,
         isReadOnly: true,
       };
@@ -45,6 +61,7 @@ export function getPermissions(role: Role): PermissionFlags {
         canEditProject: false,
         canSyncPPM: false,
         canAccessAllocationForm: true,
+        canAccessProjectAllocationForm: false,
         canExportPDF: false,
         isReadOnly: false,
       };
@@ -55,6 +72,7 @@ export function getPermissions(role: Role): PermissionFlags {
         canEditProject: false,
         canSyncPPM: false,
         canAccessAllocationForm: false,
+        canAccessProjectAllocationForm: false,
         canExportPDF: false,
         isReadOnly: true,
       };
@@ -64,6 +82,7 @@ export function getPermissions(role: Role): PermissionFlags {
 export function filterProjectsByRole(
   projects: Project[],
   roleConfig: RoleConfig,
+  projectTeamAllocations: ProjectTeamAllocation[] = [],
 ): Project[] {
   switch (roleConfig.id) {
     case 'dev_admin':
@@ -72,7 +91,9 @@ export function filterProjectsByRole(
     case 'division_head':
       return projects.filter((p) => p.divisionId === roleConfig.divisionId);
     case 'team_manager':
-      return projects.filter((p) => p.teamId === roleConfig.teamId);
+      return projects.filter((p) =>
+        projectVisibleToTeam(p, roleConfig.teamId!, projectTeamAllocations),
+      );
     case 'team_member':
       return projects.filter((p) =>
         p.participantIds.includes(roleConfig.userId),
