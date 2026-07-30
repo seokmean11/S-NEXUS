@@ -2,6 +2,7 @@ import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
   useState,
   type ReactNode,
@@ -35,8 +36,26 @@ import {
   generateOrgId,
   getPermissions,
 } from '@/utils/permissions';
+import { loadOrgState, saveOrgState } from '@/utils/orgStorage';
 
 type OrgMutationResult = { ok: true } | { ok: false; reason: string };
+
+function createInitialOrgState() {
+  const saved = loadOrgState();
+  if (saved) {
+    return {
+      divisions: saved.divisions,
+      teams: saved.teams,
+      employees: saved.employees,
+    };
+  }
+
+  return {
+    divisions: [...DIVISIONS],
+    teams: [...TEAMS],
+    employees: [...EMPLOYEES],
+  };
+}
 
 interface AppContextValue {
   role: Role;
@@ -90,14 +109,19 @@ interface AppContextValue {
 const AppContext = createContext<AppContextValue | null>(null);
 
 export function AppProvider({ children }: { children: ReactNode }) {
+  const initialOrg = useMemo(() => createInitialOrgState(), []);
   const [role, setRole] = useState<Role>('dev_admin');
-  const [divisions, setDivisions] = useState<Division[]>([...DIVISIONS]);
-  const [teams, setTeams] = useState<Team[]>([...TEAMS]);
-  const [employees, setEmployees] = useState<Employee[]>([...EMPLOYEES]);
+  const [divisions, setDivisions] = useState<Division[]>(initialOrg.divisions);
+  const [teams, setTeams] = useState<Team[]>(initialOrg.teams);
+  const [employees, setEmployees] = useState<Employee[]>(initialOrg.employees);
   const [projects, setProjects] = useState<Project[]>(INITIAL_PROJECTS);
   const [allocations, setAllocations] =
     useState<TrackAllocation[]>(INITIAL_ALLOCATIONS);
   const [riskScenario, setRiskScenario] = useState<RiskScenario>('normal');
+
+  useEffect(() => {
+    saveOrgState({ divisions, teams, employees });
+  }, [divisions, teams, employees]);
 
   const roleConfig = useMemo(
     () => ROLE_CONFIGS.find((r) => r.id === role)!,
@@ -306,22 +330,37 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const removeEmployee = useCallback(
     (id: string): OrgMutationResult => {
-      const usedInProjects = projects.some(
-        (p) => p.pmId === id || p.participantIds.includes(id),
+      setProjects((prev) =>
+        prev.map((project) => {
+          if (project.pmId !== id && !project.participantIds.includes(id)) {
+            return project;
+          }
+
+          const participantIds = project.participantIds.filter(
+            (participantId) => participantId !== id,
+          );
+          const pmId =
+            project.pmId === id ? (participantIds[0] ?? '') : project.pmId;
+
+          return { ...project, pmId, participantIds };
+        }),
       );
-      if (usedInProjects) {
-        return { ok: false, reason: '프로젝트 PM/참여자로 등록된 구성원은 삭제할 수 없습니다.' };
-      }
-      const usedInAllocations = allocations.some((a) =>
-        [...a.bid, ...a.design, ...a.production].some((entry) => entry.employeeId === id),
+
+      setAllocations((prev) =>
+        prev.map((allocation) => ({
+          ...allocation,
+          bid: allocation.bid.filter((entry) => entry.employeeId !== id),
+          design: allocation.design.filter((entry) => entry.employeeId !== id),
+          production: allocation.production.filter(
+            (entry) => entry.employeeId !== id,
+          ),
+        })),
       );
-      if (usedInAllocations) {
-        return { ok: false, reason: '인력 배분에 등록된 구성원은 삭제할 수 없습니다.' };
-      }
+
       setEmployees((prev) => prev.filter((e) => e.id !== id));
       return { ok: true };
     },
-    [projects, allocations],
+    [],
   );
 
   const updateProject = useCallback((id: string, updates: Partial<Project>) => {

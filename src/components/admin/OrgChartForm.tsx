@@ -200,6 +200,9 @@ export function OrgChartForm() {
       showError(result.reason ?? '삭제할 수 없습니다.');
       return;
     }
+    if (editingEmployeeId === id) {
+      setEditingEmployeeId(null);
+    }
     showMessage(`"${name}" 팀원이 삭제되었습니다.`);
   };
 
