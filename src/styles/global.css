@@ -796,6 +796,26 @@ body {
   border: 1px solid #d6e8ff;
 }
 
+.org-executive-card {
+  margin-bottom: 16px;
+}
+
+.org-executive-card__desc {
+  padding: 0 24px 4px;
+  font-size: 13px;
+  color: var(--color-text-muted);
+}
+
+.org-head-section--executive {
+  margin: 0 24px 24px;
+  background: #eef5ff;
+  border-color: #c5dcff;
+}
+
+.org-head-section--executive .org-head-section__label {
+  color: #1b64da;
+}
+
 .org-head-section--team {
   margin-bottom: 12px;
   background: #f8fafc;
@@ -817,6 +837,40 @@ body {
   margin-top: 10px;
   font-size: 13px;
   color: var(--color-text-muted);
+}
+
+.reports-page {
+  max-width: 1100px;
+}
+
+.reports-filters {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.reports-filters .form-field {
+  min-width: 180px;
+}
+
+.reports-summary {
+  margin-top: 12px;
+  font-size: 13px;
+  color: var(--color-text-secondary);
+}
+
+.reports-summary__tag {
+  margin-left: 10px;
+  padding: 2px 8px;
+  background: var(--color-bg);
+  border-radius: 999px;
+  font-size: 12px;
+}
+
+.reports-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
 }
 
 .allocation-budget {

@@ -2,11 +2,16 @@ import type {
   BudgetStatus,
   Division,
   Employee,
+  ExecutiveOffice,
   Project,
   RoleConfig,
   Team,
   TrackAllocation,
 } from '@/types';
+
+export const EXECUTIVE_OFFICE: ExecutiveOffice = {
+  admins: [{ id: 'exec-1', name: '박경영', rank: '상무' }],
+};
 
 export const DIVISIONS: Division[] = [
   { id: 'div-a', name: '건축사업본부', headName: '이본부', headRank: '상무' },

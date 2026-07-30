@@ -7,6 +7,10 @@ import { useApp } from '@/context/AppContext';
 export function OrgChartForm() {
   const {
     permissions,
+    executiveOffice,
+    addExecutiveAdmin,
+    removeExecutiveAdmin,
+    updateExecutiveAdmin,
     divisions,
     teams,
     employees,
@@ -35,6 +39,9 @@ export function OrgChartForm() {
   const [teamHeadForms, setTeamHeadForms] = useState<
     Record<string, { name: string; rank: string }>
   >({});
+  const [executiveAdminForm, setExecutiveAdminForm] = useState({ name: '', rank: '' });
+  const [editingExecutiveId, setEditingExecutiveId] = useState<string | null>(null);
+  const [editingExecutiveForm, setEditingExecutiveForm] = useState({ name: '', rank: '' });
 
   const [editingDivisionId, setEditingDivisionId] = useState<string | null>(null);
   const [editingDivisionName, setEditingDivisionName] = useState('');
@@ -115,6 +122,40 @@ export function OrgChartForm() {
       return;
     }
     showMessage(`"${name}" 팀이 삭제되었습니다.`);
+  };
+
+  const handleAddExecutiveAdmin = () => {
+    const name = executiveAdminForm.name.trim();
+    const rank = executiveAdminForm.rank.trim();
+    if (!name) {
+      showError('총괄관리자 이름을 입력해 주세요.');
+      return;
+    }
+    if (!rank) {
+      showError('총괄관리자 직급을 입력해 주세요.');
+      return;
+    }
+    addExecutiveAdmin(name, rank);
+    setExecutiveAdminForm({ name: '', rank: '' });
+    showMessage(`"${name}" 총괄관리자가 추가되었습니다.`);
+  };
+
+  const handleSaveExecutiveAdmin = (id: string) => {
+    const name = editingExecutiveForm.name.trim();
+    const rank = editingExecutiveForm.rank.trim();
+    if (!name || !rank) {
+      showError('이름과 직급을 모두 입력해 주세요.');
+      return;
+    }
+    updateExecutiveAdmin(id, { name, rank });
+    setEditingExecutiveId(null);
+    showMessage('총괄관리자 정보가 수정되었습니다.');
+  };
+
+  const handleRemoveExecutiveAdmin = (id: string, name: string) => {
+    removeExecutiveAdmin(id);
+    if (editingExecutiveId === id) setEditingExecutiveId(null);
+    showMessage(`"${name}" 총괄관리자가 삭제되었습니다.`);
   };
 
   const handleSaveDivisionHead = (divisionId: string) => {
@@ -214,11 +255,93 @@ export function OrgChartForm() {
     <div className="org-page">
       <div className="page-header no-print">
         <h2>조직관리</h2>
-        <p>사업본부 · 본부장 · 팀 · 팀장 · 팀원(이름·직급)을 설정합니다. 변경 사항은 프로젝트·인력 배분에 반영됩니다.</p>
+        <p>경영관리 · 총괄관리자 · 사업본부 · 팀 · 팀원 변경은 자동 기록되며 분석 보고서에서 확인할 수 있습니다.</p>
       </div>
 
       {message && <div className="toast toast--success no-print">{message}</div>}
       {error && <div className="toast toast--error no-print">{error}</div>}
+
+      <Card title="경영관리" className="org-executive-card">
+        <p className="org-executive-card__desc">사업본부 상위 조직 · 팀/팀장 없음</p>
+        <ul className="org-member-list">
+          {executiveOffice.admins?.map((admin) => (
+            <li key={admin.id} className="org-member-item">
+              {editingExecutiveId === admin.id ? (
+                <div className="org-inline-edit org-inline-edit--member">
+                  <Input
+                    label="이름"
+                    value={editingExecutiveForm.name}
+                    onChange={(e) =>
+                      setEditingExecutiveForm((prev) => ({ ...prev, name: e.target.value }))
+                    }
+                  />
+                  <Input
+                    label="직급"
+                    value={editingExecutiveForm.rank}
+                    onChange={(e) =>
+                      setEditingExecutiveForm((prev) => ({ ...prev, rank: e.target.value }))
+                    }
+                  />
+                  <Button variant="primary" size="sm" onClick={() => handleSaveExecutiveAdmin(admin.id)}>
+                    저장
+                  </Button>
+                  <Button variant="ghost" size="sm" onClick={() => setEditingExecutiveId(null)}>
+                    취소
+                  </Button>
+                </div>
+              ) : (
+                <>
+                  <span className="org-member-name">{admin.name}</span>
+                  <span className="org-member-role">{admin.rank}</span>
+                  <div className="org-actions no-print">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => {
+                        setEditingExecutiveId(admin.id);
+                        setEditingExecutiveForm({ name: admin.name, rank: admin.rank });
+                      }}
+                    >
+                      수정
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => handleRemoveExecutiveAdmin(admin.id, admin.name)}
+                    >
+                      삭제
+                    </Button>
+                  </div>
+                </>
+              )}
+            </li>
+          ))}
+        </ul>
+        <div className="org-head-section org-head-section--executive no-print">
+          <p className="org-head-section__label">총괄관리자 추가</p>
+          <div className="org-add-member">
+            <Input
+              label="이름"
+              value={executiveAdminForm.name}
+              onChange={(e) =>
+                setExecutiveAdminForm((prev) => ({ ...prev, name: e.target.value }))
+              }
+              placeholder="예: 홍길동"
+            />
+            <Input
+              label="직급"
+              value={executiveAdminForm.rank}
+              onChange={(e) =>
+                setExecutiveAdminForm((prev) => ({ ...prev, rank: e.target.value }))
+              }
+              placeholder="예: 전무, 상무"
+            />
+            <Button variant="primary" size="sm" onClick={handleAddExecutiveAdmin}>
+              + 총괄관리자 추가
+            </Button>
+          </div>
+        </div>
+      </Card>
 
       <Card title="사업본부 추가" className="no-print">
         <div className="org-add-row">

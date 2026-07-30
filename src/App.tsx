@@ -1,4 +1,4 @@
-import { Routes, Route } from 'react-router-dom';
+import { Navigate, Route, Routes } from 'react-router-dom';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { DashboardPage } from '@/pages/DashboardPage';
@@ -21,6 +21,8 @@ export function AppRoutes() {
         <Route path="admin" element={<AdminPage />} />
         <Route path="org" element={<OrgChartPage />} />
         <Route path="allocation" element={<AllocationPage />} />
+        <Route path="reports" element={<Navigate to="/" replace />} />
+        <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
     </Routes>
   );

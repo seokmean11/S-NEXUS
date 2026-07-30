@@ -10,6 +10,7 @@ import {
 import {
   BUDGET_SCENARIOS,
   DEFAULT_BUDGET,
+  EXECUTIVE_OFFICE,
   DIVISIONS,
   EMPLOYEES,
   INITIAL_ALLOCATIONS,
@@ -23,6 +24,8 @@ import type {
   ContributionCard,
   Division,
   Employee,
+  ExecutiveAdmin,
+  ExecutiveOffice,
   Project,
   RiskScenario,
   Role,
@@ -30,30 +33,62 @@ import type {
   Team,
   TrackAllocation,
 } from '@/types';
+import type { HistoryEvent } from '@/types/history';
+import { logHistory } from '@/utils/historyLogger';
+import { loadHistoryEvents, saveHistoryEvents } from '@/utils/historyStorage';
+import {
+  loadAppState,
+  loadOrgState,
+  normalizeExecutiveOffice,
+  repairStoredData,
+  saveAppState,
+  saveOrgState,
+} from '@/utils/orgStorage';
 import {
   buildContributionCards,
   filterProjectsByRole,
   generateOrgId,
   getPermissions,
 } from '@/utils/permissions';
-import { loadOrgState, saveOrgState } from '@/utils/orgStorage';
+import { buildInitialAllocationHistory } from '@/utils/reportAnalytics';
 
 type OrgMutationResult = { ok: true } | { ok: false; reason: string };
 
 function createInitialOrgState() {
-  const saved = loadOrgState();
-  if (saved) {
-    return {
-      divisions: saved.divisions,
-      teams: saved.teams,
-      employees: saved.employees,
-    };
+  try {
+    repairStoredData();
+    const saved = loadOrgState();
+    if (saved) {
+      return {
+        executiveOffice: normalizeExecutiveOffice(saved.executiveOffice),
+        divisions: saved.divisions,
+        teams: saved.teams,
+        employees: saved.employees,
+      };
+    }
+  } catch {
+    // fall through to defaults
   }
 
   return {
+    executiveOffice: normalizeExecutiveOffice(EXECUTIVE_OFFICE),
     divisions: [...DIVISIONS],
     teams: [...TEAMS],
     employees: [...EMPLOYEES],
+  };
+}
+
+function createInitialAppState() {
+  try {
+    const saved = loadAppState();
+    if (saved) return saved;
+  } catch {
+    // fall through to defaults
+  }
+  return {
+    projects: INITIAL_PROJECTS,
+    allocations: INITIAL_ALLOCATIONS,
+    historySeeded: false,
   };
 }
 
@@ -61,6 +96,7 @@ interface AppContextValue {
   role: Role;
   roleConfig: RoleConfig;
   permissions: ReturnType<typeof getPermissions>;
+  executiveOffice: ExecutiveOffice;
   divisions: Division[];
   teams: Team[];
   employees: Employee[];
@@ -70,7 +106,11 @@ interface AppContextValue {
   budget: BudgetStatus;
   riskScenario: RiskScenario;
   contributionCards: ContributionCard[];
+  historyEvents: HistoryEvent[];
   setRole: (role: Role) => void;
+  addExecutiveAdmin: (name: string, rank: string) => void;
+  removeExecutiveAdmin: (id: string) => void;
+  updateExecutiveAdmin: (id: string, updates: { name?: string; rank?: string }) => void;
   addDivision: (name: string) => void;
   updateDivision: (
     id: string,
@@ -110,18 +150,53 @@ const AppContext = createContext<AppContextValue | null>(null);
 
 export function AppProvider({ children }: { children: ReactNode }) {
   const initialOrg = useMemo(() => createInitialOrgState(), []);
+  const initialApp = useMemo(() => createInitialAppState(), []);
+
   const [role, setRole] = useState<Role>('dev_admin');
+  const [executiveOffice, setExecutiveOffice] = useState<ExecutiveOffice>(
+    initialOrg.executiveOffice,
+  );
   const [divisions, setDivisions] = useState<Division[]>(initialOrg.divisions);
   const [teams, setTeams] = useState<Team[]>(initialOrg.teams);
   const [employees, setEmployees] = useState<Employee[]>(initialOrg.employees);
-  const [projects, setProjects] = useState<Project[]>(INITIAL_PROJECTS);
-  const [allocations, setAllocations] =
-    useState<TrackAllocation[]>(INITIAL_ALLOCATIONS);
+  const [projects, setProjects] = useState<Project[]>(initialApp.projects);
+  const [allocations, setAllocations] = useState<TrackAllocation[]>(
+    initialApp.allocations,
+  );
   const [riskScenario, setRiskScenario] = useState<RiskScenario>('normal');
+  const [historyEvents, setHistoryEvents] = useState<HistoryEvent[]>([]);
+
+  const refreshHistory = useCallback(() => {
+    setHistoryEvents(loadHistoryEvents());
+  }, []);
+
+  const recordHistory = useCallback(
+    (params: Parameters<typeof logHistory>[0]) => {
+      logHistory(params);
+      refreshHistory();
+    },
+    [refreshHistory],
+  );
 
   useEffect(() => {
-    saveOrgState({ divisions, teams, employees });
-  }, [divisions, teams, employees]);
+    if (!initialApp.historySeeded && loadHistoryEvents().length === 0) {
+      saveHistoryEvents(
+        buildInitialAllocationHistory(initialApp.allocations, initialApp.projects),
+      );
+    }
+    if (!initialApp.historySeeded) {
+      saveAppState({ ...initialApp, historySeeded: true });
+    }
+    refreshHistory();
+  }, [initialApp, refreshHistory]);
+
+  useEffect(() => {
+    saveOrgState({ executiveOffice, divisions, teams, employees });
+  }, [executiveOffice, divisions, teams, employees]);
+
+  useEffect(() => {
+    saveAppState({ projects, allocations, historySeeded: true });
+  }, [projects, allocations]);
 
   const roleConfig = useMemo(
     () => ROLE_CONFIGS.find((r) => r.id === role)!,
@@ -152,6 +227,80 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }));
   }, [role, visibleProjects, allocations, roleConfig]);
 
+  const syncDivisionNames = useCallback((divisionId: string, name: string) => {
+    setEmployees((prev) =>
+      prev.map((e) => (e.divisionId === divisionId ? { ...e, divisionName: name } : e)),
+    );
+    setProjects((prev) =>
+      prev.map((p) => (p.divisionId === divisionId ? { ...p, divisionName: name } : p)),
+    );
+  }, []);
+
+  const addExecutiveAdmin = useCallback(
+    (name: string, rank: string) => {
+      const admin: ExecutiveAdmin = {
+        id: generateOrgId('exec'),
+        name,
+        rank,
+      };
+      setExecutiveOffice((prev) => ({ admins: [...(prev.admins ?? []), admin] }));
+      recordHistory({
+        category: 'executive',
+        action: 'created',
+        entityType: 'executive_admin',
+        entityId: admin.id,
+        entityName: name,
+        summary: `총괄관리자 등록: ${name} (${rank})`,
+        after: { name, rank },
+      });
+    },
+    [recordHistory],
+  );
+
+  const removeExecutiveAdmin = useCallback(
+    (id: string) => {
+      const target = executiveOffice.admins?.find((a) => a.id === id);
+      setExecutiveOffice((prev) => ({
+        admins: (prev.admins ?? []).filter((a) => a.id !== id),
+      }));
+      if (target) {
+        recordHistory({
+          category: 'executive',
+          action: 'deleted',
+          entityType: 'executive_admin',
+          entityId: id,
+          entityName: target.name,
+          summary: `총괄관리자 삭제: ${target.name}`,
+          before: { name: target.name, rank: target.rank },
+        });
+      }
+    },
+    [executiveOffice.admins, recordHistory],
+  );
+
+  const updateExecutiveAdmin = useCallback(
+    (id: string, updates: { name?: string; rank?: string }) => {
+      const before = executiveOffice.admins?.find((a) => a.id === id);
+      setExecutiveOffice((prev) => ({
+        admins: (prev.admins ?? []).map((a) => (a.id === id ? { ...a, ...updates } : a)),
+      }));
+      const after = before ? { ...before, ...updates } : undefined;
+      if (before && after) {
+        recordHistory({
+          category: 'executive',
+          action: 'updated',
+          entityType: 'executive_admin',
+          entityId: id,
+          entityName: after.name,
+          summary: `총괄관리자 수정: ${before.name} → ${after.name}`,
+          before: { name: before.name, rank: before.rank },
+          after: { name: after.name, rank: after.rank },
+        });
+      }
+    },
+    [executiveOffice.admins, recordHistory],
+  );
+
   const createProject = useCallback(
     (project: Omit<Project, 'id' | 'createdAt' | 'updatedAt'>) => {
       const now = new Date().toISOString().slice(0, 10);
@@ -162,37 +311,75 @@ export function AppProvider({ children }: { children: ReactNode }) {
         updatedAt: now,
       };
       setProjects((prev) => [...prev, newProject]);
+      recordHistory({
+        category: 'project',
+        action: 'created',
+        entityType: 'project',
+        entityId: newProject.id,
+        entityName: newProject.name,
+        summary: `프로젝트 등록: ${newProject.name}`,
+        after: { status: newProject.status, teamName: newProject.teamName },
+      });
     },
-    [],
+    [recordHistory],
   );
 
-  const syncDivisionNames = useCallback((divisionId: string, name: string) => {
-    setEmployees((prev) =>
-      prev.map((e) => (e.divisionId === divisionId ? { ...e, divisionName: name } : e)),
-    );
-    setProjects((prev) =>
-      prev.map((p) => (p.divisionId === divisionId ? { ...p, divisionName: name } : p)),
-    );
-  }, []);
-
-  const addDivision = useCallback((name: string) => {
-    setDivisions((prev) => [...prev, { id: generateOrgId('div'), name }]);
-  }, []);
+  const addDivision = useCallback(
+    (name: string) => {
+      const division = { id: generateOrgId('div'), name };
+      setDivisions((prev) => [...prev, division]);
+      recordHistory({
+        category: 'organization',
+        action: 'created',
+        entityType: 'division',
+        entityId: division.id,
+        entityName: name,
+        summary: `사업본부 추가: ${name}`,
+      });
+    },
+    [recordHistory],
+  );
 
   const updateDivision = useCallback(
     (id: string, updates: { name?: string; headName?: string; headRank?: string }) => {
+      const before = divisions.find((d) => d.id === id);
       setDivisions((prev) =>
         prev.map((d) => (d.id === id ? { ...d, ...updates } : d)),
       );
-      if (updates.name) {
-        syncDivisionNames(id, updates.name);
+      if (updates.name) syncDivisionNames(id, updates.name);
+
+      if (before) {
+        if (updates.name && updates.name !== before.name) {
+          recordHistory({
+            category: 'organization',
+            action: 'updated',
+            entityType: 'division',
+            entityId: id,
+            entityName: updates.name,
+            summary: `사업본부명 변경: ${before.name} → ${updates.name}`,
+            before: { name: before.name },
+            after: { name: updates.name },
+          });
+        }
+        if (updates.headName) {
+          recordHistory({
+            category: 'organization',
+            action: 'updated',
+            entityType: 'division_head',
+            entityId: id,
+            entityName: updates.headName,
+            summary: `본부장 등록/수정: ${updates.headName} (${updates.headRank ?? ''})`,
+            after: { headName: updates.headName, headRank: updates.headRank },
+          });
+        }
       }
     },
-    [syncDivisionNames],
+    [divisions, syncDivisionNames, recordHistory],
   );
 
   const removeDivision = useCallback(
     (id: string): OrgMutationResult => {
+      const target = divisions.find((d) => d.id === id);
       const hasTeams = teams.some((t) => t.divisionId === id);
       if (hasTeams) {
         return { ok: false, reason: '하위 팀이 있는 사업본부는 삭제할 수 없습니다.' };
@@ -202,14 +389,37 @@ export function AppProvider({ children }: { children: ReactNode }) {
         return { ok: false, reason: '연결된 프로젝트가 있는 사업본부는 삭제할 수 없습니다.' };
       }
       setDivisions((prev) => prev.filter((d) => d.id !== id));
+      if (target) {
+        recordHistory({
+          category: 'organization',
+          action: 'deleted',
+          entityType: 'division',
+          entityId: id,
+          entityName: target.name,
+          summary: `사업본부 삭제: ${target.name}`,
+        });
+      }
       return { ok: true };
     },
-    [teams, projects],
+    [teams, projects, divisions, recordHistory],
   );
 
-  const addTeam = useCallback((divisionId: string, name: string) => {
-    setTeams((prev) => [...prev, { id: generateOrgId('team'), name, divisionId }]);
-  }, []);
+  const addTeam = useCallback(
+    (divisionId: string, name: string) => {
+      const team = { id: generateOrgId('team'), name, divisionId };
+      setTeams((prev) => [...prev, team]);
+      recordHistory({
+        category: 'organization',
+        action: 'created',
+        entityType: 'team',
+        entityId: team.id,
+        entityName: name,
+        summary: `팀 추가: ${name}`,
+        metadata: { divisionId },
+      });
+    },
+    [recordHistory],
+  );
 
   const updateTeam = useCallback(
     (
@@ -221,6 +431,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         headRank?: string;
       },
     ) => {
+      const before = teams.find((t) => t.id === id);
       setTeams((prev) => {
         const current = prev.find((t) => t.id === id);
         if (!current) return prev;
@@ -247,12 +458,37 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
         return prev.map((t) => (t.id === id ? updated : t));
       });
+
+      if (before) {
+        if (updates.name && updates.name !== before.name) {
+          recordHistory({
+            category: 'organization',
+            action: 'updated',
+            entityType: 'team',
+            entityId: id,
+            entityName: updates.name,
+            summary: `팀명 변경: ${before.name} → ${updates.name}`,
+          });
+        }
+        if (updates.headName) {
+          recordHistory({
+            category: 'organization',
+            action: 'updated',
+            entityType: 'team_head',
+            entityId: id,
+            entityName: updates.headName,
+            summary: `팀장 등록/수정: ${updates.headName} (${updates.headRank ?? ''})`,
+            after: { headName: updates.headName, headRank: updates.headRank },
+          });
+        }
+      }
     },
-    [divisions],
+    [teams, divisions, recordHistory],
   );
 
   const removeTeam = useCallback(
     (id: string): OrgMutationResult => {
+      const target = teams.find((t) => t.id === id);
       const hasMembers = employees.some((e) => e.teamId === id);
       if (hasMembers) {
         return { ok: false, reason: '구성원이 있는 팀은 삭제할 수 없습니다.' };
@@ -262,45 +498,64 @@ export function AppProvider({ children }: { children: ReactNode }) {
         return { ok: false, reason: '연결된 프로젝트가 있는 팀은 삭제할 수 없습니다.' };
       }
       setTeams((prev) => prev.filter((t) => t.id !== id));
+      if (target) {
+        recordHistory({
+          category: 'organization',
+          action: 'deleted',
+          entityType: 'team',
+          entityId: id,
+          entityName: target.name,
+          summary: `팀 삭제: ${target.name}`,
+        });
+      }
       return { ok: true };
     },
-    [employees, projects],
+    [employees, projects, teams, recordHistory],
   );
 
   const addEmployee = useCallback(
-    (teamId: string, name: string, role: string) => {
+    (teamId: string, name: string, roleTitle: string) => {
       const team = teams.find((t) => t.id === teamId);
       if (!team) return;
       const division = divisions.find((d) => d.id === team.divisionId);
       const employee: Employee = {
         id: generateOrgId('emp'),
         name,
-        role,
+        role: roleTitle,
         teamId,
         teamName: team.name,
         divisionId: team.divisionId,
         divisionName: division?.name ?? '',
       };
       setEmployees((prev) => [...prev, employee]);
+      recordHistory({
+        category: 'organization',
+        action: 'created',
+        entityType: 'employee',
+        entityId: employee.id,
+        entityName: name,
+        summary: `팀원 등록: ${name} (${roleTitle}) · ${team.name}`,
+        after: { role: roleTitle, teamName: team.name, divisionName: division?.name },
+        metadata: { teamId, divisionId: team.divisionId },
+      });
     },
-    [teams, divisions],
+    [teams, divisions, recordHistory],
   );
 
   const updateEmployee = useCallback(
     (id: string, updates: Partial<Pick<Employee, 'name' | 'role' | 'teamId'>>) => {
+      const before = employees.find((e) => e.id === id);
       setEmployees((prev) =>
         prev.map((e) => {
           if (e.id !== id) return e;
           const nextTeamId = updates.teamId ?? e.teamId;
           const team = teams.find((t) => t.id === nextTeamId);
           const division = team ? divisions.find((d) => d.id === team.divisionId) : undefined;
-          const nextName = updates.name ?? e.name;
-          const nextRole = updates.role ?? e.role;
           return {
             ...e,
             ...updates,
-            name: nextName,
-            role: nextRole,
+            name: updates.name ?? e.name,
+            role: updates.role ?? e.role,
             teamId: nextTeamId,
             teamName: team?.name ?? e.teamName,
             divisionId: team?.divisionId ?? e.divisionId,
@@ -324,24 +579,33 @@ export function AppProvider({ children }: { children: ReactNode }) {
           })),
         );
       }
+      if (before) {
+        recordHistory({
+          category: 'organization',
+          action: 'updated',
+          entityType: 'employee',
+          entityId: id,
+          entityName: updates.name ?? before.name,
+          summary: `팀원 수정: ${before.name} → ${updates.name ?? before.name}`,
+          before: { name: before.name, role: before.role },
+          after: { name: updates.name ?? before.name, role: updates.role ?? before.role },
+        });
+      }
     },
-    [teams, divisions],
+    [employees, teams, divisions, recordHistory],
   );
 
   const removeEmployee = useCallback(
     (id: string): OrgMutationResult => {
+      const target = employees.find((e) => e.id === id);
+
       setProjects((prev) =>
         prev.map((project) => {
           if (project.pmId !== id && !project.participantIds.includes(id)) {
             return project;
           }
-
-          const participantIds = project.participantIds.filter(
-            (participantId) => participantId !== id,
-          );
-          const pmId =
-            project.pmId === id ? (participantIds[0] ?? '') : project.pmId;
-
+          const participantIds = project.participantIds.filter((p) => p !== id);
+          const pmId = project.pmId === id ? (participantIds[0] ?? '') : project.pmId;
           return { ...project, pmId, participantIds };
         }),
       );
@@ -351,31 +615,63 @@ export function AppProvider({ children }: { children: ReactNode }) {
           ...allocation,
           bid: allocation.bid.filter((entry) => entry.employeeId !== id),
           design: allocation.design.filter((entry) => entry.employeeId !== id),
-          production: allocation.production.filter(
-            (entry) => entry.employeeId !== id,
-          ),
+          production: allocation.production.filter((entry) => entry.employeeId !== id),
         })),
       );
 
       setEmployees((prev) => prev.filter((e) => e.id !== id));
+
+      if (target) {
+        recordHistory({
+          category: 'organization',
+          action: 'deleted',
+          entityType: 'employee',
+          entityId: id,
+          entityName: target.name,
+          summary: `팀원 삭제: ${target.name} · ${target.teamName}`,
+          before: { name: target.name, role: target.role },
+        });
+      }
       return { ok: true };
     },
-    [],
+    [employees, recordHistory],
   );
 
-  const updateProject = useCallback((id: string, updates: Partial<Project>) => {
-    setProjects((prev) =>
-      prev.map((p) =>
-        p.id === id
-          ? { ...p, ...updates, updatedAt: new Date().toISOString().slice(0, 10) }
-          : p,
-      ),
-    );
-  }, []);
+  const updateProject = useCallback(
+    (id: string, updates: Partial<Project>) => {
+      const before = projects.find((p) => p.id === id);
+      setProjects((prev) =>
+        prev.map((p) =>
+          p.id === id
+            ? { ...p, ...updates, updatedAt: new Date().toISOString().slice(0, 10) }
+            : p,
+        ),
+      );
+      if (before) {
+        recordHistory({
+          category: 'project',
+          action: 'updated',
+          entityType: 'project',
+          entityId: id,
+          entityName: before.name,
+          summary: `프로젝트 수정: ${before.name}`,
+          before: { status: before.status, contractAmount: before.contractAmount },
+          after: { status: updates.status ?? before.status, contractAmount: updates.contractAmount },
+        });
+      }
+    },
+    [projects, recordHistory],
+  );
 
   const syncPPM = useCallback(async () => {
     await new Promise((resolve) => setTimeout(resolve, 800));
-  }, []);
+    recordHistory({
+      category: 'project',
+      action: 'saved',
+      entityType: 'ppm_sync',
+      summary: 'PPM(DB) 동기화 실행',
+    });
+  }, [recordHistory]);
 
   const saveAllocation = useCallback(
     (
@@ -383,15 +679,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
       track: 'bid' | 'design' | 'production',
       entries: AllocationEntry[],
     ) => {
+      const project = projects.find((p) => p.id === projectId);
       setAllocations((prev) => {
         const existing = prev.find((a) => a.projectId === projectId);
         const now = new Date().toISOString();
 
         if (existing) {
           return prev.map((a) =>
-            a.projectId === projectId
-              ? { ...a, [track]: entries, updatedAt: now }
-              : a,
+            a.projectId === projectId ? { ...a, [track]: entries, updatedAt: now } : a,
           );
         }
 
@@ -406,8 +701,35 @@ export function AppProvider({ children }: { children: ReactNode }) {
           },
         ];
       });
+
+      if (project) {
+        for (const entry of entries) {
+          recordHistory({
+            category: 'allocation',
+            action: 'saved',
+            entityType: 'allocation_entry',
+            entityId: entry.employeeId,
+            entityName: entry.employeeName,
+            summary: `인력 배분: ${project.name} · ${track} · ${entry.employeeName} ${entry.ratio}%`,
+            after: {
+              employeeId: entry.employeeId,
+              employeeName: entry.employeeName,
+              ratio: entry.ratio,
+              track,
+              projectId,
+              projectName: project.name,
+            },
+            metadata: {
+              divisionId: project.divisionId,
+              divisionName: project.divisionName,
+              teamId: project.teamId,
+              teamName: project.teamName,
+            },
+          });
+        }
+      }
     },
-    [],
+    [projects, recordHistory],
   );
 
   const getAllocationForProject = useCallback(
@@ -419,6 +741,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     role,
     roleConfig,
     permissions,
+    executiveOffice,
     divisions,
     teams,
     employees,
@@ -428,7 +751,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
     budget,
     riskScenario,
     contributionCards,
+    historyEvents,
     setRole,
+    addExecutiveAdmin,
+    removeExecutiveAdmin,
+    updateExecutiveAdmin,
     addDivision,
     updateDivision,
     removeDivision,

@@ -1,4 +1,5 @@
-import { NavLink, Outlet } from 'react-router-dom';
+import { useEffect } from 'react';
+import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { RoleSwitcher } from '@/components/layout/RoleSwitcher';
 import { Button } from '@/components/ui/Button';
 import { useApp } from '@/context/AppContext';
@@ -12,7 +13,23 @@ const NAV_ITEMS = [
 ];
 
 export function AppLayout() {
-  const { permissions, roleConfig, divisions, teams } = useApp();
+  const { permissions, roleConfig, divisions, teams, role } = useApp();
+  const location = useLocation();
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    const path = location.pathname;
+    const adminRoute = path === '/admin' || path === '/org';
+    const allocationRoute = path === '/allocation';
+
+    if (adminRoute && !permissions.canCreateProject) {
+      navigate('/', { replace: true });
+      return;
+    }
+    if (allocationRoute && !permissions.canAccessAllocationForm) {
+      navigate('/', { replace: true });
+    }
+  }, [role, location.pathname, permissions.canCreateProject, permissions.canAccessAllocationForm, navigate]);
 
   const visibleNav = NAV_ITEMS.filter((item) => {
     if (item.adminOnly) return permissions.canCreateProject;

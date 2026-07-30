@@ -131,6 +131,6 @@ export function generateProjectId(): string {
   return `pjt-${Date.now().toString(36)}`;
 }
 
-export function generateOrgId(prefix: 'div' | 'team' | 'emp'): string {
+export function generateOrgId(prefix: 'div' | 'team' | 'emp' | 'exec'): string {
   return `${prefix}-${Date.now().toString(36)}`;
 }

@@ -34,6 +34,16 @@ export interface Project {
   updatedAt: string;
 }
 
+export interface ExecutiveAdmin {
+  id: string;
+  name: string;
+  rank: string;
+}
+
+export interface ExecutiveOffice {
+  admins: ExecutiveAdmin[];
+}
+
 export interface Division {
   id: string;
   name: string;
