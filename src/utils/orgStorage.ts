@@ -1,4 +1,5 @@
 import type { Division, Employee, ExecutiveOffice, Project, ProjectTeamAllocation, Team, TrackAllocation } from '@/types';
+import type { ContractAmendment } from '@/types/contractChange';
 import type { LegacyExecutiveOffice } from '@/types/history';
 
 const ORG_KEY = 'performance-dashboard-org';
@@ -15,6 +16,7 @@ export interface StoredAppState {
   projects: Project[];
   allocations: TrackAllocation[];
   projectTeamAllocations?: ProjectTeamAllocation[];
+  contractAmendments?: ContractAmendment[];
   historySeeded?: boolean;
 }
 

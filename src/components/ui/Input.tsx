@@ -52,3 +52,29 @@ export function Select({ label, options, error, id, className = '', ...props }: 
     </div>
   );
 }
+
+interface ReadonlyFieldProps {
+  label: string;
+  value: string;
+  placeholder?: string;
+}
+
+export function ReadonlyField({
+  label,
+  value,
+  placeholder = '코드 입력 후 자동 설정',
+}: ReadonlyFieldProps) {
+  const display = value || placeholder;
+  const isEmpty = !value;
+
+  return (
+    <div className="form-field">
+      <span className="form-field__label">{label}</span>
+      <div
+        className={`form-field__readonly-display ${isEmpty ? 'form-field__readonly-display--empty' : ''}`}
+      >
+        {display}
+      </div>
+    </div>
+  );
+}

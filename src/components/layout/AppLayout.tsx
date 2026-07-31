@@ -8,6 +8,7 @@ import type { PermissionFlags, RoleConfig } from '@/types';
 
 const NAV_ITEMS = [
   { path: '/', label: '대시보드', icon: '📊' },
+  { path: '/analysis', label: '분석', icon: '🤖' },
   { path: '/admin', label: '프로젝트 관리', icon: '⚙️', adminOnly: true },
   { path: '/org', label: '조직관리', icon: '🏢', adminOnly: true },
   { path: '/allocation', label: 'PM 인력 배분', icon: '👥', managerOnly: true },

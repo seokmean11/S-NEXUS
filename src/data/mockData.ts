@@ -101,6 +101,7 @@ export const INITIAL_PROJECTS: Project[] = [
     id: 'pjt-001',
     name: '서울역 복합개발 설계',
     projectCode: '2025-4001-21',
+    clientName: '서울역개발(주)',
     divisionId: 'div-in',
     divisionName: '인테리어사업본부',
     teamId: 'team-in1',

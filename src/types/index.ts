@@ -31,11 +31,15 @@ export type InteriorProjectType =
 
 export type ProjectType = GeneralProjectType | InteriorProjectType;
 
+import type { ContractSnapshot } from '@/types/contractChange';
+
 export interface Project {
   id: string;
   name: string;
   /** 외부 집행원가 연동용 코드 (0000-0000-00) */
   projectCode?: string;
+  /** 발주처 */
+  clientName?: string;
   /** 사업본부별 세부 유형 (분석용) */
   projectType?: ProjectType;
   divisionId: string;
@@ -46,6 +50,8 @@ export interface Project {
   contractAmount?: number;
   startDate: string;
   endDate?: string;
+  /** 최초 등록 시점 계약 정보 (변경 불가) */
+  initialContract?: ContractSnapshot;
   pmId: string;
   participantIds: string[];
   createdAt: string;

@@ -37,6 +37,18 @@ import type {
   TrackAllocation,
 } from '@/types';
 import type { HistoryEvent } from '@/types/history';
+import type {
+  AmendmentSequence,
+  ContractAmendment,
+  ContractSnapshot,
+} from '@/types/contractChange';
+import {
+  canRegisterAmendmentSequence,
+  getAmendmentsForProject,
+  getEffectiveContract,
+  getProjectBaseline,
+  snapshotFromProject,
+} from '@/utils/contractChange';
 import { logHistory } from '@/utils/historyLogger';
 import { loadHistoryEvents, saveHistoryEvents } from '@/utils/historyStorage';
 import {
@@ -98,6 +110,7 @@ function createInitialAppState() {
         projectTeamAllocations:
           saved.projectTeamAllocations ??
           buildInitialProjectTeamAllocations(saved.projects),
+        contractAmendments: saved.contractAmendments ?? [],
       };
     }
   } catch {
@@ -107,6 +120,7 @@ function createInitialAppState() {
     projects: INITIAL_PROJECTS,
     allocations: INITIAL_ALLOCATIONS,
     projectTeamAllocations: buildInitialProjectTeamAllocations(INITIAL_PROJECTS),
+    contractAmendments: [],
     historySeeded: false,
   };
 }
@@ -123,6 +137,7 @@ interface AppContextValue {
   visibleProjects: Project[];
   allocations: TrackAllocation[];
   projectTeamAllocations: ProjectTeamAllocation[];
+  contractAmendments: ContractAmendment[];
   budget: BudgetStatus;
   riskScenario: RiskScenario;
   contributionCards: ContributionCard[];
@@ -156,6 +171,25 @@ interface AppContextValue {
   removeEmployee: (id: string) => OrgMutationResult;
   createProject: (project: Omit<Project, 'id' | 'createdAt' | 'updatedAt'>) => void;
   updateProject: (id: string, updates: Partial<Project>) => void;
+  saveContractAmendment: (
+    projectId: string,
+    params: {
+      sequence: AmendmentSequence;
+      contractAmount?: number;
+      startDate: string;
+      endDate?: string;
+      generalUpdates?: Partial<Project>;
+    },
+  ) => { ok: true } | { ok: false; reason: string };
+  saveInitialContract: (
+    projectId: string,
+    params: {
+      contractAmount?: number;
+      startDate: string;
+      endDate?: string;
+    },
+    generalUpdates?: Partial<Project>,
+  ) => void;
   syncPPM: () => Promise<void>;
   saveAllocation: (
     projectId: string,
@@ -188,6 +222,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [projectTeamAllocations, setProjectTeamAllocations] = useState<
     ProjectTeamAllocation[]
   >(initialApp.projectTeamAllocations);
+  const [contractAmendments, setContractAmendments] = useState<ContractAmendment[]>(
+    initialApp.contractAmendments ?? [],
+  );
   const [riskScenario, setRiskScenario] = useState<RiskScenario>('normal');
   const [historyEvents, setHistoryEvents] = useState<HistoryEvent[]>([]);
 
@@ -216,12 +253,28 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [initialApp, refreshHistory]);
 
   useEffect(() => {
+    setProjects((prev) => {
+      const needsBaseline = prev.some((p) => !p.initialContract);
+      if (!needsBaseline) return prev;
+      return prev.map((p) =>
+        p.initialContract ? p : { ...p, initialContract: snapshotFromProject(p) },
+      );
+    });
+  }, []);
+
+  useEffect(() => {
     saveOrgState({ executiveOffice, divisions, teams, employees });
   }, [executiveOffice, divisions, teams, employees]);
 
   useEffect(() => {
-    saveAppState({ projects, allocations, projectTeamAllocations, historySeeded: true });
-  }, [projects, allocations, projectTeamAllocations]);
+    saveAppState({
+      projects,
+      allocations,
+      projectTeamAllocations,
+      contractAmendments,
+      historySeeded: true,
+    });
+  }, [projects, allocations, projectTeamAllocations, contractAmendments]);
 
   useEffect(() => {
     setProjects((prev) => syncProjectsWithOrg(prev, divisions, teams));
@@ -355,12 +408,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
         '';
       const participantIds = collectTeamParticipantIds(project.teamId, pmId, employees);
 
+      const initialContract: ContractSnapshot = snapshotFromProject(project);
+
       const newProject: Project = {
         ...project,
         divisionName,
         teamName,
         pmId,
         participantIds,
+        initialContract,
         id: `pjt-${Date.now().toString(36)}`,
         createdAt: now,
         updatedAt: now,
@@ -710,50 +766,73 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [employees, recordHistory],
   );
 
+  const applyProjectUpdate = useCallback(
+    (id: string, updates: Partial<Project>): { before: Project; merged: Project } | null => {
+      let result: { before: Project; merged: Project } | null = null;
+
+      setProjects((prev) => {
+        const before = prev.find((p) => p.id === id);
+        if (!before) return prev;
+
+        const divisionId = updates.divisionId ?? before.divisionId;
+        const teamId = updates.teamId ?? before.teamId;
+        const { divisionName, teamName } = resolveProjectOrgNames(
+          divisionId,
+          teamId,
+          divisions,
+          teams,
+        );
+        const teamChanged = teamId !== before.teamId;
+        const pmId = updates.pmId ?? before.pmId;
+        const participantIds = teamChanged
+          ? collectTeamParticipantIds(teamId, pmId, employees)
+          : (updates.participantIds ?? before.participantIds);
+
+        const merged: Project = {
+          ...before,
+          ...updates,
+          divisionId,
+          teamId,
+          divisionName,
+          teamName,
+          pmId,
+          participantIds,
+          updatedAt: new Date().toISOString().slice(0, 10),
+        };
+
+        result = { before, merged };
+
+        if (teamChanged) {
+          setProjectTeamAllocations((pta) =>
+            syncProjectTeamAllocationEntry(
+              pta,
+              id,
+              teamId,
+              teamName,
+              new Date().toISOString(),
+            ),
+          );
+        }
+
+        return prev.map((p) => (p.id === id ? merged : p));
+      });
+
+      return result;
+    },
+    [divisions, teams, employees],
+  );
+
   const updateProject = useCallback(
     (id: string, updates: Partial<Project>) => {
-      const before = projects.find((p) => p.id === id);
-      if (!before) return;
+      const applied = applyProjectUpdate(id, updates);
+      if (!applied) return;
 
-      const divisionId = updates.divisionId ?? before.divisionId;
-      const teamId = updates.teamId ?? before.teamId;
-      const { divisionName, teamName } = resolveProjectOrgNames(
-        divisionId,
-        teamId,
-        divisions,
-        teams,
-      );
-      const teamChanged = teamId !== before.teamId;
-      const pmId = updates.pmId ?? before.pmId;
-      const participantIds = teamChanged
-        ? collectTeamParticipantIds(teamId, pmId, employees)
-        : (updates.participantIds ?? before.participantIds);
+      const { before, merged } = applied;
 
-      const merged: Project = {
-        ...before,
-        ...updates,
-        divisionId,
-        teamId,
-        divisionName,
-        teamName,
-        pmId,
-        participantIds,
-        updatedAt: new Date().toISOString().slice(0, 10),
-      };
-
-      setProjects((prev) => prev.map((p) => (p.id === id ? merged : p)));
-
-      if (teamChanged) {
-        setProjectTeamAllocations((prev) =>
-          syncProjectTeamAllocationEntry(
-            prev,
-            id,
-            teamId,
-            teamName,
-            new Date().toISOString(),
-          ),
-        );
-      }
+      const contractChanged =
+        before.contractAmount !== merged.contractAmount ||
+        before.startDate !== merged.startDate ||
+        before.endDate !== merged.endDate;
 
       recordHistory({
         category: 'project',
@@ -761,12 +840,176 @@ export function AppProvider({ children }: { children: ReactNode }) {
         entityType: 'project',
         entityId: id,
         entityName: before.name,
-        summary: `프로젝트 수정: ${before.name}`,
-        before: { status: before.status, contractAmount: before.contractAmount },
-        after: { status: merged.status, contractAmount: merged.contractAmount },
+        summary: contractChanged
+          ? `계약 정보 오류 수정: ${before.name}`
+          : `프로젝트 수정: ${before.name}`,
+        before: {
+          status: before.status,
+          contractAmount: before.contractAmount,
+          startDate: before.startDate,
+          endDate: before.endDate,
+        },
+        after: {
+          status: merged.status,
+          contractAmount: merged.contractAmount,
+          startDate: merged.startDate,
+          endDate: merged.endDate,
+        },
+        metadata: {
+          changeKind: contractChanged ? 'correction' : 'general',
+          excludedFromAnalysis: contractChanged ? true : undefined,
+        },
       });
     },
-    [projects, divisions, teams, employees, recordHistory],
+    [applyProjectUpdate, recordHistory],
+  );
+
+  const saveContractAmendment = useCallback(
+    (
+      projectId: string,
+      params: {
+        sequence: AmendmentSequence;
+        contractAmount?: number;
+        startDate: string;
+        endDate?: string;
+        generalUpdates?: Partial<Project>;
+      },
+    ): { ok: true } | { ok: false; reason: string } => {
+      const existing = getAmendmentsForProject(contractAmendments, projectId);
+      if (!canRegisterAmendmentSequence(existing, params.sequence)) {
+        return { ok: false, reason: '등록할 수 없는 변경 차수입니다.' };
+      }
+
+      const now = new Date().toISOString();
+      const amendment: ContractAmendment = {
+        id: `cam-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
+        projectId,
+        sequence: params.sequence,
+        contractAmount: params.contractAmount,
+        startDate: params.startDate,
+        endDate: params.endDate,
+        registeredBy: roleConfig.userId,
+        registeredByName: roleConfig.userName,
+        registeredAt: now,
+      };
+
+      const nextAmendments = [
+        ...existing.filter((a) => a.sequence !== params.sequence),
+        amendment,
+      ].sort((a, b) => a.sequence - b.sequence);
+
+      setContractAmendments((prev) => [
+        ...prev.filter((a) => a.projectId !== projectId),
+        ...nextAmendments,
+      ]);
+
+      let baselineSnapshot: ContractSnapshot | null = null;
+      let projectName = '';
+
+      setProjects((prev) => {
+        const project = prev.find((p) => p.id === projectId);
+        if (project) {
+          projectName = project.name;
+          baselineSnapshot = getProjectBaseline(project);
+        }
+        return prev;
+      });
+
+      if (!baselineSnapshot || !projectName) {
+        return { ok: false, reason: '프로젝트를 찾을 수 없습니다.' };
+      }
+
+      const effective = getEffectiveContract(baselineSnapshot, nextAmendments);
+      applyProjectUpdate(projectId, {
+        ...params.generalUpdates,
+        contractAmount: effective.contractAmount,
+        startDate: effective.startDate,
+        endDate: effective.endDate,
+      });
+
+      recordHistory({
+        category: 'project',
+        action: 'updated',
+        entityType: 'contract_amendment',
+        entityId: amendment.id,
+        entityName: projectName,
+        summary: `변경 ${params.sequence}차: ${projectName}`,
+        after: {
+          sequence: params.sequence,
+          contractAmount: params.contractAmount,
+          startDate: params.startDate,
+          endDate: params.endDate,
+        },
+        metadata: {
+          changeKind: 'amendment',
+          amendmentSequence: params.sequence,
+          projectId,
+        },
+      });
+
+      return { ok: true };
+    },
+    [contractAmendments, roleConfig.userId, roleConfig.userName, applyProjectUpdate, recordHistory],
+  );
+
+  const saveInitialContract = useCallback(
+    (
+      projectId: string,
+      params: {
+        contractAmount?: number;
+        startDate: string;
+        endDate?: string;
+      },
+      generalUpdates?: Partial<Project>,
+    ) => {
+      let projectName = '';
+      let hasProject = false;
+
+      setProjects((prev) => {
+        const project = prev.find((p) => p.id === projectId);
+        if (project) {
+          hasProject = true;
+          projectName = project.name;
+        }
+        return prev;
+      });
+
+      if (!hasProject) return;
+
+      const initialContract: ContractSnapshot = {
+        contractAmount: params.contractAmount,
+        startDate: params.startDate,
+        endDate: params.endDate,
+      };
+
+      const amendments = getAmendmentsForProject(contractAmendments, projectId);
+      const contractUpdates =
+        amendments.length === 0
+          ? {
+              contractAmount: params.contractAmount,
+              startDate: params.startDate,
+              endDate: params.endDate,
+            }
+          : {};
+
+      applyProjectUpdate(projectId, {
+        ...generalUpdates,
+        ...contractUpdates,
+        initialContract,
+      });
+
+      recordHistory({
+        category: 'project',
+        action: 'updated',
+        entityType: 'initial_contract',
+        entityId: projectId,
+        entityName: projectName,
+        summary: `최초 계약 수정: ${projectName}`,
+        after: { ...initialContract },
+        metadata: { changeKind: 'initial_contract', projectId },
+      });
+    },
+    [contractAmendments, applyProjectUpdate, recordHistory],
   );
 
   const syncPPM = useCallback(async () => {
@@ -924,6 +1167,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     visibleProjects,
     allocations,
     projectTeamAllocations,
+    contractAmendments,
     budget,
     riskScenario,
     contributionCards,
@@ -943,6 +1187,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     removeEmployee,
     createProject,
     updateProject,
+    saveContractAmendment,
+    saveInitialContract,
     syncPPM,
     saveAllocation,
     saveProjectTeamAllocation,

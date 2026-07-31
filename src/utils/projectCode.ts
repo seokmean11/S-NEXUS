@@ -142,7 +142,7 @@ export function parseProjectCode(code?: string): ParsedProjectCode | null {
 
   if (!['1', '2', '3', '4'].includes(businessCategory)) return null;
   if (!['1', '2', '3'].includes(phase)) return null;
-  if (Number.isNaN(year) || middleSeq < 1 || phaseSeq < 1) return null;
+  if (Number.isNaN(year) || middleSeq < 1 || Number.isNaN(phaseSeq)) return null;
 
   return {
     year,
@@ -293,6 +293,213 @@ export function deriveProjectFieldsFromCode(
     divisionName: division?.name ?? getIntendedDivisionName(parsed.businessCategory),
     status: getStatusFromPhase(parsed.phase),
   };
+}
+
+/** 부분 입력 중에도 사업본부·상태를 실시간 표시 */
+export function deriveProjectFieldsFromPartialCode(
+  code: string,
+  divisions: Division[],
+): {
+  division: Division | null;
+  divisionName: string;
+  status: ProjectStatus | null;
+  statusLabel: string;
+} {
+  const complete = deriveProjectFieldsFromCode(code, divisions);
+  if (complete) {
+    return {
+      division: complete.division,
+      divisionName: complete.divisionName,
+      status: complete.status,
+      statusLabel: complete.status,
+    };
+  }
+
+  const { middle, last } = splitProjectCodeSegments(code);
+  let division: Division | null = null;
+  let divisionName = '';
+  let status: ProjectStatus | null = null;
+  let statusLabel = '';
+
+  if (middle.length >= 1) {
+    const category = middle[0] as BusinessCategoryDigit;
+    if (['1', '2', '3', '4'].includes(category)) {
+      division = resolveDivisionForCategory(category, divisions);
+      divisionName = division?.name ?? getIntendedDivisionName(category);
+    }
+  }
+
+  if (last.length >= 1) {
+    const phase = last[0] as PhaseDigit;
+    if (['1', '2', '3'].includes(phase)) {
+      status = getStatusFromPhase(phase);
+      statusLabel = status;
+    }
+  }
+
+  return { division, divisionName, status, statusLabel };
+}
+
+export function splitProjectCodeSegments(code: string): {
+  year: string;
+  middle: string;
+  last: string;
+} {
+  if (code.includes('-')) {
+    const [yearPart = '', middlePart = '', lastPart = ''] = code.split('-');
+    return {
+      year: yearPart.replace(/\D/g, '').slice(0, 4),
+      middle: middlePart.replace(/\D/g, '').slice(0, 4),
+      last: lastPart.replace(/\D/g, '').slice(0, 2),
+    };
+  }
+
+  const digits = code.replace(/\D/g, '').slice(0, 10);
+  return {
+    year: digits.slice(0, 4),
+    middle: digits.slice(4, 8),
+    last: digits.slice(8, 10),
+  };
+}
+
+export function joinProjectCodeSegments(parts: {
+  year: string;
+  middle: string;
+  last: string;
+}): string {
+  const year = parts.year.replace(/\D/g, '').slice(0, 4);
+  const middle = parts.middle.replace(/\D/g, '').slice(0, 4);
+  const last = parts.last.replace(/\D/g, '').slice(0, 2);
+
+  if (!year && !middle && !last) return '';
+  if (middle || last) {
+    if (last) return `${year}-${middle}-${last}`;
+    return `${year}-${middle}`;
+  }
+  return year;
+}
+
+const PROJECT_CODE_SLOT_CURSORS = [0, 1, 2, 3, 5, 6, 7, 8, 10, 11] as const;
+export const PROJECT_CODE_SLOT_COUNT = 10;
+
+export function getProjectCodeDisplay(value: string): string {
+  return joinProjectCodeSegments(splitProjectCodeSegments(value));
+}
+
+export function getProjectCodeDigitIndices(display: string): number[] {
+  const indices: number[] = [];
+  for (let i = 0; i < display.length && indices.length < PROJECT_CODE_SLOT_COUNT; i++) {
+    if (/\d/.test(display[i])) indices.push(i);
+  }
+  return indices;
+}
+
+export function getProjectCodeSlotFromCursor(value: string, cursor: number): number {
+  const display = getProjectCodeDisplay(value);
+  if (!display) return 0;
+
+  const indices = getProjectCodeDigitIndices(display);
+  for (let slot = 0; slot < indices.length; slot++) {
+    if (cursor <= indices[slot]) return slot;
+  }
+
+  if (cursor <= 4) return Math.min(3, indices.length);
+  if (cursor <= 9) return cursor <= 5 ? 4 : cursor <= 8 ? 7 : 5;
+  return cursor <= 10 ? 8 : 9;
+}
+
+export function getProjectCodeCursorForSlot(value: string, slot: number): number {
+  const display = getProjectCodeDisplay(value);
+  const indices = getProjectCodeDigitIndices(display);
+  if (slot < indices.length) return indices[slot];
+
+  const parts = splitProjectCodeSegments(value);
+  if (slot < 4) return Math.min(slot, display.length);
+  if (parts.year.length < 4) return display.length;
+  if (slot <= 7) return PROJECT_CODE_SLOT_CURSORS[slot];
+  if (parts.middle.length < 4) return display.length;
+  return PROJECT_CODE_SLOT_CURSORS[slot];
+}
+
+export function setProjectCodeDigitAtSlot(value: string, slot: number, digit: string): string {
+  const parts = splitProjectCodeSegments(value);
+  const seg = slot < 4 ? 'year' : slot < 8 ? 'middle' : 'last';
+  const localIdx = slot < 4 ? slot : slot < 8 ? slot - 4 : slot - 8;
+  const maxLen = seg === 'year' ? 4 : seg === 'middle' ? 4 : 2;
+  const chars = parts[seg].split('');
+
+  if (localIdx < chars.length) chars[localIdx] = digit;
+  else {
+    while (chars.length < localIdx) chars.push('0');
+    chars.push(digit);
+  }
+
+  parts[seg] = chars.join('').slice(0, maxLen);
+  return joinProjectCodeSegments(parts);
+}
+
+export function clearProjectCodeDigitAtSlot(value: string, slot: number): string {
+  const parts = splitProjectCodeSegments(value);
+  if (slot < 4) parts.year = parts.year.slice(0, slot) + parts.year.slice(slot + 1);
+  else if (slot < 8) {
+    const i = slot - 4;
+    parts.middle = parts.middle.slice(0, i) + parts.middle.slice(i + 1);
+  } else {
+    const i = slot - 8;
+    parts.last = parts.last.slice(0, i) + parts.last.slice(i + 1);
+  }
+  return joinProjectCodeSegments(parts);
+}
+
+export function applyProjectCodePaste(raw: string): string {
+  return joinProjectCodeSegments(splitProjectCodeSegments(formatProjectCode(raw)));
+}
+
+/** 입력 중·완료 후 코드 유효성 검사. 문제 없으면 null */
+export function validateProjectCodeInput(code: string, divisions: Division[]): string | null {
+  const { year, middle, last } = splitProjectCodeSegments(code);
+  const digitCount = `${year}${middle}${last}`.replace(/\D/g, '').length;
+
+  if (digitCount === 0) return null;
+
+  if (year.length === 4) {
+    const yearNum = Number(year);
+    if (Number.isNaN(yearNum) || yearNum < 2000 || yearNum > 2100) {
+      return '연도는 2000~2100 사이 숫자 4자리여야 합니다.';
+    }
+  }
+
+  if (middle.length >= 1) {
+    const category = middle[0];
+    if (!['1', '2', '3', '4'].includes(category)) {
+      return '사업분류는 1(전시), 2(뉴미디어), 3(해외), 4(인테리어)만 입력할 수 있습니다.';
+    }
+  }
+
+  if (last.length >= 1) {
+    const phase = last[0];
+    if (!['1', '2', '3'].includes(phase)) {
+      return '마지막 2자리 중 첫째 자리는 1(공모), 2(설계), 3(제작)만 입력할 수 있습니다.';
+    }
+  }
+
+  if (digitCount === 10) {
+    if (last.length !== 2) {
+      return '마지막 단계 코드는 숫자 2자리를 입력해 주세요.';
+    }
+
+    const parsed = parseProjectCode(code);
+    if (!parsed) {
+      return '프로젝트 코드 형식이 올바르지 않습니다. (사업 일련번호는 1 이상)';
+    }
+
+    const division = resolveDivisionForCategory(parsed.businessCategory, divisions);
+    if (!division) {
+      return `코드 분류에 해당하는 "${getIntendedDivisionName(parsed.businessCategory)}"가 조직관리에 없습니다.`;
+    }
+  }
+
+  return null;
 }
 
 /** 분석·리포트용 분류 정보 */
