@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '@/components/ui/Button';
 import { useApp } from '@/context/AppContext';
-import { DEFAULT_GEMINI_MODEL, formatGeminiError, sendGeminiAnalysisMessage } from '@/services/geminiAnalysis';
+import { DEFAULT_GEMINI_MODEL, formatGeminiError, isGeminiQuotaError, sendGeminiAnalysisMessage } from '@/services/geminiAnalysis';
 import type { ExportTable } from '@/utils/reportExport';
-import { buildAnalysisDataPayload } from '@/utils/buildAnalysisDataPayload';
+import { buildAnalysisDataPayload, summarizePayloadScope } from '@/utils/buildAnalysisDataPayload';
 import { getGeminiApiKey, hasGeminiApiKey, saveGeminiApiKey } from '@/utils/geminiApiKey';
-import { getProjectStatsSummary } from '@/utils/analyticsChatbot';
+import { getProjectStatsSummary, askAnalyticsChatbot } from '@/utils/analyticsChatbot';
+import { filterProjectsByQuery } from '@/utils/analysisQueryFilter';
 import { parseMarkdownTables, stripMarkdownTables } from '@/utils/markdownTableParser';
 import {
   downloadCsv,
@@ -54,6 +55,7 @@ export function AnalysisChatbot() {
   const [loading, setLoading] = useState(false);
   const [cooldownUntil, setCooldownUntil] = useState(0);
   const [cooldownSec, setCooldownSec] = useState(0);
+  const [lastQuery, setLastQuery] = useState('');
   const lastRequestAt = useRef(0);
   const [apiKeyInput, setApiKeyInput] = useState(() => getGeminiApiKey());
   const [settingsOpen, setSettingsOpen] = useState(() => !hasGeminiApiKey());
@@ -89,12 +91,17 @@ export function AnalysisChatbot() {
 
   const dataPayload = useMemo(
     () =>
-      buildAnalysisDataPayload(chatContext, {
-        roleLabel: roleConfig.label,
-        scopeLabel: buildScopeLabel(permissions.canViewAll, roleConfig.label),
-        budget,
-      }, teams),
-    [chatContext, roleConfig.label, permissions.canViewAll, budget, teams],
+      buildAnalysisDataPayload(
+        chatContext,
+        {
+          roleLabel: roleConfig.label,
+          scopeLabel: buildScopeLabel(permissions.canViewAll, roleConfig.label),
+          budget,
+        },
+        teams,
+        lastQuery,
+      ),
+    [chatContext, roleConfig.label, permissions.canViewAll, budget, teams, lastQuery],
   );
 
   const scrollToBottom = () => {
@@ -157,6 +164,7 @@ export function AnalysisChatbot() {
     const pendingMessages = [...messages, userMessage];
     setMessages(pendingMessages);
     setInput('');
+    setLastQuery(trimmed);
     setLoading(true);
     scrollToBottom();
 
@@ -164,7 +172,16 @@ export function AnalysisChatbot() {
       const reply = await sendGeminiAnalysisMessage({
         apiKey,
         turns: getConversationTurns(pendingMessages),
-        dataPayload,
+        dataPayload: buildAnalysisDataPayload(
+          chatContext,
+          {
+            roleLabel: roleConfig.label,
+            scopeLabel: buildScopeLabel(permissions.canViewAll, roleConfig.label),
+            budget,
+          },
+          teams,
+          trimmed,
+        ),
       });
       const tables = parseMarkdownTables(reply);
       const displayText = tables.length > 0 ? stripMarkdownTables(reply) : reply;
@@ -179,6 +196,27 @@ export function AnalysisChatbot() {
         },
       ]);
     } catch (error) {
+      if (isGeminiQuotaError(error)) {
+        const { projects: scopedProjects } = filterProjectsByQuery(chatContext.projects, trimmed);
+        const local = askAnalyticsChatbot(trimmed, { ...chatContext, projects: scopedProjects });
+        const fallbackNote =
+          '\n\n---\nGemini API **일일/토큰 한도**로 AI 분석을 사용할 수 없어, **로컬 분석 엔진** 결과입니다. AI Studio에서 한도를 확인하거나 `.env`에 `VITE_GEMINI_MODEL=gemini-2.0-flash-lite` 설정 후 dev 서버를 재시작해 보세요.';
+        const tables = local.table ? [local.table] : local.sections?.map((s) => s.table).filter(Boolean) as ExportTable[] | undefined;
+
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: createId(),
+            role: 'assistant',
+            text: `${local.text}${fallbackNote}`,
+            tables: tables && tables.length > 0 ? tables : undefined,
+          },
+        ]);
+        setLoading(false);
+        scrollToBottom();
+        return;
+      }
+
       const errorText = formatGeminiError(error);
       if (/429|RPM|too many requests/i.test(errorText)) {
         setCooldownUntil(Date.now() + 90_000);
@@ -304,7 +342,7 @@ export function AnalysisChatbot() {
           </div>
           <p className="analysis-chat__settings-hint">
             키는 브라우저 localStorage에 저장됩니다. .env: <code>VITE_GEMINI_API_KEY</code>
-            · 기본 모델: {DEFAULT_GEMINI_MODEL}
+            · 기본 모델: {DEFAULT_GEMINI_MODEL} (무료 한도 권장)
           </p>
         </div>
       )}
@@ -363,16 +401,23 @@ export function AnalysisChatbot() {
           void submitQuery(input);
         }}
       >
-        <input
-          className="analysis-chat__input"
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          placeholder="예: 상반기 수주만 다시 분석해줘 / 표에 발주처 열 추가해줘"
-          disabled={loading}
-        />
-        <Button type="submit" variant="primary" disabled={loading || cooldownSec > 0 || !input.trim()}>
-          {loading ? '분석 중…' : cooldownSec > 0 ? `${cooldownSec}초 후 재시도` : '전송'}
-        </Button>
+        <div className="analysis-chat__composer-row">
+          <input
+            className="analysis-chat__input"
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            placeholder="예: 인테리어사업본부 프로젝트 인사이트 / 상반기 수주만 분석"
+            disabled={loading}
+          />
+          <Button type="submit" variant="primary" disabled={loading || cooldownSec > 0 || !input.trim()}>
+            {loading ? '분석 중…' : cooldownSec > 0 ? `${cooldownSec}초 후 재시도` : '전송'}
+          </Button>
+        </div>
+        {lastQuery && (
+          <p className="analysis-chat__scope-hint">
+            분석 범위: {summarizePayloadScope(dataPayload)}
+          </p>
+        )}
       </form>
     </div>
   );

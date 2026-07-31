@@ -10,15 +10,9 @@ import { formatIsoToKoreanDate } from '@/utils/formatInput';
 import { getAmendmentsForProject } from '@/utils/contractChange';
 import { parseProjectCode } from '@/utils/projectCode';
 import { buildProjectInsightReport } from '@/utils/projectInsightReport';
+import { resolveDivisionFilter } from '@/utils/analysisQueryFilter';
 
 export type { AnalyticsChatContext, ChatbotResponse, ChatExportAction } from '@/types/analyticsChat';
-
-const DIVISION_ALIASES: Record<string, string> = {
-  인테리어: '인테리어사업본부',
-  전시: '전시사업본부',
-  뉴미디어: '뉴미디어사업본부',
-  해외: '해외사업본부',
-};
 
 function currentYear(): number {
   return new Date().getFullYear();
@@ -47,14 +41,6 @@ function parseHalf(query: string): 'first' | 'second' | 'all' {
   if (/상반기|1\s*~?\s*6\s*월|1-6월/.test(query)) return 'first';
   if (/하반기|7\s*~?\s*12\s*월|7-12월/.test(query)) return 'second';
   return 'all';
-}
-
-function resolveDivisionFilter(query: string): string | null {
-  for (const [alias, fullName] of Object.entries(DIVISION_ALIASES)) {
-    if (query.includes(alias)) return fullName;
-  }
-  const matched = Object.values(DIVISION_ALIASES).find((name) => query.includes(name));
-  return matched ?? null;
 }
 
 function projectInPeriod(project: Project, year: number, half: 'first' | 'second' | 'all'): boolean {

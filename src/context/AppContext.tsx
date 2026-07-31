@@ -66,6 +66,7 @@ import {
   getPermissions,
 } from '@/utils/permissions';
 import { buildInitialAllocationHistory } from '@/utils/reportAnalytics';
+import { mergeErpProjects } from '@/utils/erpProjectImport';
 import {
   addEmployeeToTeamProjects,
   collectTeamParticipantIds,
@@ -101,25 +102,28 @@ function createInitialOrgState() {
   };
 }
 
-function createInitialAppState() {
+function createInitialAppState(divisions: Division[]) {
   try {
     const saved = loadAppState();
     if (saved) {
+      const projects = mergeErpProjects(divisions, saved.projects);
       return {
         ...saved,
+        projects,
         projectTeamAllocations:
           saved.projectTeamAllocations ??
-          buildInitialProjectTeamAllocations(saved.projects),
+          buildInitialProjectTeamAllocations(projects),
         contractAmendments: saved.contractAmendments ?? [],
       };
     }
   } catch {
     // fall through to defaults
   }
+  const projects = mergeErpProjects(divisions, INITIAL_PROJECTS);
   return {
-    projects: INITIAL_PROJECTS,
+    projects,
     allocations: INITIAL_ALLOCATIONS,
-    projectTeamAllocations: buildInitialProjectTeamAllocations(INITIAL_PROJECTS),
+    projectTeamAllocations: buildInitialProjectTeamAllocations(projects),
     contractAmendments: [],
     historySeeded: false,
   };
@@ -211,7 +215,10 @@ const AppContext = createContext<AppContextValue | null>(null);
 
 export function AppProvider({ children }: { children: ReactNode }) {
   const initialOrg = useMemo(() => createInitialOrgState(), []);
-  const initialApp = useMemo(() => createInitialAppState(), []);
+  const initialApp = useMemo(
+    () => createInitialAppState(initialOrg.divisions),
+    [initialOrg.divisions],
+  );
 
   const [role, setRole] = useState<Role>('dev_admin');
   const [executiveOffice, setExecutiveOffice] = useState<ExecutiveOffice>(
@@ -400,12 +407,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const createProject = useCallback(
     (project: Omit<Project, 'id' | 'createdAt' | 'updatedAt'>) => {
       const now = new Date().toISOString().slice(0, 10);
-      const { divisionName, teamName } = resolveProjectOrgNames(
+      const { divisionName, teamName: orgTeamName } = resolveProjectOrgNames(
         project.divisionId,
         project.teamId,
         divisions,
         teams,
       );
+      const teamName = orgTeamName || project.teamName;
       const pmId =
         project.pmId ||
         employees.find((e) => e.teamId === project.teamId && e.role === '팀장')?.id ||
