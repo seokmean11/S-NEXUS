@@ -33,6 +33,14 @@ export interface ContractTimelineRow {
   endDateDelta?: string;
 }
 
+export type ContractChangeDirection = 'up' | 'down';
+
+export interface ContractChangeStatusItem {
+  label: '금액증감' | '기간증감';
+  value: string;
+  direction: ContractChangeDirection;
+}
+
 /** 보고서·엑셀 추출용 flat row */
 export interface ContractChangeExportRow {
   projectId: string;

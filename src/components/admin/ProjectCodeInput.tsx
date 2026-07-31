@@ -16,6 +16,7 @@ interface ProjectCodeInputProps {
   onChange: (code: string) => void;
   required?: boolean;
   error?: string;
+  disabled?: boolean;
 }
 
 export function ProjectCodeInput({
@@ -24,6 +25,7 @@ export function ProjectCodeInput({
   onChange,
   required,
   error,
+  disabled,
 }: ProjectCodeInputProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const slotRef = useRef(0);
@@ -126,6 +128,7 @@ export function ProjectCodeInput({
         onPaste={handlePaste}
         placeholder="YYYY-XXXX-XX"
         aria-label={label}
+        disabled={disabled}
       />
       {error && <span className="form-field__error">{error}</span>}
     </div>

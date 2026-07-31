@@ -40,6 +40,14 @@ export function normalizeExecutiveOffice(
   return { admins: [] };
 }
 
+function migrateProjectContinuity(projects: Project[]): Project[] {
+  return projects.map((project) =>
+    (project.continuity as string | undefined) === '이월'
+      ? { ...project, continuity: '계약고' }
+      : project,
+  );
+}
+
 export function repairStoredData(): void {
   try {
     const org = loadOrgState();
@@ -55,6 +63,23 @@ export function repairStoredData(): void {
   } catch {
     try {
       localStorage.removeItem(ORG_KEY);
+    } catch {
+      // ignore
+    }
+  }
+
+  try {
+    const app = loadAppState();
+    if (app) {
+      const projects = migrateProjectContinuity(app.projects);
+      const migrated = projects.some((project, index) => project !== app.projects[index]);
+      if (migrated) {
+        saveAppState({ ...app, projects });
+      }
+    }
+  } catch {
+    try {
+      localStorage.removeItem(APP_KEY);
     } catch {
       // ignore
     }
@@ -100,7 +125,10 @@ export function loadAppState(): StoredAppState | null {
     if (!Array.isArray(parsed.projects) || !Array.isArray(parsed.allocations)) {
       return null;
     }
-    return parsed;
+    return {
+      ...parsed,
+      projects: migrateProjectContinuity(parsed.projects),
+    };
   } catch {
     return null;
   }

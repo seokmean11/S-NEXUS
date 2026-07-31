@@ -1,6 +1,7 @@
 import type {
   AmendmentSequence,
   ContractAmendment,
+  ContractChangeStatusItem,
   ContractChangeExportRow,
   ContractSnapshot,
   ContractTimelineRow,
@@ -78,23 +79,134 @@ export function getEffectiveContract(
   return amendmentToSnapshot(latest);
 }
 
-export function formatAmountDelta(prev?: number, next?: number): string | undefined {
+function formatMonthValue(months: number): string {
+  const abs = Math.abs(months);
+  const formatted = Number.isInteger(abs) ? String(abs) : abs.toFixed(1);
+  return `${formatted}개월`;
+}
+
+function signedMonthDelta(prev?: string, next?: string): number | undefined {
+  if (!prev || !next || prev === next) return undefined;
+
+  const days =
+    (new Date(next).getTime() - new Date(prev).getTime()) / (1000 * 60 * 60 * 24);
+  if (Math.abs(days) < 0.5) return undefined;
+
+  const months = days / 30;
+  return Math.round(months * 10) / 10;
+}
+
+function contractDurationMonths(start: string, end?: string): number | undefined {
+  if (!end) return undefined;
+
+  const days =
+    (new Date(end).getTime() - new Date(start).getTime()) / (1000 * 60 * 60 * 24);
+  if (days < 0) return undefined;
+
+  return Math.round((days / 30) * 10) / 10;
+}
+
+function buildAmountChangeItem(
+  prev?: number,
+  next?: number,
+): ContractChangeStatusItem | undefined {
   const p = normalizeAmount(prev);
   const n = normalizeAmount(next);
   if (p == null || n == null || p === n) return undefined;
+
   const diff = n - p;
-  if (diff > 0) return `증액 ${formatAmountInput(diff)}원`;
-  return `감액 ${formatAmountInput(Math.abs(diff))}원`;
+  return {
+    label: '금액증감',
+    value: `${formatAmountInput(Math.abs(diff))}원`,
+    direction: diff > 0 ? 'up' : 'down',
+  };
 }
 
+function buildPeriodChangeItem(
+  baseline: ContractSnapshot,
+  latest: ContractSnapshot,
+): ContractChangeStatusItem | undefined {
+  const baselineDuration = contractDurationMonths(baseline.startDate, baseline.endDate);
+  const latestDuration = contractDurationMonths(latest.startDate, latest.endDate);
+
+  if (baselineDuration != null && latestDuration != null && baselineDuration !== latestDuration) {
+    const diff = Math.round((latestDuration - baselineDuration) * 10) / 10;
+    if (diff === 0) return undefined;
+    return {
+      label: '기간증감',
+      value: formatMonthValue(diff),
+      direction: diff > 0 ? 'up' : 'down',
+    };
+  }
+
+  const startDiff = signedMonthDelta(baseline.startDate, latest.startDate);
+  if (startDiff != null && startDiff !== 0) {
+    return {
+      label: '기간증감',
+      value: formatMonthValue(startDiff),
+      direction: startDiff > 0 ? 'up' : 'down',
+    };
+  }
+
+  const endDiff = signedMonthDelta(baseline.endDate, latest.endDate);
+  if (endDiff != null && endDiff !== 0) {
+    return {
+      label: '기간증감',
+      value: formatMonthValue(endDiff),
+      direction: endDiff > 0 ? 'up' : 'down',
+    };
+  }
+
+  return undefined;
+}
+
+/** @deprecated 내부 호환용 */
+export function formatAmountDelta(prev?: number, next?: number): string | undefined {
+  const item = buildAmountChangeItem(prev, next);
+  if (!item) return undefined;
+  const tag = item.direction === 'up' ? '증' : '감';
+  return `${item.label} ${item.value} (${tag})`;
+}
+
+export function formatDateDeltaInMonths(prev?: string, next?: string): string | undefined {
+  const diff = signedMonthDelta(prev, next);
+  if (diff == null || diff === 0) return undefined;
+  const tag = diff > 0 ? '증' : '감';
+  return `기간증감 ${formatMonthValue(diff)} (${tag})`;
+}
+
+/** @deprecated use formatDateDeltaInMonths */
 export function formatDateDelta(prev?: string, next?: string): string | undefined {
-  if (!prev || !next || prev === next) return undefined;
-  const days = Math.round(
-    (new Date(next).getTime() - new Date(prev).getTime()) / (1000 * 60 * 60 * 24),
+  return formatDateDeltaInMonths(prev, next);
+}
+
+export function buildFinalChangeStatusItems(
+  baseline: ContractSnapshot,
+  amendments: ContractAmendment[],
+): ContractChangeStatusItem[] {
+  if (amendments.length === 0) return [];
+
+  const latest = getEffectiveContract(baseline, amendments);
+  const items: ContractChangeStatusItem[] = [];
+
+  const amountItem = buildAmountChangeItem(baseline.contractAmount, latest.contractAmount);
+  if (amountItem) items.push(amountItem);
+
+  const periodItem = buildPeriodChangeItem(baseline, latest);
+  if (periodItem) items.push(periodItem);
+
+  return items;
+}
+
+/** @deprecated use buildFinalChangeStatusItems */
+export function buildFinalChangeStatusLines(
+  baseline: ContractSnapshot,
+  amendments: ContractAmendment[],
+): string[] {
+  return buildFinalChangeStatusItems(baseline, amendments).map(
+    (item) =>
+      `${item.label} ${item.value} (${item.direction === 'up' ? '증' : '감'})`,
   );
-  if (days === 0) return undefined;
-  if (days > 0) return `${days}일 증가`;
-  return `${Math.abs(days)}일 감소`;
 }
 
 export function buildContractTimeline(
@@ -109,7 +221,6 @@ export function buildContractTimeline(
     },
   ];
 
-  let previous = baseline;
   for (const amendment of amendments) {
     const snapshot = amendmentToSnapshot(amendment);
     rows.push({
@@ -117,11 +228,7 @@ export function buildContractTimeline(
       label: `변경 ${amendment.sequence}차`,
       sequence: amendment.sequence,
       snapshot,
-      amountDelta: formatAmountDelta(previous.contractAmount, snapshot.contractAmount),
-      startDateDelta: formatDateDelta(previous.startDate, snapshot.startDate),
-      endDateDelta: formatDateDelta(previous.endDate, snapshot.endDate),
     });
-    previous = snapshot;
   }
 
   return rows;
@@ -137,11 +244,17 @@ export function flattenContractChangesForExport(
     const baseline = getProjectBaseline(project);
     const projectAmendments = getAmendmentsForProject(amendments, project.id);
     const timeline = buildContractTimeline(baseline, projectAmendments);
+    const finalItems = buildFinalChangeStatusItems(baseline, projectAmendments);
+    const lastAmendment = projectAmendments[projectAmendments.length - 1];
+    const amountItem = finalItems.find((item) => item.label === '금액증감');
+    const periodItem = finalItems.find((item) => item.label === '기간증감');
 
     for (const row of timeline) {
       const amendment = row.sequence
         ? projectAmendments.find((a) => a.sequence === row.sequence)
         : undefined;
+
+      const isLastAmendment = amendment?.id === lastAmendment?.id;
 
       rows.push({
         projectId: project.id,
@@ -152,9 +265,13 @@ export function flattenContractChangesForExport(
         contractAmount: row.snapshot.contractAmount,
         startDate: row.snapshot.startDate,
         endDate: row.snapshot.endDate,
-        amountDelta: row.amountDelta,
-        startDateDelta: row.startDateDelta,
-        endDateDelta: row.endDateDelta,
+        amountDelta: isLastAmendment && amountItem
+          ? `${amountItem.label} ${amountItem.value} (${amountItem.direction === 'up' ? '증' : '감'})`
+          : undefined,
+        startDateDelta: isLastAmendment && periodItem
+          ? `${periodItem.label} ${periodItem.value} (${periodItem.direction === 'up' ? '증' : '감'})`
+          : undefined,
+        endDateDelta: undefined,
         registeredAt: amendment?.registeredAt ?? project.createdAt,
         registeredByName: amendment?.registeredByName,
       });

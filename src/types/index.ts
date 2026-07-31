@@ -31,6 +31,12 @@ export type InteriorProjectType =
 
 export type ProjectType = GeneralProjectType | InteriorProjectType;
 
+/** 프로젝트 수행 지역 구분 */
+export type ProjectMarketScope = '국내' | '해외';
+
+/** 신규·계약고 구분 */
+export type ProjectContinuity = '신규' | '계약고';
+
 import type { ContractSnapshot } from '@/types/contractChange';
 
 export interface Project {
@@ -42,6 +48,10 @@ export interface Project {
   clientName?: string;
   /** 사업본부별 세부 유형 (분석용) */
   projectType?: ProjectType;
+  /** 국내·해외 구분 (분석용) */
+  marketScope?: ProjectMarketScope;
+  /** 신규·계약고 구분 (분석용) */
+  continuity?: ProjectContinuity;
   divisionId: string;
   divisionName: string;
   teamId: string;

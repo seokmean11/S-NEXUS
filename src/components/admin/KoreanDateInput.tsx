@@ -14,9 +14,10 @@ interface KoreanDateInputProps {
   value: string;
   onChange: (value: string) => void;
   required?: boolean;
+  disabled?: boolean;
 }
 
-export function KoreanDateInput({ label, value, onChange, required }: KoreanDateInputProps) {
+export function KoreanDateInput({ label, value, onChange, required, disabled }: KoreanDateInputProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const slotRef = useRef(0);
   const display = getKoreanDateDisplay(value);
@@ -122,6 +123,7 @@ export function KoreanDateInput({ label, value, onChange, required }: KoreanDate
         onPaste={handlePaste}
         placeholder="YYYY년 MM월 DD일"
         aria-label={label ?? '날짜'}
+        disabled={disabled}
       />
     </div>
   );

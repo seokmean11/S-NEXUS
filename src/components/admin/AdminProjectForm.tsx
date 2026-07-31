@@ -1,14 +1,17 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { Input, ReadonlyField, Select } from '@/components/ui/Input';
 import { ContractAmendmentBox } from '@/components/admin/ContractAmendmentBox';
 import { ContractHistoryPanel } from '@/components/admin/ContractHistoryPanel';
 import { KoreanDateInput } from '@/components/admin/KoreanDateInput';
+import { ProjectNameSearchInput } from '@/components/admin/ProjectNameSearchInput';
 import { ProjectCodeInput } from '@/components/admin/ProjectCodeInput';
 import { useApp } from '@/context/AppContext';
-import type { Project, ProjectType } from '@/types';
-import type { AmendmentSequence, ContractEditTarget } from '@/types/contractChange';
+import type { ProjectContinuity, ProjectMarketScope, ProjectType } from '@/types';
+import type { ContractEditTarget } from '@/types/contractChange';
+import { MAX_CONTRACT_AMENDMENTS } from '@/types/contractChange';
 import {
   deriveProjectFieldsFromCode,
   deriveProjectFieldsFromPartialCode,
@@ -33,16 +36,30 @@ import {
   amendmentToSnapshot,
   canRegisterAmendmentSequence,
   getAmendmentsForProject,
+  getEffectiveContract,
   getNextAmendmentSequence,
   getProjectBaseline,
 } from '@/utils/contractChange';
 
 type FormMode = 'create' | 'edit';
+type FormEntryMode = 'new' | 'existing';
+
+const MARKET_SCOPE_OPTIONS: { value: ProjectMarketScope; label: string }[] = [
+  { value: '국내', label: '국내' },
+  { value: '해외', label: '해외' },
+];
+
+const CONTINUITY_OPTIONS: { value: ProjectContinuity; label: string }[] = [
+  { value: '신규', label: '신규' },
+  { value: '계약고', label: '계약고' },
+];
 
 const EMPTY_FORM = {
   name: '',
   projectCode: '',
   clientName: '',
+  marketScope: '' as ProjectMarketScope | '',
+  continuity: '' as ProjectContinuity | '',
   projectType: '' as ProjectType | '',
   teamId: '',
   contractAmount: '',
@@ -59,20 +76,37 @@ export function AdminProjectForm() {
     contractAmendments,
     createProject,
     updateProject,
+    deleteProject,
     saveContractAmendment,
     saveInitialContract,
     permissions,
   } = useApp();
   const [mode, setMode] = useState<FormMode>('create');
+  const [formEntryMode, setFormEntryMode] = useState<FormEntryMode>('new');
+  const [existingNameQuery, setExistingNameQuery] = useState('');
   const [editId, setEditId] = useState('');
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const [amendmentOpen, setAmendmentOpen] = useState(false);
   const [selectedTarget, setSelectedTarget] = useState<ContractEditTarget | null>(null);
+  const [deleteConfirmProjectId, setDeleteConfirmProjectId] = useState<string | null>(null);
+  const formCardRef = useRef<HTMLDivElement>(null);
 
   const [form, setForm] = useState({
     ...EMPTY_FORM,
   });
+
+  const showSuccessMessage = (text: string) => {
+    setMessage(text);
+    setError('');
+    setTimeout(() => setMessage(''), 3000);
+  };
+
+  const showErrorMessage = (text: string) => {
+    setError(text);
+    setMessage('');
+    setTimeout(() => setError(''), 3000);
+  };
 
   const derivedPartial = useMemo(
     () => deriveProjectFieldsFromPartialCode(form.projectCode, divisions),
@@ -114,14 +148,8 @@ export function AdminProjectForm() {
     [contractAmendments, editId],
   );
 
-  const availableSequences = useMemo(() => {
-    const sequences: AmendmentSequence[] = [];
-    for (let i = 1; i <= projectAmendments.length; i += 1) {
-      sequences.push(i as AmendmentSequence);
-    }
-    if (nextSequence) sequences.push(nextSequence);
-    return sequences;
-  }, [projectAmendments.length, nextSequence]);
+  const isNewAmendmentRegistration =
+    nextSequence != null && selectedTarget === nextSequence;
 
   const resetForm = () => {
     setForm({
@@ -130,9 +158,44 @@ export function AdminProjectForm() {
     });
     setEditId('');
     setMode('create');
+    setFormEntryMode('new');
+    setExistingNameQuery('');
     setError('');
     setAmendmentOpen(false);
     setSelectedTarget(null);
+    setDeleteConfirmProjectId(null);
+  };
+
+  const handleNewEntry = () => {
+    resetForm();
+  };
+
+  const handleExistingEntry = () => {
+    setFormEntryMode('existing');
+    setEditId('');
+    setMode('create');
+    setExistingNameQuery('');
+    setError('');
+    setAmendmentOpen(false);
+    setSelectedTarget(null);
+    setForm({
+      ...EMPTY_FORM,
+      startDate: formatIsoToKoreanDate(new Date().toISOString().slice(0, 10)),
+    });
+  };
+
+  const fieldsLocked = formEntryMode === 'existing' && !editId;
+
+  const handleExistingNameChange = (value: string) => {
+    setExistingNameQuery(value);
+    if (editId) {
+      setEditId('');
+      setMode('create');
+      setForm({
+        ...EMPTY_FORM,
+        startDate: formatIsoToKoreanDate(new Date().toISOString().slice(0, 10)),
+      });
+    }
   };
 
   const buildGeneralPayload = () => {
@@ -150,6 +213,8 @@ export function AdminProjectForm() {
       name: form.name,
       projectCode,
       clientName: form.clientName.trim() || undefined,
+      marketScope: form.marketScope as ProjectMarketScope,
+      continuity: form.continuity as ProjectContinuity,
       projectType: form.projectType as ProjectType,
       divisionId: derived.division.id,
       divisionName: derived.division.name,
@@ -172,17 +237,17 @@ export function AdminProjectForm() {
     const code = normalizeProjectCode(form.projectCode);
     const codeError = validateProjectCodeInput(form.projectCode, divisions);
     if (codeError) {
-      setError(codeError);
+      showErrorMessage(codeError);
       return false;
     }
 
     if (!code || !isValidProjectCode(code)) {
-      setError('프로젝트 코드는 0000-0000-00 형식(숫자 10자리)으로 입력해 주세요.');
+      showErrorMessage('프로젝트 코드는 0000-0000-00 형식(숫자 10자리)으로 입력해 주세요.');
       return false;
     }
 
     if (!derived?.division) {
-      setError(
+      showErrorMessage(
         `코드 분류에 해당하는 "${derived?.divisionName ?? '사업본부'}"가 조직관리에 없습니다.`,
       );
       return false;
@@ -192,27 +257,37 @@ export function AdminProjectForm() {
       parsedCode &&
       (!form.teamId || !isValidProjectTeamForCategory(parsedCode.businessCategory, form.teamId))
     ) {
-      setError('담당 팀을 선택해 주세요.');
+      showErrorMessage('담당 팀을 선택해 주세요.');
       return false;
     }
 
     if (requireContractDates) {
       if (!isCompleteKoreanDate(form.startDate)) {
-        setError('시작일을 YYYY년 MM월 DD일 형식으로 입력해 주세요.');
+        showErrorMessage('시작일을 YYYY년 MM월 DD일 형식으로 입력해 주세요.');
         return false;
       }
 
       if (form.endDate && !isCompleteKoreanDate(form.endDate)) {
-        setError('종료일을 YYYY년 MM월 DD일 형식으로 입력해 주세요.');
+        showErrorMessage('종료일을 YYYY년 MM월 DD일 형식으로 입력해 주세요.');
         return false;
       }
+    }
+
+    if (!form.marketScope) {
+      showErrorMessage('국내·해외를 선택해 주세요.');
+      return false;
+    }
+
+    if (!form.continuity) {
+      showErrorMessage('신규·계약고를 선택해 주세요.');
+      return false;
     }
 
     if (
       parsedCode &&
       (!form.projectType || !isValidProjectTypeForCategory(parsedCode.businessCategory, form.projectType))
     ) {
-      setError('유형을 선택해 주세요.');
+      showErrorMessage('유형을 선택해 주세요.');
       return false;
     }
 
@@ -232,16 +307,16 @@ export function AdminProjectForm() {
           ...buildGeneralPayload(),
           ...buildContractFromForm(),
         });
-        setMessage('신규 프로젝트가 등록되었습니다.');
+        showSuccessMessage('등록이 완료되었습니다.');
         resetForm();
       } else if (selectedTarget === 'initial') {
         saveInitialContract(editId, buildContractFromForm(), buildGeneralPayload());
         setAmendmentOpen(false);
         setSelectedTarget(null);
-        setMessage('최초 계약 정보가 저장되었습니다.');
+        showSuccessMessage('저장이 완료되었습니다.');
       } else if (selectedTarget) {
         if (!canRegisterAmendmentSequence(projectAmendments, selectedTarget)) {
-          setError('등록할 수 없는 변경 차수입니다.');
+          showErrorMessage('등록할 수 없는 변경 차수입니다.');
           return;
         }
 
@@ -253,33 +328,65 @@ export function AdminProjectForm() {
         });
 
         if (!result.ok) {
-          setError(result.reason);
+          showErrorMessage(result.reason);
           return;
         }
 
         setAmendmentOpen(false);
         setSelectedTarget(null);
-        setMessage(`변경 ${selectedTarget}차가 확정되었습니다.`);
+        showSuccessMessage('저장이 완료되었습니다.');
       } else {
         updateProject(editId, {
           ...buildGeneralPayload(),
           ...buildContractFromForm(),
         });
-        setMessage('프로젝트 정보가 저장되었습니다. 계약 직접 수정은 오류 수정으로 처리됩니다.');
+        showSuccessMessage('저장이 완료되었습니다.');
       }
     } catch {
-      setError('프로젝트 정보를 구성할 수 없습니다.');
-      return;
+      showErrorMessage('프로젝트 정보를 구성할 수 없습니다.');
     }
-
-    setTimeout(() => setMessage(''), 3000);
   };
 
   const handleToggleAmendment = () => {
-    setAmendmentOpen((prev) => {
-      const next = !prev;
-      if (!next) setSelectedTarget(null);
-      return next;
+    if (!editingProject) return;
+
+    if (amendmentOpen) {
+      setAmendmentOpen(false);
+      setSelectedTarget(null);
+      return;
+    }
+
+    if (!nextSequence) {
+      showErrorMessage(`최대 ${MAX_CONTRACT_AMENDMENTS}차까지 등록되었습니다.`);
+      return;
+    }
+
+    const effective = getEffectiveContract(
+      getProjectBaseline(editingProject),
+      projectAmendments,
+    );
+    loadContractFields(effective);
+    setSelectedTarget(nextSequence);
+    setAmendmentOpen(true);
+  };
+
+  const handleEditContractTarget = (target: ContractEditTarget) => {
+    if (!editingProject) return;
+
+    setAmendmentOpen(true);
+    setSelectedTarget(target);
+
+    if (target === 'initial') {
+      loadContractFields(getProjectBaseline(editingProject));
+    } else {
+      const existing = projectAmendments.find((a) => a.sequence === target);
+      if (existing) {
+        loadContractFields(amendmentToSnapshot(existing));
+      }
+    }
+
+    requestAnimationFrame(() => {
+      formCardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     });
   };
 
@@ -297,31 +404,6 @@ export function AdminProjectForm() {
     }));
   };
 
-  const handleSelectInitial = () => {
-    if (!editingProject) return;
-    setSelectedTarget('initial');
-    loadContractFields(getProjectBaseline(editingProject));
-  };
-
-  const handleSelectSequence = (sequence: AmendmentSequence) => {
-    if (!editingProject) return;
-
-    setSelectedTarget(sequence);
-    const existing = projectAmendments.find((a) => a.sequence === sequence);
-
-    if (existing) {
-      loadContractFields(amendmentToSnapshot(existing));
-      return;
-    }
-
-    setForm((prev) => ({
-      ...prev,
-      contractAmount: '',
-      startDate: '',
-      endDate: '',
-    }));
-  };
-
   const loadForEdit = (projectId: string) => {
     const project = projects.find((p) => p.id === projectId);
     if (!project) return;
@@ -335,6 +417,8 @@ export function AdminProjectForm() {
 
     setEditId(project.id);
     setMode('edit');
+    setFormEntryMode('existing');
+    setExistingNameQuery(project.name);
     setError('');
     setAmendmentOpen(false);
     setSelectedTarget(null);
@@ -342,6 +426,8 @@ export function AdminProjectForm() {
       name: project.name,
       projectCode: project.projectCode ?? '',
       clientName: project.clientName ?? '',
+      marketScope: project.marketScope ?? '',
+      continuity: project.continuity ?? '',
       projectType: project.projectType ?? '',
       teamId: matchedTeam?.value ?? '',
       contractAmount: project.contractAmount != null ? formatAmountInput(project.contractAmount) : '',
@@ -350,6 +436,23 @@ export function AdminProjectForm() {
       pmId: project.pmId,
       participantIds: project.participantIds,
     });
+
+    requestAnimationFrame(() => {
+      formCardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  };
+
+  const handleDeleteConfirm = () => {
+    if (!deleteConfirmProjectId) return;
+
+    deleteProject(deleteConfirmProjectId);
+    setDeleteConfirmProjectId(null);
+
+    if (editId === deleteConfirmProjectId) {
+      resetForm();
+    }
+
+    showSuccessMessage('삭제가 완료되었습니다.');
   };
 
   const handleProjectCodeChange = (projectCode: string) => {
@@ -383,171 +486,232 @@ export function AdminProjectForm() {
       {message && <div className="toast toast--success no-print">{message}</div>}
       {error && <div className="toast toast--error no-print">{error}</div>}
 
-      <div className="admin-grid">
-        <Card
-          title={mode === 'create' ? '신규 프로젝트 등록' : '프로젝트 수정'}
-          headerAction={
-            mode === 'edit' ? (
-              <Button variant="ghost" size="sm" onClick={resetForm}>
-                새 등록
+      <div className="admin-layout">
+        <div ref={formCardRef}>
+          <Card title="프로젝트 등록·수정">
+            <div className="admin-form__entry-toggle no-print">
+              <Button
+                type="button"
+                variant={formEntryMode === 'new' ? 'primary' : 'outline'}
+                size="sm"
+                onClick={handleNewEntry}
+              >
+                신규
               </Button>
-            ) : undefined
-          }
-        >
-          <form className="admin-form" onSubmit={handleSubmit}>
-            <Input
-              label="프로젝트명"
-              value={form.name}
-              onChange={(e) => setForm({ ...form, name: e.target.value })}
-              required
-            />
-            <ProjectCodeInput
-              value={form.projectCode}
-              onChange={handleProjectCodeChange}
-              required
-              error={projectCodeError ?? undefined}
-            />
-            <Input
-              label="발주처"
-              value={form.clientName}
-              onChange={(e) => setForm({ ...form, clientName: e.target.value })}
-              placeholder="발주처명 입력"
-            />
-            {projectTypeOptions.length > 0 ? (
-              <Select
-                label="유형"
-                options={[
-                  { value: '', label: '선택' },
-                  ...projectTypeOptions,
-                ]}
-                value={form.projectType}
-                onChange={(e) =>
-                  setForm({ ...form, projectType: e.target.value as ProjectType | '' })
-                }
-                required
-              />
-            ) : (
-              <Select
-                label="유형"
-                options={[{ value: '', label: '프로젝트 코드 입력 후 선택' }]}
-                value=""
-                disabled
-              />
-            )}
-            <ReadonlyField label="사업본부" value={derivedPartial.divisionName} />
-            <ReadonlyField label="상태" value={derivedPartial.statusLabel} />
-            <Select
-              label="담당 팀"
-              options={[
-                { value: '', label: '선택' },
-                ...projectTeamOptions,
-              ]}
-              value={form.teamId}
-              onChange={(e) => setForm({ ...form, teamId: e.target.value })}
-              disabled={projectTeamOptions.length === 0}
-              required
-            />
-
-            <div className="contract-fields-group">
-              <div className="contract-fields-group__inputs">
-                <Input
-                  label="계약금액 (원)"
-                  type="text"
-                  inputMode="numeric"
-                  value={form.contractAmount}
-                  onChange={(e) =>
-                    setForm({ ...form, contractAmount: formatAmountInput(e.target.value) })
-                  }
-                  placeholder={
-                    selectedTarget && selectedTarget !== 'initial'
-                      ? '변경 후 계약금액'
-                      : '수주 확정 후 입력'
-                  }
-                />
-                <KoreanDateInput
-                  label="시작일"
-                  value={form.startDate}
-                  onChange={(startDate) => setForm({ ...form, startDate })}
-                  required={mode === 'create' || !!selectedTarget}
-                />
-                <KoreanDateInput
-                  label="종료일"
-                  value={form.endDate}
-                  onChange={(endDate) => setForm({ ...form, endDate })}
-                />
-                {mode === 'edit' && !selectedTarget && (
-                  <p className="form-field__hint">
-                    입력란 직접 수정 후 <strong>수정 저장</strong> → 오류 수정 (분석 제외)
-                  </p>
-                )}
-                {mode === 'edit' && selectedTarget === 'initial' && (
-                  <p className="form-field__hint form-field__hint--active">
-                    최초 계약 수정 중 — 저장 시 이력의 <strong>최초</strong> 값이 갱신됩니다
-                  </p>
-                )}
-                {mode === 'edit' && selectedTarget && selectedTarget !== 'initial' && (
-                  <p className="form-field__hint form-field__hint--active">
-                    변경 {selectedTarget}차 — 기존 값은 이력에 보존됩니다. 새 값 입력 후{' '}
-                    <strong>수정 저장</strong>
-                  </p>
-                )}
-              </div>
-
-              {mode === 'edit' && (
-                <ContractAmendmentBox
-                  open={amendmentOpen}
-                  selectedTarget={selectedTarget}
-                  availableSequences={availableSequences}
-                  nextSequence={nextSequence}
-                  onToggle={handleToggleAmendment}
-                  onSelectInitial={handleSelectInitial}
-                  onSelectSequence={handleSelectSequence}
-                />
+              <Button
+                type="button"
+                variant={formEntryMode === 'existing' ? 'primary' : 'outline'}
+                size="sm"
+                onClick={handleExistingEntry}
+              >
+                기존
+              </Button>
+              {formEntryMode === 'existing' && !editId && (
+                <span className="admin-form__entry-hint">프로젝트명에서 등록된 프로젝트를 검색·선택하세요</span>
               )}
             </div>
+            <form className="admin-form admin-form--horizontal" onSubmit={handleSubmit}>
+              {formEntryMode === 'existing' ? (
+                <ProjectNameSearchInput
+                  projects={projects}
+                  value={editId ? form.name : existingNameQuery}
+                  selectedProjectId={editId}
+                  onChange={handleExistingNameChange}
+                  onSelect={(project) => loadForEdit(project.id)}
+                  required
+                />
+              ) : (
+                <Input
+                  className="admin-form__cell"
+                  label="프로젝트명"
+                  value={form.name}
+                  onChange={(e) => setForm({ ...form, name: e.target.value })}
+                  required
+                />
+              )}
+              <div className="admin-form__cell">
+                <ProjectCodeInput
+                  value={form.projectCode}
+                  onChange={handleProjectCodeChange}
+                  required
+                  error={projectCodeError ?? undefined}
+                  disabled={fieldsLocked}
+                />
+              </div>
+              <Input
+                className="admin-form__cell"
+                label="발주처"
+                value={form.clientName}
+                onChange={(e) => setForm({ ...form, clientName: e.target.value })}
+                placeholder="발주처명 입력"
+                disabled={fieldsLocked}
+              />
+              <Select
+                className="admin-form__cell"
+                label="담당 팀"
+                options={[
+                  { value: '', label: '선택' },
+                  ...projectTeamOptions,
+                ]}
+                value={form.teamId}
+                onChange={(e) => setForm({ ...form, teamId: e.target.value })}
+                disabled={fieldsLocked || projectTeamOptions.length === 0}
+                required
+              />
 
-            <div className="admin-form__actions no-print">
-              <Button type="submit" variant="primary">
-                {mode === 'create' ? '등록' : '수정 저장'}
-              </Button>
-            </div>
-          </form>
-        </Card>
+              <div className="admin-form__type-row admin-form__span-full">
+                <Select
+                  label="신규·계약고"
+                  options={[{ value: '', label: '선택' }, ...CONTINUITY_OPTIONS]}
+                  value={form.continuity}
+                  onChange={(e) =>
+                    setForm({ ...form, continuity: e.target.value as ProjectContinuity | '' })
+                  }
+                  disabled={fieldsLocked}
+                  required
+                />
+                <Select
+                  label="국내·해외"
+                  options={[{ value: '', label: '선택' }, ...MARKET_SCOPE_OPTIONS]}
+                  value={form.marketScope}
+                  onChange={(e) =>
+                    setForm({ ...form, marketScope: e.target.value as ProjectMarketScope | '' })
+                  }
+                  disabled={fieldsLocked}
+                  required
+                />
+                {projectTypeOptions.length > 0 ? (
+                  <Select
+                    label="유형"
+                    options={[
+                      { value: '', label: '선택' },
+                      ...projectTypeOptions,
+                    ]}
+                    value={form.projectType}
+                    onChange={(e) =>
+                      setForm({ ...form, projectType: e.target.value as ProjectType | '' })
+                    }
+                    disabled={fieldsLocked}
+                    required
+                  />
+                ) : (
+                  <Select
+                    label="유형"
+                    options={[{ value: '', label: '프로젝트 코드 입력 후 선택' }]}
+                    value=""
+                    disabled
+                  />
+                )}
+              </div>
 
-        <Card title="등록된 프로젝트" subtitle="선택 후 좌측에서 수시 수정 가능">
-          <div className="admin-project-list">
-            {projects.map((project: Project) => (
-              <div
-                key={project.id}
-                className={`admin-project-item ${editId === project.id ? 'admin-project-item--active' : ''}`}
-              >
-                <div>
-                  <strong>{project.name}</strong>
-                  <span className={`badge badge--sm badge--${project.status === '공모' ? 'gray' : 'blue'}`}>
-                    {project.status}
-                  </span>
-                  {project.projectCode && (
-                    <span className="admin-project-item__code">{project.projectCode}</span>
+              <div className="admin-form__cell">
+                <ReadonlyField label="사업본부" value={derivedPartial.divisionName} />
+              </div>
+              <div className="admin-form__cell">
+                <ReadonlyField label="상태" value={derivedPartial.statusLabel} />
+              </div>
+
+              <div className="admin-form__contract admin-form__span-full">
+                <div className="contract-fields-group contract-fields-group--horizontal">
+                  <div className="contract-fields-group__inputs">
+                    <Input
+                      label="계약금액 (원)"
+                      type="text"
+                      inputMode="numeric"
+                      value={form.contractAmount}
+                      onChange={(e) =>
+                        setForm({ ...form, contractAmount: formatAmountInput(e.target.value) })
+                      }
+                      placeholder={
+                        selectedTarget && selectedTarget !== 'initial'
+                          ? '변경 후 계약금액'
+                          : '수주 확정 후 입력'
+                      }
+                      disabled={fieldsLocked}
+                    />
+                    <KoreanDateInput
+                      label="시작일"
+                      value={form.startDate}
+                      onChange={(startDate) => setForm({ ...form, startDate })}
+                      required={mode === 'create' || !!selectedTarget}
+                      disabled={fieldsLocked}
+                    />
+                    <KoreanDateInput
+                      label="종료일"
+                      value={form.endDate}
+                      onChange={(endDate) => setForm({ ...form, endDate })}
+                      disabled={fieldsLocked}
+                    />
+                    {mode === 'edit' && !selectedTarget && (
+                      <p className="form-field__hint admin-form__hint-span">
+                        입력란 직접 수정 후 <strong>수정 저장</strong> → 오류 수정 (분석 제외)
+                      </p>
+                    )}
+                    {mode === 'edit' && isNewAmendmentRegistration && (
+                      <p className="form-field__hint form-field__hint--active admin-form__hint-span">
+                        변경 {nextSequence}차 신규 등록 — 직전 차수 계약 내용을 확인한 뒤,{' '}
+                        <strong>새로운 계약변경 내용을 입력하세요.</strong> 입력 후{' '}
+                        <strong>수정 저장</strong>
+                      </p>
+                    )}
+                    {mode === 'edit' && selectedTarget === 'initial' && (
+                      <p className="form-field__hint form-field__hint--active admin-form__hint-span">
+                        최초 계약 수정 중 — 저장 시 이력의 <strong>최초</strong> 값이 갱신됩니다
+                      </p>
+                    )}
+                    {mode === 'edit' &&
+                      selectedTarget &&
+                      selectedTarget !== 'initial' &&
+                      !isNewAmendmentRegistration && (
+                      <p className="form-field__hint form-field__hint--active admin-form__hint-span">
+                        변경 {selectedTarget}차 수정 중 — 변경 후 <strong>수정 저장</strong>
+                      </p>
+                    )}
+                  </div>
+
+                  {mode === 'edit' && (
+                    <ContractAmendmentBox
+                      open={amendmentOpen}
+                      selectedTarget={selectedTarget}
+                      nextSequence={nextSequence}
+                      onToggle={handleToggleAmendment}
+                    />
                   )}
                 </div>
-                <Button
-                  variant={editId === project.id ? 'primary' : 'outline'}
-                  size="sm"
-                  onClick={() => loadForEdit(project.id)}
-                >
-                  {editId === project.id ? '수정 중' : 'Edit'}
-                </Button>
               </div>
-            ))}
-          </div>
-        </Card>
+
+              <div className="admin-form__actions admin-form__span-full no-print">
+                <Button type="submit" variant="primary" disabled={fieldsLocked}>
+                  {mode === 'create' ? '등록' : '수정 저장'}
+                </Button>
+                {mode === 'edit' && editId && (
+                  <Button
+                    type="button"
+                    variant="danger"
+                    onClick={() => setDeleteConfirmProjectId(editId)}
+                  >
+                    프로젝트 삭제
+                  </Button>
+                )}
+              </div>
+            </form>
+          </Card>
+        </div>
+
+        {mode === 'edit' && editId && (
+          <ContractHistoryPanel projectId={editId} onEditTarget={handleEditContractTarget} />
+        )}
       </div>
 
-      {mode === 'edit' && editId && (
-        <div className="admin-grid admin-grid--single">
-          <ContractHistoryPanel projectId={editId} />
-        </div>
-      )}
+      <ConfirmDialog
+        open={deleteConfirmProjectId !== null}
+        title="프로젝트 삭제"
+        message="정말 삭제하시겠습니까?"
+        confirmLabel="네"
+        cancelLabel="아니오"
+        onConfirm={handleDeleteConfirm}
+        onCancel={() => setDeleteConfirmProjectId(null)}
+      />
     </div>
   );
 }

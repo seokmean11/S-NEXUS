@@ -43,6 +43,8 @@ export function buildAnalysisDataPayload(
         code: project.projectCode,
         client: project.clientName,
         type: project.projectType,
+        market: project.marketScope,
+        continuity: project.continuity,
         division: project.divisionName,
         team: project.teamName,
         status: project.status,

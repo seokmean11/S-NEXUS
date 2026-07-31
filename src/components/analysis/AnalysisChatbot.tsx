@@ -1,7 +1,7 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '@/components/ui/Button';
 import { useApp } from '@/context/AppContext';
-import { formatGeminiError, sendGeminiAnalysisMessage } from '@/services/geminiAnalysis';
+import { DEFAULT_GEMINI_MODEL, formatGeminiError, sendGeminiAnalysisMessage } from '@/services/geminiAnalysis';
 import type { ExportTable } from '@/utils/reportExport';
 import { buildAnalysisDataPayload } from '@/utils/buildAnalysisDataPayload';
 import { getGeminiApiKey, hasGeminiApiKey, saveGeminiApiKey } from '@/utils/geminiApiKey';
@@ -52,6 +52,9 @@ export function AnalysisChatbot() {
 
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
+  const [cooldownUntil, setCooldownUntil] = useState(0);
+  const [cooldownSec, setCooldownSec] = useState(0);
+  const lastRequestAt = useRef(0);
   const [apiKeyInput, setApiKeyInput] = useState(() => getGeminiApiKey());
   const [settingsOpen, setSettingsOpen] = useState(() => !hasGeminiApiKey());
   const [messages, setMessages] = useState<ChatMessage[]>(() => [
@@ -100,6 +103,20 @@ export function AnalysisChatbot() {
     });
   };
 
+  useEffect(() => {
+    if (cooldownUntil <= Date.now()) {
+      setCooldownSec(0);
+      return;
+    }
+    const tick = () => {
+      const remain = Math.max(0, Math.ceil((cooldownUntil - Date.now()) / 1000));
+      setCooldownSec(remain);
+    };
+    tick();
+    const timer = window.setInterval(tick, 1000);
+    return () => window.clearInterval(timer);
+  }, [cooldownUntil]);
+
   const getConversationTurns = (nextMessages: ChatMessage[]) =>
     nextMessages
       .filter((m) => m.id !== 'welcome' && !m.error)
@@ -111,6 +128,12 @@ export function AnalysisChatbot() {
   const submitQuery = async (query: string) => {
     const trimmed = query.trim();
     if (!trimmed || loading) return;
+
+    if (cooldownSec > 0) return;
+
+    const now = Date.now();
+    if (now - lastRequestAt.current < 3000) return;
+    lastRequestAt.current = now;
 
     const apiKey = getGeminiApiKey();
     if (!apiKey) {
@@ -156,12 +179,16 @@ export function AnalysisChatbot() {
         },
       ]);
     } catch (error) {
+      const errorText = formatGeminiError(error);
+      if (/429|RPM|too many requests/i.test(errorText)) {
+        setCooldownUntil(Date.now() + 90_000);
+      }
       setMessages((prev) => [
         ...prev,
         {
           id: createId(),
           role: 'assistant',
-          text: formatGeminiError(error),
+          text: errorText,
           error: true,
         },
       ]);
@@ -277,7 +304,7 @@ export function AnalysisChatbot() {
           </div>
           <p className="analysis-chat__settings-hint">
             키는 브라우저 localStorage에 저장됩니다. .env: <code>VITE_GEMINI_API_KEY</code>
-            · 기본 모델: gemini-2.0-flash-lite
+            · 기본 모델: {DEFAULT_GEMINI_MODEL}
           </p>
         </div>
       )}
@@ -343,8 +370,8 @@ export function AnalysisChatbot() {
           placeholder="예: 상반기 수주만 다시 분석해줘 / 표에 발주처 열 추가해줘"
           disabled={loading}
         />
-        <Button type="submit" variant="primary" disabled={loading || !input.trim()}>
-          {loading ? '분석 중…' : '전송'}
+        <Button type="submit" variant="primary" disabled={loading || cooldownSec > 0 || !input.trim()}>
+          {loading ? '분석 중…' : cooldownSec > 0 ? `${cooldownSec}초 후 재시도` : '전송'}
         </Button>
       </form>
     </div>

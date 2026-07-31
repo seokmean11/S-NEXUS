@@ -171,6 +171,11 @@ interface AppContextValue {
   removeEmployee: (id: string) => OrgMutationResult;
   createProject: (project: Omit<Project, 'id' | 'createdAt' | 'updatedAt'>) => void;
   updateProject: (id: string, updates: Partial<Project>) => void;
+  deleteProject: (id: string) => void;
+  deleteContractAmendment: (
+    projectId: string,
+    amendmentId: string,
+  ) => { ok: true } | { ok: false; reason: string };
   saveContractAmendment: (
     projectId: string,
     params: {
@@ -864,6 +869,88 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [applyProjectUpdate, recordHistory],
   );
 
+  const deleteProject = useCallback(
+    (id: string) => {
+      const target = projects.find((p) => p.id === id);
+      if (!target) return;
+
+      setProjects((prev) => prev.filter((p) => p.id !== id));
+      setAllocations((prev) => prev.filter((a) => a.projectId !== id));
+      setProjectTeamAllocations((prev) => prev.filter((a) => a.projectId !== id));
+      setContractAmendments((prev) => prev.filter((a) => a.projectId !== id));
+
+      recordHistory({
+        category: 'project',
+        action: 'deleted',
+        entityType: 'project',
+        entityId: id,
+        entityName: target.name,
+        summary: `프로젝트 삭제: ${target.name}`,
+        before: {
+          status: target.status,
+          teamName: target.teamName,
+          projectCode: target.projectCode,
+        },
+      });
+    },
+    [projects, recordHistory],
+  );
+
+  const deleteContractAmendment = useCallback(
+    (
+      projectId: string,
+      amendmentId: string,
+    ): { ok: true } | { ok: false; reason: string } => {
+      const project = projects.find((p) => p.id === projectId);
+      if (!project) {
+        return { ok: false, reason: '프로젝트를 찾을 수 없습니다.' };
+      }
+
+      const existing = getAmendmentsForProject(contractAmendments, projectId);
+      const target = existing.find((a) => a.id === amendmentId);
+      if (!target) {
+        return { ok: false, reason: '삭제할 계약변경 이력을 찾을 수 없습니다.' };
+      }
+
+      const nextAmendments = existing.filter((a) => a.id !== amendmentId);
+      setContractAmendments((prev) => [
+        ...prev.filter((a) => a.projectId !== projectId),
+        ...nextAmendments,
+      ]);
+
+      const baseline = getProjectBaseline(project);
+      const effective = getEffectiveContract(baseline, nextAmendments);
+      applyProjectUpdate(projectId, {
+        contractAmount: effective.contractAmount,
+        startDate: effective.startDate,
+        endDate: effective.endDate,
+      });
+
+      recordHistory({
+        category: 'project',
+        action: 'deleted',
+        entityType: 'contract_amendment',
+        entityId: amendmentId,
+        entityName: project.name,
+        summary: `변경 ${target.sequence}차 삭제: ${project.name}`,
+        before: {
+          sequence: target.sequence,
+          contractAmount: target.contractAmount,
+          startDate: target.startDate,
+          endDate: target.endDate,
+        },
+        metadata: {
+          changeKind: 'amendment_delete',
+          amendmentSequence: target.sequence,
+          projectId,
+        },
+      });
+
+      return { ok: true };
+    },
+    [projects, contractAmendments, applyProjectUpdate, recordHistory],
+  );
+
   const saveContractAmendment = useCallback(
     (
       projectId: string,
@@ -1187,6 +1274,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     removeEmployee,
     createProject,
     updateProject,
+    deleteProject,
+    deleteContractAmendment,
     saveContractAmendment,
     saveInitialContract,
     syncPPM,
