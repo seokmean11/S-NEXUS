@@ -1,31 +1,34 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '@/components/ui/Button';
 import type { Project } from '@/types';
-import { filterProjects } from '@/utils/projectListFilter';
+import { filterProjectsByCode } from '@/utils/projectListFilter';
+import { getProjectCodeDisplay } from '@/utils/projectCode';
 
-interface ProjectNameSearchInputProps {
+interface BidProjectCodeSearchInputProps {
   projects: Project[];
   value: string;
   selectedProjectId?: string;
   onChange: (value: string) => void;
   onSelect: (project: Project) => void;
-  label?: string;
   required?: boolean;
 }
 
-export function ProjectNameSearchInput({
+export function BidProjectCodeSearchInput({
   projects,
   value,
   selectedProjectId,
   onChange,
   onSelect,
-  label = '프로젝트명',
   required,
-}: ProjectNameSearchInputProps) {
+}: BidProjectCodeSearchInputProps) {
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
+  const display = getProjectCodeDisplay(value);
 
-  const filteredProjects = useMemo(() => filterProjects(projects, value), [projects, value]);
+  const filteredProjects = useMemo(
+    () => filterProjectsByCode(projects, value),
+    [projects, value],
+  );
 
   useEffect(() => {
     const handlePointerDown = (event: MouseEvent) => {
@@ -40,7 +43,7 @@ export function ProjectNameSearchInput({
 
   const handleSelect = (project: Project) => {
     onSelect(project);
-    onChange(project.name);
+    onChange(project.projectCode ?? '');
     setDropdownOpen(false);
   };
 
@@ -58,19 +61,19 @@ export function ProjectNameSearchInput({
 
   return (
     <div className="form-field admin-form__cell project-name-search" ref={rootRef}>
-      <label htmlFor="project-name-search-input" className="form-field__label">
-        {label}
+      <label htmlFor="bid-project-code-search-input" className="form-field__label">
+        프로젝트 코드
         {required && ' *'}
       </label>
       <div className="project-name-search__bar">
         <input
-          id="project-name-search-input"
+          id="bid-project-code-search-input"
           type="search"
           className="form-field__input project-name-search__input"
-          value={value}
-          placeholder="프로젝트명·코드 검색 후 선택"
+          value={display}
+          placeholder="코드 검색 후 선택"
           onChange={(event) => {
-            onChange(event.target.value);
+            onChange(event.target.value.replace(/\D/g, '').slice(0, 10));
             setDropdownOpen(true);
           }}
           onFocus={() => setDropdownOpen(true)}
@@ -85,7 +88,7 @@ export function ProjectNameSearchInput({
           className="project-name-search__toggle"
           onClick={() => setDropdownOpen((open) => !open)}
           aria-expanded={dropdownOpen}
-          aria-controls="project-name-search-dropdown"
+          aria-controls="bid-project-code-search-dropdown"
         >
           {dropdownOpen ? '닫기' : '목록'}
         </Button>
@@ -93,10 +96,10 @@ export function ProjectNameSearchInput({
 
       {dropdownOpen && (
         <ul
-          id="project-name-search-dropdown"
+          id="bid-project-code-search-dropdown"
           className="project-name-search__dropdown"
           role="listbox"
-          aria-label="등록된 프로젝트 목록"
+          aria-label="등록된 프로젝트 코드 목록"
         >
           {filteredProjects.length === 0 ? (
             <li className="project-name-search__empty">검색 결과가 없습니다.</li>
@@ -110,10 +113,10 @@ export function ProjectNameSearchInput({
                   }`}
                   onClick={() => handleSelect(project)}
                 >
-                  <span className="project-name-search__option-name">{project.name}</span>
-                  {project.projectCode && (
-                    <span className="project-name-search__option-meta">{project.projectCode}</span>
-                  )}
+                  <span className="project-name-search__option-name">
+                    {project.projectCode ?? '-'}
+                  </span>
+                  <span className="project-name-search__option-meta">{project.name}</span>
                 </button>
               </li>
             ))

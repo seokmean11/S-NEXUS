@@ -16,6 +16,7 @@
   --radius-lg: 16px;
   --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.04), 0 4px 12px rgba(0, 0, 0, 0.04);
   --font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --gnb-height: 61px;
 }
 
 *,
@@ -32,17 +33,21 @@ body {
   color: var(--color-text);
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
+  overflow: hidden;
 }
 
 #root {
-  min-height: 100vh;
+  height: 100vh;
+  overflow: hidden;
 }
 
 /* Layout */
 .app-layout {
+  height: 100vh;
   min-height: 100vh;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
 }
 
 .gnb {
@@ -52,8 +57,7 @@ body {
   padding: 12px 24px;
   background: var(--color-surface);
   border-bottom: 1px solid var(--color-border);
-  position: sticky;
-  top: 0;
+  flex-shrink: 0;
   z-index: 100;
 }
 
@@ -93,9 +97,15 @@ body {
   gap: 16px;
 }
 
+.personnel-dashboard--embedded {
+  margin-bottom: 16px;
+}
+
 .app-body {
   display: flex;
   flex: 1;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .lnb {
@@ -107,6 +117,9 @@ body {
   flex-direction: column;
   flex-shrink: 0;
   min-height: 0;
+  height: 100%;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .lnb__nav {
@@ -173,6 +186,599 @@ body {
 .lnb__sync-btn {
   width: 100%;
 }
+
+.lnb__group {
+  margin-top: 4px;
+}
+
+.lnb__group-toggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 14px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  text-align: left;
+}
+
+.lnb__group-toggle:hover,
+.lnb__group-toggle--active {
+  background: var(--color-bg);
+  color: var(--color-primary);
+}
+
+.lnb__group-label {
+  flex: 1;
+}
+
+.lnb__group-chevron {
+  font-size: 11px;
+  color: var(--color-text-muted);
+}
+
+.lnb__subnav {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 4px 0 4px 28px;
+  padding-left: 10px;
+  border-left: 2px solid var(--color-border);
+}
+
+.lnb__sublink {
+  display: block;
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  color: var(--color-text-secondary);
+  text-decoration: none;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.lnb__sublink:hover {
+  background: var(--color-bg);
+}
+
+.lnb__sublink--active {
+  background: #e8f3ff;
+  color: var(--color-primary);
+  font-weight: 600;
+}
+
+.purchase-subnav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 24px;
+}
+
+.purchase-subnav__link {
+  display: inline-flex;
+  align-items: center;
+  padding: 8px 16px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text-secondary);
+  text-decoration: none;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.purchase-subnav__link:hover {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+
+.purchase-subnav__link--active {
+  background: #e8f3ff;
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+  font-weight: 600;
+}
+
+.bid-trade-type-search__hint {
+  display: block;
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}
+
+.bid-search__filters {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px 16px;
+  margin-bottom: 16px;
+}
+
+.bid-search__header-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.bid-search__summary {
+  margin-bottom: 12px;
+  font-size: 13px;
+  color: var(--color-text-secondary);
+}
+
+.bid-search__range-field {
+  grid-column: span 2;
+}
+
+.bid-search__range-inputs {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.bid-search__range-inputs .form-field {
+  flex: 1;
+  min-width: 0;
+  margin-bottom: 0;
+}
+
+.bid-search__amount-input {
+  margin-bottom: 0;
+}
+
+.bid-search__range-sep {
+  flex-shrink: 0;
+  padding-bottom: 10px;
+  color: var(--color-text-secondary);
+  font-size: 14px;
+}
+
+@media (max-width: 1100px) {
+  .bid-search__filters {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .bid-search__range-field {
+    grid-column: span 2;
+  }
+}
+
+@media (max-width: 640px) {
+  .bid-search__filters {
+    grid-template-columns: 1fr;
+  }
+
+  .bid-search__range-field {
+    grid-column: span 1;
+  }
+
+  .bid-search__range-inputs {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .bid-search__range-sep {
+    padding-bottom: 0;
+    text-align: center;
+  }
+}
+
+.bid-management-page {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.bid-registration__section + .bid-registration__section {
+  margin-top: 24px;
+  padding-top: 24px;
+  border-top: 1px solid var(--color-border);
+}
+
+.bid-registration__section-title {
+  margin: 0 0 16px;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.bid-registration__grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px 16px;
+}
+
+.bid-registration__span-full {
+  grid-column: 1 / -1;
+}
+
+.bid-registration__actions {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
+  margin-top: 20px;
+}
+
+.bid-registration__hint {
+  margin: 12px 0 0;
+  font-size: 13px;
+  color: var(--color-text-secondary);
+}
+
+.bid-quotation-attach__picker {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.bid-quotation-attach__dropzone {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 16px;
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg);
+  transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+
+.bid-quotation-attach__dropzone--active {
+  border-color: var(--color-primary);
+  background: rgba(37, 99, 235, 0.06);
+}
+
+.bid-quotation-attach__drop-message {
+  margin: 0 0 12px;
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}
+
+.bid-quotation-attach__add-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.bid-quotation-attach__add-hint {
+  font-size: 13px;
+  color: var(--color-text-secondary);
+}
+
+.bid-quotation-attach__pending-file {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.bid-partner-entry {
+  padding: 14px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+}
+
+.bid-partner-entry__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.bid-partner-entry__title {
+  font-size: 15px;
+}
+
+.bid-partner-entry__edit-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.bid-partner-entry__body {
+  display: grid;
+  grid-template-columns: 1fr 1fr auto;
+  gap: 12px;
+  align-items: end;
+}
+
+.bid-partner-entry__body--edit {
+  grid-template-columns: 1fr;
+  align-items: stretch;
+}
+
+.bid-partner-entry__info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.bid-partner-entry__label {
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}
+
+.bid-partner-entry__value {
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.bid-partner-entry__file-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.bid-quotation-compare {
+  margin-top: 8px;
+  padding-top: 20px;
+  border-top: 1px solid var(--color-border);
+}
+
+.bid-quotation-compare__title {
+  margin: 0 0 4px;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.bid-quotation-compare__subtitle {
+  margin: 0 0 12px;
+  font-size: 13px;
+  color: var(--color-text-secondary);
+}
+
+.bid-quotation-compare__verdict {
+  margin: 0 0 16px;
+  padding: 16px 18px;
+  border-radius: 10px;
+  border: 2px solid transparent;
+}
+
+.bid-quotation-compare__verdict--failed {
+  border-color: #dc2626;
+  background: rgba(220, 38, 38, 0.08);
+}
+
+.bid-quotation-compare__verdict--awarded {
+  border-color: #16a34a;
+  background: rgba(22, 163, 74, 0.08);
+}
+
+.bid-quotation-compare__verdict-label {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 20px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+}
+
+.bid-quotation-compare__verdict--failed .bid-quotation-compare__verdict-label {
+  color: #dc2626;
+}
+
+.bid-quotation-compare__verdict--awarded .bid-quotation-compare__verdict-label {
+  color: #16a34a;
+}
+
+.bid-quotation-compare__verdict-text {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.bid-quotation-compare__actions {
+  display: flex;
+  justify-content: center;
+  margin-top: 20px;
+}
+
+.bid-quotation-compare__columns {
+  display: flex;
+  flex-direction: row;
+  gap: 12px;
+  overflow-x: auto;
+  padding-bottom: 8px;
+}
+
+.bid-quotation-compare__column {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 180px;
+  flex-shrink: 0;
+  padding: 14px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg);
+}
+
+.bid-quotation-compare__column--top {
+  border-color: var(--color-primary);
+  background: rgba(37, 99, 235, 0.05);
+}
+
+.bid-quotation-compare__rank {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-primary);
+}
+
+.bid-quotation-compare__vendor {
+  font-size: 14px;
+}
+
+.bid-quotation-compare__amount {
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.bid-quotation-compare__lines {
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}
+
+.bid-quotation-compare__empty {
+  margin: 0;
+  font-size: 13px;
+  color: var(--color-text-secondary);
+}
+
+.bid-quotation-compare__errors {
+  margin: 12px 0 0;
+  padding-left: 18px;
+  font-size: 12px;
+  color: #dc2626;
+}
+
+.bid-quotation-compare__download {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--color-border);
+}
+
+.bid-quotation-compare__download-title {
+  margin: 0 0 6px;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.bid-quotation-compare__download-desc {
+  margin: 0 0 12px;
+  font-size: 13px;
+  color: var(--color-text-secondary);
+  line-height: 1.5;
+}
+
+.bid-quotation-attach__file-input {
+  display: none;
+}
+
+.bid-quotation-attach__hint {
+  margin: 0;
+  font-size: 13px;
+  color: var(--color-text-secondary);
+}
+
+.bid-quotation-attach__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.bid-quotation-attach__item {
+  display: grid;
+  grid-template-columns: minmax(160px, 1fr) 1fr auto;
+  gap: 12px;
+  align-items: end;
+  padding: 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.bid-quotation-attach__file-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.bid-quotation-attach__filename {
+  font-size: 14px;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bid-quotation-attach__filesize {
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}
+
+.bid-quotation-attach__empty {
+  margin: 0;
+  padding: 16px;
+  text-align: center;
+  color: var(--color-text-secondary);
+  background: var(--color-bg);
+  border-radius: var(--radius-md);
+}
+
+@media (max-width: 960px) {
+  .bid-registration__grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .bid-quotation-attach__picker {
+    grid-template-columns: 1fr;
+  }
+
+  .bid-quotation-attach__item {
+    grid-template-columns: 1fr;
+  }
+
+  .bid-partner-entry__body {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 640px) {
+  .bid-registration__grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.bid-table-wrap {
+  overflow-x: auto;
+}
+
+.bid-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.bid-table th,
+.bid-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--color-border);
+  text-align: left;
+  vertical-align: top;
+}
+
+.bid-table th {
+  background: var(--color-bg);
+  font-weight: 600;
+}
+
+.bid-table__sub {
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--color-text-muted);
+  font-weight: 400;
+}
+
+.bid-table__empty {
+  text-align: center;
+  color: var(--color-text-muted);
+  padding: 24px;
+}
+
+.bid-analysis-chat {
+  margin-top: 8px;
+}
+
 
 .contract-fields-group {
   display: grid;
@@ -442,8 +1048,11 @@ body {
 
 .main-content {
   flex: 1;
+  min-width: 0;
+  min-height: 0;
   padding: 24px 28px;
   overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 /* Card */
@@ -635,6 +1244,13 @@ body {
 /* Page */
 .page-header {
   margin-bottom: 24px;
+}
+
+.page-header--row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
 }
 
 .page-header h2 {
@@ -1111,9 +1727,49 @@ body {
   padding-top: 8px;
 }
 
-.org-division-header {
-  margin-bottom: 16px;
+.org-tree--compact {
+  margin-top: 16px;
 }
+
+.org-division-card--compact {
+  padding: 16px;
+  background: var(--color-bg);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+}
+
+.org-division-title {
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.org-team-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.org-team-list-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  background: var(--color-surface);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+}
+
+.org-division-card--compact .org-division-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 0;
+}
+
 
 .org-teams {
   display: flex;
@@ -1675,6 +2331,7 @@ body {
   body {
     background: white;
     font-size: 11pt;
+    overflow: visible;
   }
 
   .no-print {
@@ -1746,15 +2403,154 @@ body {
   }
 }
 
+.access-role-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.access-role-badge--dev {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+.access-role-badge--exec {
+  background: #ede9fe;
+  color: #6d28d9;
+}
+
+.access-role-badge--division {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+.access-role-badge--team {
+  background: #dcfce7;
+  color: #15803d;
+}
+
+.access-role-badge--member {
+  background: #f3f4f6;
+  color: #4b5563;
+}
+
+.personnel-dashboard__entity-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.personnel-dashboard__filters {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px 16px;
+  margin-bottom: 16px;
+}
+
+.personnel-dashboard__filter-actions {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.personnel-dashboard__summary {
+  margin-bottom: 12px;
+  font-size: 13px;
+  color: var(--color-text-secondary);
+}
+
+.personnel-table-wrap {
+  overflow-x: auto;
+}
+
+.personnel-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.personnel-table th,
+.personnel-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--color-border);
+  text-align: left;
+  vertical-align: middle;
+}
+
+.personnel-table th {
+  background: var(--color-bg);
+  font-weight: 600;
+}
+
+.personnel-table__actions {
+  width: 140px;
+}
+
+.personnel-table__action-group {
+  display: flex;
+  gap: 6px;
+}
+
+.personnel-table__empty {
+  text-align: center;
+  color: var(--color-text-muted);
+}
+
+.personnel-editor-card {
+  margin-top: 16px;
+}
+
+.personnel-editor-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px 16px;
+}
+
+.personnel-editor-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.org-member-item {
+  flex-wrap: wrap;
+}
+
 @media (max-width: 768px) {
+  body,
+  #root {
+    overflow: auto;
+  }
+
+  .app-layout {
+    height: auto;
+    min-height: 100vh;
+    overflow: visible;
+  }
+
   .app-body {
     flex-direction: column;
+    overflow: visible;
   }
 
   .lnb {
     width: 100%;
+    height: auto;
+    max-height: none;
     border-right: none;
     border-bottom: 1px solid var(--color-border);
+    position: sticky;
+    top: 0;
+    z-index: 90;
+  }
+
+  .main-content {
+    overflow: visible;
   }
 
   .gnb {

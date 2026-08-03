@@ -25,3 +25,14 @@ export function filterProjects(projects: Project[], query: string) {
     return searchable.includes(keyword);
   });
 }
+
+export function filterProjectsByCode(projects: Project[], query: string) {
+  const sorted = sortProjectsByName(projects);
+  const digits = query.replace(/\D/g, '');
+  if (!digits) return sorted;
+
+  return sorted.filter((project) => {
+    const codeDigits = (project.projectCode ?? '').replace(/\D/g, '');
+    return codeDigits.includes(digits);
+  });
+}

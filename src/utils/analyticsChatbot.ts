@@ -11,6 +11,7 @@ import { getAmendmentsForProject } from '@/utils/contractChange';
 import { parseProjectCode } from '@/utils/projectCode';
 import { buildProjectInsightReport } from '@/utils/projectInsightReport';
 import { resolveDivisionFilter } from '@/utils/analysisQueryFilter';
+import { isOrganizationAnalysisQuery } from '@/utils/analysisQueryIntent';
 
 export type { AnalyticsChatContext, ChatbotResponse, ChatExportAction } from '@/types/analyticsChat';
 
@@ -286,6 +287,7 @@ function helpResponse(): ChatbotResponse {
 }
 
 function isInsightReportQuery(query: string): boolean {
+  if (isOrganizationAnalysisQuery(query)) return false;
   if (/인사이트|종합\s*분석|심층\s*분석|insight/i.test(query)) return true;
   if (/보고서|분석/.test(query) && /프로젝트|등록|현재|전체|지금/.test(query)) {
     if (/수주\s*추이|년\s*간|연도별|트렌드/.test(query) && !/인사이트/.test(query)) return false;

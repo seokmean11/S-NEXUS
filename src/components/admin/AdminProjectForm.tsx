@@ -40,6 +40,7 @@ import {
   getNextAmendmentSequence,
   getProjectBaseline,
 } from '@/utils/contractChange';
+import { downloadProjectListExcel } from '@/utils/projectListExport';
 
 type FormMode = 'create' | 'edit';
 type FormEntryMode = 'new' | 'existing';
@@ -478,9 +479,20 @@ export function AdminProjectForm() {
 
   return (
     <div className="admin-page">
-      <div className="page-header no-print">
-        <h2>프로젝트 마스터 관리</h2>
-        <p>프로젝트 코드 입력 시 사업본부·상태가 자동 설정됩니다</p>
+      <div className="page-header no-print page-header--row">
+        <div>
+          <h2>프로젝트 마스터 관리</h2>
+          <p>프로젝트 코드 입력 시 사업본부·상태가 자동 설정됩니다</p>
+        </div>
+        {projects.length > 0 && (
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => downloadProjectListExcel(projects, '프로젝트_전체')}
+          >
+            전체 프로젝트 엑셀
+          </Button>
+        )}
       </div>
 
       {message && <div className="toast toast--success no-print">{message}</div>}

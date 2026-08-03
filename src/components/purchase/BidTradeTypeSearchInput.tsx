@@ -1,31 +1,27 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '@/components/ui/Button';
-import type { Project } from '@/types';
-import { filterProjects } from '@/utils/projectListFilter';
+import { filterBidTradeTypes } from '@/utils/bidTradeTypeSearch';
 
-interface ProjectNameSearchInputProps {
-  projects: Project[];
+interface BidTradeTypeSearchInputProps {
+  tradeTypes: string[];
   value: string;
-  selectedProjectId?: string;
   onChange: (value: string) => void;
-  onSelect: (project: Project) => void;
-  label?: string;
   required?: boolean;
 }
 
-export function ProjectNameSearchInput({
-  projects,
+export function BidTradeTypeSearchInput({
+  tradeTypes,
   value,
-  selectedProjectId,
   onChange,
-  onSelect,
-  label = '프로젝트명',
   required,
-}: ProjectNameSearchInputProps) {
+}: BidTradeTypeSearchInputProps) {
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
 
-  const filteredProjects = useMemo(() => filterProjects(projects, value), [projects, value]);
+  const filteredTradeTypes = useMemo(
+    () => filterBidTradeTypes(tradeTypes, value),
+    [tradeTypes, value],
+  );
 
   useEffect(() => {
     const handlePointerDown = (event: MouseEvent) => {
@@ -38,9 +34,8 @@ export function ProjectNameSearchInput({
     return () => document.removeEventListener('mousedown', handlePointerDown);
   }, []);
 
-  const handleSelect = (project: Project) => {
-    onSelect(project);
-    onChange(project.name);
+  const handleSelect = (tradeType: string) => {
+    onChange(tradeType);
     setDropdownOpen(false);
   };
 
@@ -50,25 +45,24 @@ export function ProjectNameSearchInput({
       return;
     }
 
-    if (event.key === 'Enter' && filteredProjects.length > 0) {
+    if (event.key === 'Enter' && filteredTradeTypes.length > 0) {
       event.preventDefault();
-      handleSelect(filteredProjects[0]);
+      handleSelect(filteredTradeTypes[0]);
     }
   };
 
   return (
     <div className="form-field admin-form__cell project-name-search" ref={rootRef}>
-      <label htmlFor="project-name-search-input" className="form-field__label">
-        {label}
-        {required && ' *'}
+      <label htmlFor="bid-trade-type-search-input" className="form-field__label">
+        외주공종 *
       </label>
       <div className="project-name-search__bar">
         <input
-          id="project-name-search-input"
+          id="bid-trade-type-search-input"
           type="search"
           className="form-field__input project-name-search__input"
           value={value}
-          placeholder="프로젝트명·코드 검색 후 선택"
+          placeholder="기존 공종 검색 또는 직접 입력"
           onChange={(event) => {
             onChange(event.target.value);
             setDropdownOpen(true);
@@ -85,35 +79,37 @@ export function ProjectNameSearchInput({
           className="project-name-search__toggle"
           onClick={() => setDropdownOpen((open) => !open)}
           aria-expanded={dropdownOpen}
-          aria-controls="project-name-search-dropdown"
+          aria-controls="bid-trade-type-search-dropdown"
         >
           {dropdownOpen ? '닫기' : '목록'}
         </Button>
       </div>
+      <span className="bid-trade-type-search__hint">
+        등록된 입찰 공종을 검색하거나 새 공종명을 직접 입력할 수 있습니다.
+      </span>
 
       {dropdownOpen && (
         <ul
-          id="project-name-search-dropdown"
+          id="bid-trade-type-search-dropdown"
           className="project-name-search__dropdown"
           role="listbox"
-          aria-label="등록된 프로젝트 목록"
+          aria-label="입찰 공종 목록"
         >
-          {filteredProjects.length === 0 ? (
-            <li className="project-name-search__empty">검색 결과가 없습니다.</li>
+          {filteredTradeTypes.length === 0 ? (
+            <li className="project-name-search__empty">
+              {value.trim() ? `"${value.trim()}" 직접 입력` : '검색 결과가 없습니다.'}
+            </li>
           ) : (
-            filteredProjects.map((project) => (
-              <li key={project.id} role="option" aria-selected={selectedProjectId === project.id}>
+            filteredTradeTypes.map((tradeType) => (
+              <li key={tradeType} role="option" aria-selected={value === tradeType}>
                 <button
                   type="button"
                   className={`project-name-search__option ${
-                    selectedProjectId === project.id ? 'project-name-search__option--active' : ''
+                    value === tradeType ? 'project-name-search__option--active' : ''
                   }`}
-                  onClick={() => handleSelect(project)}
+                  onClick={() => handleSelect(tradeType)}
                 >
-                  <span className="project-name-search__option-name">{project.name}</span>
-                  {project.projectCode && (
-                    <span className="project-name-search__option-meta">{project.projectCode}</span>
-                  )}
+                  <span className="project-name-search__option-name">{tradeType}</span>
                 </button>
               </li>
             ))

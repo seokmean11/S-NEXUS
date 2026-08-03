@@ -1,6 +1,7 @@
 import type { Division, Employee, ExecutiveOffice, Project, ProjectTeamAllocation, Team, TrackAllocation } from '@/types';
 import type { ContractAmendment } from '@/types/contractChange';
 import type { LegacyExecutiveOffice } from '@/types/history';
+import { normalizeEmployeeAccessRole, normalizeExecutiveAccessRole } from '@/utils/webAccessRole';
 
 const ORG_KEY = 'performance-dashboard-org';
 const APP_KEY = 'performance-dashboard-app';
@@ -48,16 +49,51 @@ function migrateProjectContinuity(projects: Project[]): Project[] {
   );
 }
 
+function migrateTeams(teams: Team[], divisions: Division[]): Team[] {
+  const exhibitionDivisionIds = new Set(
+    divisions
+      .filter((division) => division.name === '전시사업본부' || division.id === 'div-ex')
+      .map((division) => division.id),
+  );
+
+  return teams.filter(
+    (team) => !(team.name === '건축2팀' && exhibitionDivisionIds.has(team.divisionId)),
+  );
+}
+
+function migrateEmployees(employees: Employee[]): Employee[] {
+  return employees.map((employee) => {
+    const migrated =
+      employee.id === 'emp-admin' && employee.name === '김개발'
+        ? { ...employee, name: '서석민' }
+        : employee;
+    return normalizeEmployeeAccessRole(migrated);
+  });
+}
+
+function migrateExecutiveOffice(
+  office?: ExecutiveOffice | LegacyExecutiveOffice,
+): ExecutiveOffice {
+  const normalized = normalizeExecutiveOffice(office);
+  return {
+    admins: (normalized.admins ?? []).map((admin) => normalizeExecutiveAccessRole(admin)),
+  };
+}
+
 export function repairStoredData(): void {
   try {
     const org = loadOrgState();
     if (org) {
+      const employees = migrateEmployees(org.employees);
       saveOrgState({
         ...org,
-        executiveOffice: normalizeExecutiveOffice(org.executiveOffice),
+        executiveOffice: migrateExecutiveOffice(org.executiveOffice),
         divisions: Array.isArray(org.divisions) ? org.divisions : [],
-        teams: Array.isArray(org.teams) ? org.teams : [],
-        employees: Array.isArray(org.employees) ? org.employees : [],
+        teams: migrateTeams(
+          Array.isArray(org.teams) ? org.teams : [],
+          Array.isArray(org.divisions) ? org.divisions : [],
+        ),
+        employees: Array.isArray(employees) ? employees : [],
       });
     }
   } catch {
@@ -102,7 +138,9 @@ export function loadOrgState(): StoredOrgState | null {
 
     return {
       ...parsed,
-      executiveOffice: normalizeExecutiveOffice(parsed.executiveOffice),
+      employees: migrateEmployees(parsed.employees),
+      executiveOffice: migrateExecutiveOffice(parsed.executiveOffice),
+      teams: migrateTeams(parsed.teams, parsed.divisions),
     };
   } catch {
     return null;

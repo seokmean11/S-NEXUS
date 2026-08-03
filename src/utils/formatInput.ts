@@ -170,3 +170,91 @@ export function clearKoreanDateDigitAtSlot(value: string, slot: number): string 
 export function applyKoreanDatePaste(_value: string, raw: string): string {
   return joinKoreanDateSegments(splitKoreanDateSegments(raw));
 }
+
+export interface KoreanDateTimeSegments extends KoreanDateSegments {
+  hour: string;
+  minute: string;
+}
+
+const KOREAN_DATETIME_DIGIT_INDICES = [0, 1, 2, 3, 6, 7, 10, 11, 14, 15, 18, 19] as const;
+
+function getKoreanDateTimeSlots(value: string): string[] {
+  const raw = value.replace(/\D/g, '');
+  return Array.from({ length: 12 }, (_, index) => raw[index] ?? '');
+}
+
+function slotsToStorage(slots: string[]): string {
+  let end = slots.length;
+  while (end > 0 && !slots[end - 1]) end -= 1;
+  return slots.slice(0, end).join('');
+}
+
+export function splitKoreanDateTimeSegments(value: string): KoreanDateTimeSegments {
+  const slots = getKoreanDateTimeSlots(value);
+  return {
+    year: slots.slice(0, 4).join(''),
+    month: slots.slice(4, 6).join(''),
+    day: slots.slice(6, 8).join(''),
+    hour: slots.slice(8, 10).join(''),
+    minute: slots.slice(10, 12).join(''),
+  };
+}
+
+/** 항상 0000년 00월 00일 00시 00분 형태로 표시 (미입력 자리는 0) */
+export function getKoreanDateTimeDisplay(value: string): string {
+  const slots = getKoreanDateTimeSlots(value);
+  const digit = (index: number) => slots[index] || '0';
+  return `${digit(0)}${digit(1)}${digit(2)}${digit(3)}년 ${digit(4)}${digit(5)}월 ${digit(6)}${digit(7)}일 ${digit(8)}${digit(9)}시 ${digit(10)}${digit(11)}분`;
+}
+
+export function isCompleteKoreanDateTime(value: string): boolean {
+  const digits = value.replace(/\D/g, '');
+  if (digits.length !== 12) return false;
+
+  const parts = splitKoreanDateTimeSegments(value);
+  if (!isCompleteKoreanDate(joinKoreanDateSegments(parts))) return false;
+
+  const hour = Number(parts.hour);
+  const minute = Number(parts.minute);
+  if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return false;
+
+  return true;
+}
+
+export function getKoreanDateTimeDigitIndices(_display?: string): number[] {
+  return [...KOREAN_DATETIME_DIGIT_INDICES];
+}
+
+export function getKoreanDateTimeSlotFromCursor(_value: string, cursor: number): number {
+  for (let slot = 0; slot < KOREAN_DATETIME_DIGIT_INDICES.length; slot++) {
+    if (cursor <= KOREAN_DATETIME_DIGIT_INDICES[slot]) return slot;
+  }
+  return 11;
+}
+
+export function getKoreanDateTimeCursorForSlot(_value: string, slot: number): number {
+  return KOREAN_DATETIME_DIGIT_INDICES[Math.min(Math.max(slot, 0), 11)] ?? 0;
+}
+
+export function setKoreanDateTimeDigitAtSlot(value: string, slot: number, digit: string): string {
+  const slots = getKoreanDateTimeSlots(value);
+  slots[slot] = digit;
+  return slotsToStorage(slots);
+}
+
+export function clearKoreanDateTimeDigitAtSlot(value: string, slot: number): string {
+  const slots = getKoreanDateTimeSlots(value);
+  slots[slot] = '';
+  return slotsToStorage(slots);
+}
+
+export function applyKoreanDateTimePaste(_value: string, raw: string): string {
+  return raw.replace(/\D/g, '').slice(0, 12);
+}
+
+/** @deprecated use getKoreanDateTimeDisplay */
+export function joinKoreanDateTimeSegments(parts: KoreanDateTimeSegments): string {
+  return getKoreanDateTimeDisplay(
+    [parts.year, parts.month, parts.day, parts.hour, parts.minute].join(''),
+  );
+}

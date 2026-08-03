@@ -5,6 +5,9 @@ export type Role =
   | 'team_manager'
   | 'team_member';
 
+/** S-NEXUS 웹 사용 권한 */
+export type WebAccessRole = '직원' | '팀장' | '본부장' | '경영진' | '개발자';
+
 export interface RoleConfig {
   id: Role;
   label: string;
@@ -72,6 +75,7 @@ export interface ExecutiveAdmin {
   id: string;
   name: string;
   rank: string;
+  accessRole?: WebAccessRole;
 }
 
 export interface ExecutiveOffice {
@@ -100,7 +104,10 @@ export interface Employee {
   divisionName: string;
   teamId: string;
   teamName: string;
+  /** 직급/직책 */
   role: string;
+  /** S-NEXUS 웹 사용 권한 */
+  accessRole?: WebAccessRole;
 }
 
 export interface AllocationEntry {

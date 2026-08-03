@@ -35,6 +35,7 @@ import type {
   Team,
   TeamAllocationEntry,
   TrackAllocation,
+  WebAccessRole,
 } from '@/types';
 import type { HistoryEvent } from '@/types/history';
 import type {
@@ -75,6 +76,7 @@ import {
   syncProjectTeamAllocationNames,
   syncProjectsWithOrg,
 } from '@/utils/projectSync';
+import { inferAccessRoleFromEmployee } from '@/utils/webAccessRole';
 
 type OrgMutationResult = { ok: true } | { ok: false; reason: string };
 
@@ -147,16 +149,19 @@ interface AppContextValue {
   contributionCards: ContributionCard[];
   historyEvents: HistoryEvent[];
   setRole: (role: Role) => void;
-  addExecutiveAdmin: (name: string, rank: string) => void;
+  addExecutiveAdmin: (name: string, rank: string, accessRole?: WebAccessRole) => void;
   removeExecutiveAdmin: (id: string) => void;
-  updateExecutiveAdmin: (id: string, updates: { name?: string; rank?: string }) => void;
-  addDivision: (name: string) => void;
+  updateExecutiveAdmin: (
+    id: string,
+    updates: { name?: string; rank?: string; accessRole?: WebAccessRole },
+  ) => void;
+  addDivision: (name: string) => string;
   updateDivision: (
     id: string,
     updates: { name?: string; headName?: string; headRank?: string },
   ) => void;
   removeDivision: (id: string) => OrgMutationResult;
-  addTeam: (divisionId: string, name: string) => void;
+  addTeam: (divisionId: string, name: string) => string;
   updateTeam: (
     id: string,
     updates: {
@@ -167,10 +172,15 @@ interface AppContextValue {
     },
   ) => void;
   removeTeam: (id: string) => OrgMutationResult;
-  addEmployee: (teamId: string, name: string, role: string) => void;
+  addEmployee: (
+    teamId: string,
+    name: string,
+    role: string,
+    accessRole?: WebAccessRole,
+  ) => void;
   updateEmployee: (
     id: string,
-    updates: Partial<Pick<Employee, 'name' | 'role' | 'teamId'>>,
+    updates: Partial<Pick<Employee, 'name' | 'role' | 'teamId' | 'accessRole'>>,
   ) => void;
   removeEmployee: (id: string) => OrgMutationResult;
   createProject: (project: Omit<Project, 'id' | 'createdAt' | 'updatedAt'>) => void;
@@ -340,11 +350,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const addExecutiveAdmin = useCallback(
-    (name: string, rank: string) => {
+    (name: string, rank: string, accessRole: WebAccessRole = '경영진') => {
       const admin: ExecutiveAdmin = {
         id: generateOrgId('exec'),
         name,
         rank,
+        accessRole,
       };
       setExecutiveOffice((prev) => ({ admins: [...(prev.admins ?? []), admin] }));
       recordHistory({
@@ -382,7 +393,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   );
 
   const updateExecutiveAdmin = useCallback(
-    (id: string, updates: { name?: string; rank?: string }) => {
+    (id: string, updates: { name?: string; rank?: string; accessRole?: WebAccessRole }) => {
       const before = executiveOffice.admins?.find((a) => a.id === id);
       setExecutiveOffice((prev) => ({
         admins: (prev.admins ?? []).map((a) => (a.id === id ? { ...a, ...updates } : a)),
@@ -470,6 +481,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         entityName: name,
         summary: `사업본부 추가: ${name}`,
       });
+      return division.id;
     },
     [recordHistory],
   );
@@ -551,6 +563,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         summary: `팀 추가: ${name}`,
         metadata: { divisionId },
       });
+      return team.id;
     },
     [recordHistory],
   );
@@ -648,7 +661,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   );
 
   const addEmployee = useCallback(
-    (teamId: string, name: string, roleTitle: string) => {
+    (teamId: string, name: string, roleTitle: string, accessRole?: WebAccessRole) => {
       const team = teams.find((t) => t.id === teamId);
       if (!team) return;
       const division = divisions.find((d) => d.id === team.divisionId);
@@ -656,6 +669,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         id: generateOrgId('emp'),
         name,
         role: roleTitle,
+        accessRole: accessRole ?? inferAccessRoleFromEmployee({ id: '', role: roleTitle }),
         teamId,
         teamName: team.name,
         divisionId: team.divisionId,
@@ -680,7 +694,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   );
 
   const updateEmployee = useCallback(
-    (id: string, updates: Partial<Pick<Employee, 'name' | 'role' | 'teamId'>>) => {
+    (id: string, updates: Partial<Pick<Employee, 'name' | 'role' | 'teamId' | 'accessRole'>>) => {
       const before = employees.find((e) => e.id === id);
       setEmployees((prev) =>
         prev.map((e) => {
@@ -693,6 +707,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
             ...updates,
             name: updates.name ?? e.name,
             role: updates.role ?? e.role,
+            accessRole: updates.accessRole ?? e.accessRole,
             teamId: nextTeamId,
             teamName: team?.name ?? e.teamName,
             divisionId: team?.divisionId ?? e.divisionId,

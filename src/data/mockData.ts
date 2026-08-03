@@ -11,7 +11,7 @@ import type {
 } from '@/types';
 
 export const EXECUTIVE_OFFICE: ExecutiveOffice = {
-  admins: [{ id: 'exec-1', name: '박경영', rank: '상무' }],
+  admins: [{ id: 'exec-1', name: '박경영', rank: '상무', accessRole: '경영진' }],
 };
 
 export const DIVISIONS: Division[] = [
@@ -30,22 +30,21 @@ export const TEAMS: Team[] = [
   { id: 'team-os1', name: '해외1팀', divisionId: 'div-os' },
   { id: 'team-in1', name: '인테리어1팀', divisionId: 'div-in', headName: '인테리어팀장', headRank: '책임매니저' },
   { id: 'team-a1', name: '건축1팀', divisionId: 'div-a', headName: '최팀장', headRank: '수석매니저' },
-  { id: 'team-a2', name: '건축2팀', divisionId: 'div-a' },
   { id: 'team-b1', name: '도로설계팀', divisionId: 'div-b', headName: '윤도로', headRank: '책임매니저' },
   { id: 'team-c1', name: '스마트플랫폼팀', divisionId: 'div-c' },
 ];
 
 export const EMPLOYEES: Employee[] = [
-  { id: 'emp-admin', name: '김개발', divisionId: 'div-a', divisionName: '건축사업본부', teamId: 'team-a1', teamName: '건축1팀', role: '개발관리자' },
-  { id: 'emp-ceo', name: '박경영', divisionId: 'div-a', divisionName: '건축사업본부', teamId: 'team-a1', teamName: '건축1팀', role: '경영관리' },
-  { id: 'emp-div-a', name: '이본부', divisionId: 'div-a', divisionName: '건축사업본부', teamId: 'team-a1', teamName: '건축1팀', role: '사업본부장' },
-  { id: 'emp-mgr-a1', name: '최팀장', divisionId: 'div-a', divisionName: '건축사업본부', teamId: 'team-a1', teamName: '건축1팀', role: '팀장' },
-  { id: 'emp-mem-1', name: '정민수', divisionId: 'div-a', divisionName: '건축사업본부', teamId: 'team-a1', teamName: '건축1팀', role: '팀원' },
-  { id: 'emp-mem-2', name: '한지영', divisionId: 'div-a', divisionName: '건축사업본부', teamId: 'team-a1', teamName: '건축1팀', role: '팀원' },
-  { id: 'emp-mem-3', name: '오성훈', divisionId: 'div-a', divisionName: '건축사업본부', teamId: 'team-a1', teamName: '건축1팀', role: '팀원' },
-  { id: 'emp-div-b', name: '강인프', divisionId: 'div-b', divisionName: '인프라사업본부', teamId: 'team-b1', teamName: '도로설계팀', role: '사업본부장' },
-  { id: 'emp-mgr-b1', name: '윤도로', divisionId: 'div-b', divisionName: '인프라사업본부', teamId: 'team-b1', teamName: '도로설계팀', role: '팀장' },
-  { id: 'emp-mem-4', name: '송미래', divisionId: 'div-b', divisionName: '인프라사업본부', teamId: 'team-b1', teamName: '도로설계팀', role: '팀원' },
+  { id: 'emp-admin', name: '서석민', divisionId: 'div-a', divisionName: '건축사업본부', teamId: 'team-a1', teamName: '건축1팀', role: '개발관리자', accessRole: '개발자' },
+  { id: 'emp-ceo', name: '박경영', divisionId: 'div-a', divisionName: '건축사업본부', teamId: 'team-a1', teamName: '건축1팀', role: '경영관리', accessRole: '경영진' },
+  { id: 'emp-div-a', name: '이본부', divisionId: 'div-a', divisionName: '건축사업본부', teamId: 'team-a1', teamName: '건축1팀', role: '사업본부장', accessRole: '본부장' },
+  { id: 'emp-mgr-a1', name: '최팀장', divisionId: 'div-a', divisionName: '건축사업본부', teamId: 'team-a1', teamName: '건축1팀', role: '팀장', accessRole: '팀장' },
+  { id: 'emp-mem-1', name: '정민수', divisionId: 'div-a', divisionName: '건축사업본부', teamId: 'team-a1', teamName: '건축1팀', role: '팀원', accessRole: '직원' },
+  { id: 'emp-mem-2', name: '한지영', divisionId: 'div-a', divisionName: '건축사업본부', teamId: 'team-a1', teamName: '건축1팀', role: '팀원', accessRole: '직원' },
+  { id: 'emp-mem-3', name: '오성훈', divisionId: 'div-a', divisionName: '건축사업본부', teamId: 'team-a1', teamName: '건축1팀', role: '팀원', accessRole: '직원' },
+  { id: 'emp-div-b', name: '강인프', divisionId: 'div-b', divisionName: '인프라사업본부', teamId: 'team-b1', teamName: '도로설계팀', role: '사업본부장', accessRole: '본부장' },
+  { id: 'emp-mgr-b1', name: '윤도로', divisionId: 'div-b', divisionName: '인프라사업본부', teamId: 'team-b1', teamName: '도로설계팀', role: '팀장', accessRole: '팀장' },
+  { id: 'emp-mem-4', name: '송미래', divisionId: 'div-b', divisionName: '인프라사업본부', teamId: 'team-b1', teamName: '도로설계팀', role: '팀원', accessRole: '직원' },
 ];
 
 export const ROLE_CONFIGS: RoleConfig[] = [
@@ -54,7 +53,7 @@ export const ROLE_CONFIGS: RoleConfig[] = [
     label: '개발관리자',
     description: '전사 데이터 + 마스터 관리 + PPM 동기화',
     userId: 'emp-admin',
-    userName: '김개발',
+    userName: '서석민',
     divisionId: 'div-a',
     teamId: 'team-a1',
   },

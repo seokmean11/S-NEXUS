@@ -3,7 +3,9 @@ import { ProjectList } from '@/components/dashboard/ProjectList';
 import { ContributionCards } from '@/components/dashboard/ContributionCards';
 import { BudgetPanel } from '@/components/budget/BudgetPanel';
 import { Card } from '@/components/ui/Card';
+import { Button } from '@/components/ui/Button';
 import { formatCurrency } from '@/data/mockData';
+import { downloadProjectListExcel } from '@/utils/projectListExport';
 
 export function DashboardPage() {
   const {
@@ -35,21 +37,32 @@ export function DashboardPage() {
         <p>발행일: {new Date().toLocaleDateString('ko-KR')} · 전사 데이터</p>
       </div>
 
-      <div className="page-header no-print">
-        <h2>
-          {role === 'team_member'
-            ? `${roleConfig.userName}님의 기여도`
-            : '프로젝트 성과 대시보드'}
-        </h2>
-        <p>
-          {permissions.canViewAll
-            ? '전사 프로젝트 현황을 확인합니다.'
-            : role === 'division_head'
-              ? `${roleConfig.userName} · 사업본부 범위`
-              : role === 'team_manager'
-                ? `${roleConfig.userName} · 팀 범위`
-                : '참여 프로젝트 기여도'}
-        </p>
+      <div className="page-header no-print page-header--row">
+        <div>
+          <h2>
+            {role === 'team_member'
+              ? `${roleConfig.userName}님의 기여도`
+              : '프로젝트 성과 대시보드'}
+          </h2>
+          <p>
+            {permissions.canViewAll
+              ? '전사 프로젝트 현황을 확인합니다.'
+              : role === 'division_head'
+                ? `${roleConfig.userName} · 사업본부 범위`
+                : role === 'team_manager'
+                  ? `${roleConfig.userName} · 팀 범위`
+                  : '참여 프로젝트 기여도'}
+          </p>
+        </div>
+        {role !== 'team_member' && visibleProjects.length > 0 && (
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => downloadProjectListExcel(visibleProjects)}
+          >
+            프로젝트 목록 엑셀
+          </Button>
+        )}
       </div>
 
       {role !== 'team_member' && (

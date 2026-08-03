@@ -1,5 +1,5 @@
 import type { ExportTable } from '@/utils/reportExport';
-import type { Division, Employee, Project, TrackAllocation } from '@/types';
+import type { Division, Employee, ExecutiveOffice, Project, Team, TrackAllocation } from '@/types';
 import type { ContractAmendment } from '@/types/contractChange';
 import type { HistoryEvent } from '@/types/history';
 
@@ -7,7 +7,9 @@ export interface AnalyticsChatContext {
   projects: Project[];
   contractAmendments: ContractAmendment[];
   divisions: Division[];
+  teams: Team[];
   employees: Employee[];
+  executiveOffice?: ExecutiveOffice;
   allocations: TrackAllocation[];
   historyEvents: HistoryEvent[];
 }
