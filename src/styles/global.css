@@ -637,6 +637,276 @@ body {
   color: #dc2626;
 }
 
+.bid-quotation-review {
+  margin-top: 20px;
+  padding: 16px 18px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+}
+
+.bid-quotation-review__title {
+  margin: 0 0 4px;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.bid-quotation-review__subtitle {
+  margin: 20px 0 10px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.bid-quotation-review__overview {
+  margin: 0 0 16px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--color-text-secondary);
+  white-space: pre-line;
+}
+
+.bid-reviewer-summary__list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.bid-reviewer-summary__item {
+  padding: 14px 16px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+  background: var(--color-bg);
+}
+
+.bid-reviewer-summary__item--high {
+  border-color: rgba(240, 68, 82, 0.4);
+  background: rgba(240, 68, 82, 0.05);
+}
+
+.bid-reviewer-summary__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+
+.bid-reviewer-summary__badge {
+  display: inline-flex;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  background: var(--color-surface);
+  color: var(--color-text-secondary);
+}
+
+.bid-reviewer-summary__item--high .bid-reviewer-summary__badge {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+.bid-reviewer-summary__title {
+  flex: 1;
+  font-size: 14px;
+}
+
+.bid-reviewer-summary__count {
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+.bid-reviewer-summary__situation {
+  margin: 0 0 10px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--color-text-secondary);
+}
+
+.bid-reviewer-summary__criteria {
+  margin: 0 0 14px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: rgba(59, 130, 246, 0.06);
+  border: 1px solid rgba(59, 130, 246, 0.15);
+}
+
+.bid-reviewer-summary__item--high .bid-reviewer-summary__criteria {
+  background: rgba(240, 68, 82, 0.05);
+  border-color: rgba(240, 68, 82, 0.2);
+}
+
+.bid-reviewer-summary__criteria-label {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-primary);
+}
+
+.bid-reviewer-summary__item--high .bid-reviewer-summary__criteria-label {
+  color: #b91c1c;
+}
+
+.bid-reviewer-summary__criteria ul {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--color-text-secondary);
+}
+
+.bid-reviewer-summary__vendors {
+  list-style: none;
+  margin: 0 0 14px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.bid-reviewer-summary__vendor {
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+}
+
+.bid-reviewer-summary__item--high .bid-reviewer-summary__vendor {
+  border-color: rgba(240, 68, 82, 0.25);
+}
+
+.bid-reviewer-summary__vendor-name {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 13px;
+  color: var(--color-text);
+}
+
+.bid-reviewer-summary__vendor-items {
+  margin: 0;
+  padding-left: 16px;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--color-text-secondary);
+}
+
+.bid-reviewer-summary__empty {
+  margin: 0 0 14px;
+  padding: 12px 14px;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--color-text-muted);
+  background: var(--color-surface);
+  border: 1px dashed var(--color-border);
+  text-align: center;
+}
+
+.bid-reviewer-summary__rank-note {
+  margin: 8px 0 0;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  line-height: 1.5;
+  color: #b45309;
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+}
+
+.bid-reviewer-summary__item--high .bid-reviewer-summary__rank-note {
+  color: #b91c1c;
+  background: #fef2f2;
+  border-color: #fecaca;
+}
+
+.bid-reviewer-summary__actions-label {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-primary);
+}
+
+.bid-reviewer-summary__actions ul {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--color-text);
+}
+
+.bid-quotation-review__desc {
+  margin: 0 0 14px;
+  font-size: 12px;
+  color: var(--color-text-secondary);
+  line-height: 1.5;
+}
+
+.bid-quotation-review__list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.bid-quotation-review__item {
+  padding: 12px 14px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+  background: var(--color-bg);
+}
+
+.bid-quotation-review__item--critical {
+  border-color: rgba(240, 68, 82, 0.35);
+  background: rgba(240, 68, 82, 0.06);
+}
+
+.bid-quotation-review__item--warning {
+  border-color: rgba(255, 146, 0, 0.35);
+  background: rgba(255, 146, 0, 0.06);
+}
+
+.bid-quotation-review__category {
+  display: inline-block;
+  margin-bottom: 6px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  background: var(--color-surface);
+}
+
+.bid-quotation-review__issue-title {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 14px;
+}
+
+.bid-quotation-review__issue-action {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--color-text);
+}
+
+.bid-quotation-review__issue-text {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--color-text-secondary);
+  white-space: pre-line;
+}
+
+.bid-quotation-review__empty {
+  margin: 0;
+  font-size: 13px;
+  color: var(--color-text-secondary);
+}
+
 .bid-quotation-compare__download {
   margin-top: 20px;
   padding-top: 16px;

@@ -10,6 +10,7 @@ import {
   downloadQuotationComparison,
   type BidQuotationCompareItem,
 } from '@/utils/bidQuotationAnalysis';
+import type { BidReviewerSummary } from '@/utils/bidQuotationReview';
 
 const ACCEPTED_EXTENSIONS = '.pdf,.xlsx,.xls,.doc,.docx,.hwp,.png,.jpg,.jpeg';
 const ACCEPTED_FILE_EXTENSIONS = new Set([
@@ -55,7 +56,7 @@ interface BidQuotationAttachmentPanelProps {
 export function BidQuotationAttachmentPanel({
   projectName,
   projectCode,
-  executionBudget,
+  executionBudget: _executionBudget,
   attachments,
   onAttachmentsChange,
   onClose,
@@ -76,16 +77,26 @@ export function BidQuotationAttachmentPanel({
   const [analyzing, setAnalyzing] = useState(false);
   const [analysisComplete, setAnalysisComplete] = useState(false);
   const [compareItems, setCompareItems] = useState<BidQuotationCompareItem[]>([]);
+  const [reviewerSummary, setReviewerSummary] = useState<BidReviewerSummary>({
+    overview: '',
+    groups: [],
+  });
   const [analysisMessage, setAnalysisMessage] = useState('');
   const [comparisonBlob, setComparisonBlob] = useState<Blob | null>(null);
   const [comparisonFileName, setComparisonFileName] = useState('');
+  const [markCount, setMarkCount] = useState(0);
+  const [downloadingExcel, setDownloadingExcel] = useState(false);
+  const regenerateExcelRef = useRef<(() => Promise<Blob | null>) | null>(null);
 
   const resetAnalysis = () => {
     setAnalysisComplete(false);
     setCompareItems([]);
+    setReviewerSummary({ overview: '', groups: [] });
     setAnalysisMessage('');
     setComparisonBlob(null);
     setComparisonFileName('');
+    setMarkCount(0);
+    regenerateExcelRef.current = null;
   };
 
   const partnerOptions = [...MOCK_BID_PARTNERS];
@@ -212,11 +223,16 @@ export function BidQuotationAttachmentPanel({
     setAnalysisComplete(false);
     setComparisonBlob(null);
     setComparisonFileName('');
+    setMarkCount(0);
+    regenerateExcelRef.current = null;
     try {
       const result = await analyzePartnerQuotations(attachments, projectCode);
       setCompareItems(result.items);
+      setReviewerSummary(result.reviewerSummary);
       setComparisonBlob(result.comparisonBlob);
       setComparisonFileName(result.comparisonFileName);
+      setMarkCount(result.markCount);
+      regenerateExcelRef.current = result.regenerateComparisonExcel;
       const successCount = result.items.filter((item) => item.rank > 0).length;
       if (successCount === 0) {
         const firstError = result.items.find((item) => item.message)?.message;
@@ -228,6 +244,7 @@ export function BidQuotationAttachmentPanel({
     } catch {
       setAnalysisMessage('견적서 분석 중 오류가 발생했습니다.');
       setCompareItems([]);
+      setReviewerSummary({ overview: '', groups: [] });
       setAnalysisComplete(false);
     } finally {
       setAnalyzing(false);
@@ -429,12 +446,10 @@ export function BidQuotationAttachmentPanel({
           <Button
             variant={analysisComplete ? 'outline' : 'primary'}
             onClick={() => void handleStartAnalysis()}
-            disabled={
-              analyzing || analysisComplete || attachments.length === 0 || editingId != null
-            }
+            disabled={analyzing || attachments.length === 0 || editingId != null}
             loading={analyzing}
           >
-            {analyzing ? '분석 중…' : analysisComplete ? '분석 완료' : '분석시작'}
+            {analyzing ? '분석 중…' : analysisComplete ? '재분석' : '분석시작'}
           </Button>
         </div>
 
@@ -447,13 +462,24 @@ export function BidQuotationAttachmentPanel({
         {compareItems.length > 0 && (
           <BidQuotationComparison
             items={compareItems}
-            executionBudget={executionBudget}
+            reviewerSummary={reviewerSummary}
             comparisonBlob={comparisonBlob}
             comparisonFileName={comparisonFileName}
+            markCount={markCount}
+            downloadingExcel={downloadingExcel}
             onDownloadAnalysis={() => {
-              if (comparisonBlob) {
-                downloadQuotationComparison(comparisonBlob, comparisonFileName);
-              }
+              void (async () => {
+                setDownloadingExcel(true);
+                try {
+                  const blob =
+                    (await regenerateExcelRef.current?.()) ?? comparisonBlob;
+                  if (blob) {
+                    downloadQuotationComparison(blob, comparisonFileName);
+                  }
+                } finally {
+                  setDownloadingExcel(false);
+                }
+              })();
             }}
           />
         )}

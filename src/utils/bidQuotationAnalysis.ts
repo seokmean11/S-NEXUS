@@ -1,5 +1,23 @@
 import * as XLSX from 'xlsx';
+import ExcelJS from 'exceljs';
 import type { BidPartnerEntry } from '@/types/bidRegistration';
+import {
+  BID_REVIEW_CATEGORY_LABELS,
+  buildQuotationReviewIssues,
+  buildReviewCellMarks,
+  buildReviewerSummary,
+  finalizeReviewIssues,
+  getIssuePrimaryCellAddress,
+  mergeReviewCellMarks,
+  reviewCellBorderColor,
+  reviewCellFillColor,
+  type BidReviewIssue,
+  type BidReviewerSummary,
+  type IntegratedLineQuote,
+  type IntegratedVendorQuote,
+} from '@/utils/bidQuotationReview';
+
+export type { BidReviewIssue, BidReviewerSummary } from '@/utils/bidQuotationReview';
 
 export interface BidQuotationCompareItem {
   partnerId: string;
@@ -16,6 +34,12 @@ export interface BidQuotationAnalysisResult {
   items: BidQuotationCompareItem[];
   comparisonBlob: Blob | null;
   comparisonFileName: string;
+  reviewIssues: BidReviewIssue[];
+  reviewerSummary: BidReviewerSummary;
+  /** Excel 검토이슈 셀 마킹 수 */
+  markCount: number;
+  /** 다운로드 직전 최신 마킹·메모로 Excel 재생성 */
+  regenerateComparisonExcel: () => Promise<Blob | null>;
 }
 
 const EXCEL_EXTENSIONS = new Set(['xlsx', 'xls']);
@@ -489,11 +513,60 @@ function buildRowLookup(parsed: ParsedQuotationFile): Map<string, unknown[]> {
   return lookup;
 }
 
-function buildComparisonWorkbook(
+function buildIntegratedLineMatrix(
   ranked: ParsedQuotationFile[],
   template: ParsedQuotationFile,
-): Blob {
+): IntegratedLineQuote[] {
   const baseItems = buildIntegratedBaseItems(ranked, template);
+  const vendorLookups = ranked.map((parsed) => buildRowLookup(parsed));
+
+  return baseItems.map(({ key, row, columns }) => {
+    const budgetItemName = getBudgetItemLabel(row, columns);
+    const normalizedBudget = budgetItemName.replace(/\s/g, '');
+
+    return {
+      key,
+      budgetCode:
+        columns.budgetCode >= 0 ? String(getCell(row, columns.budgetCode) ?? '').trim() : '',
+      budgetItemName,
+      orderItemName: String(getCell(row, columns.orderItemName) ?? '').trim(),
+      isOverheadItem: /공과잡비/.test(normalizedBudget),
+      isRoundingItem: /단수정리|단수조정/.test(normalizedBudget),
+      vendorQuotes: ranked.map((parsed, vendorIndex) => {
+        const vendorRow = vendorLookups[vendorIndex].get(key);
+        if (!vendorRow) {
+          return {
+            partnerId: parsed.partnerId,
+            vendorName: parsed.vendorName,
+            quoteAmount: 0,
+            missing: true,
+            hasLabor: false,
+            hasMaterial: false,
+          };
+        }
+
+        const breakdown = calculateRowPriceBreakdown(vendorRow, parsed.columns);
+        return {
+          partnerId: parsed.partnerId,
+          vendorName: parsed.vendorName,
+          quoteAmount: breakdown?.quoteAmount ?? 0,
+          missing: false,
+          hasLabor: (breakdown?.laborAmount ?? 0) !== 0,
+          hasMaterial: (breakdown?.materialAmount ?? 0) !== 0,
+        };
+      }),
+    };
+  });
+}
+
+async function buildComparisonWorkbook(
+  ranked: ParsedQuotationFile[],
+  template: ParsedQuotationFile,
+  reviewIssues: BidReviewIssue[],
+): Promise<{ blob: Blob; markCount: number }> {
+  const baseItems = buildIntegratedBaseItems(ranked, template);
+  const lineKeys = baseItems.map((item) => item.key);
+  const rankedPartnerIds = ranked.map((parsed) => parsed.partnerId);
 
   const vendorTitleRow: unknown[] = Array(BASE_HEADERS.length).fill('');
   const headerRow: unknown[] = [...BASE_HEADERS];
@@ -520,15 +593,176 @@ function buildComparisonWorkbook(
     return mergedRow;
   });
 
-  const sheetData = [vendorTitleRow, headerRow, ...dataRows];
-  const worksheet = XLSX.utils.aoa_to_sheet(sheetData);
-  const workbook = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(workbook, worksheet, '내역서');
+  const workbook = new ExcelJS.Workbook();
+  workbook.creator = 'S-NEXUS';
+  const sheet = workbook.addWorksheet('내역서');
 
-  const buffer = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
-  return new Blob([buffer], {
-    type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  sheet.addRow(vendorTitleRow);
+  sheet.addRow(headerRow);
+  for (const row of dataRows) {
+    sheet.addRow(row);
+  }
+
+  const headerFill: ExcelJS.Fill = {
+    type: 'pattern',
+    pattern: 'solid',
+    fgColor: { argb: 'FFEEF2F6' },
+  };
+  sheet.getRow(2).eachCell((cell) => {
+    cell.fill = headerFill;
+    cell.font = { bold: true };
   });
+
+  const cellMarks = mergeReviewCellMarks(
+    buildReviewCellMarks(reviewIssues, lineKeys, rankedPartnerIds),
+  );
+
+  for (const [key, { severity, notes }] of cellMarks) {
+    const [sheetRow, sheetCol] = key.split(':').map(Number);
+    applyReviewCellMark(sheet.getCell(sheetRow, sheetCol), severity, notes.join('\n\n'));
+  }
+
+  addReviewIssueSheet(workbook, reviewIssues, lineKeys, rankedPartnerIds, baseItems, cellMarks.size);
+
+  const buffer = await workbook.xlsx.writeBuffer();
+  return {
+    blob: new Blob([buffer], {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    }),
+    markCount: cellMarks.size,
+  };
+}
+
+function applyReviewCellMark(
+  cell: ExcelJS.Cell,
+  severity: BidReviewIssue['severity'],
+  noteText: string,
+): void {
+  const borderColor = reviewCellBorderColor(severity);
+  cell.fill = {
+    type: 'pattern',
+    pattern: 'solid',
+    fgColor: { argb: reviewCellFillColor(severity) },
+  };
+  cell.border = {
+    top: { style: 'thin', color: { argb: borderColor } },
+    left: { style: 'thin', color: { argb: borderColor } },
+    bottom: { style: 'thin', color: { argb: borderColor } },
+    right: { style: 'thin', color: { argb: borderColor } },
+  };
+  cell.note = noteText;
+}
+
+function formatBaseItemRef(item: IntegratedBaseItem): string {
+  const orderItemName = String(getCell(item.row, item.columns.orderItemName) ?? '').trim();
+  const budgetCode =
+    item.columns.budgetCode >= 0
+      ? String(getCell(item.row, item.columns.budgetCode) ?? '').trim()
+      : '';
+  const budgetItemName =
+    item.columns.budgetItemName >= 0
+      ? String(getCell(item.row, item.columns.budgetItemName) ?? '').trim()
+      : '';
+  const label = orderItemName || budgetItemName || item.key;
+  return budgetCode ? `${label} [${budgetCode}]` : label;
+}
+
+function addReviewIssueSheet(
+  workbook: ExcelJS.Workbook,
+  reviewIssues: BidReviewIssue[],
+  lineKeys: string[],
+  rankedPartnerIds: string[],
+  baseItems: IntegratedBaseItem[],
+  markCount: number,
+): void {
+  const sheet = workbook.addWorksheet('검토이슈');
+  const lineRefMap = new Map(baseItems.map((item) => [item.key, formatBaseItemRef(item)]));
+
+  sheet.addRow([
+    'S-NEXUS 견적 검토이슈',
+    '',
+    '',
+    '',
+    '',
+    '',
+    '',
+    '',
+  ]);
+  sheet.mergeCells(1, 1, 1, 9);
+  sheet.getCell(1, 1).font = { bold: true, size: 14 };
+
+  sheet.addRow([
+    `· 내역서 시트 ${markCount}개 셀 색상·테두리·메모 표시 (빨강=긴급, 주황=확인)`,
+  ]);
+  sheet.mergeCells(2, 1, 2, 9);
+
+  sheet.addRow([
+    '· Excel 메모: [검토] → [메모 표시] 또는 셀 우클릭 → 메모 표시 (셀 우측 상단 빨간 표시)',
+  ]);
+  sheet.mergeCells(3, 1, 3, 9);
+
+  sheet.addRow([]);
+
+  const headerRow = sheet.addRow([
+    'No',
+    '유형',
+    '중요도',
+    '업체',
+    '항목',
+    '셀위치',
+    '이슈요약',
+    '검토조치',
+    '상세메모',
+  ]);
+  headerRow.eachCell((cell) => {
+    cell.font = { bold: true };
+    cell.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FFEEF2F6' },
+    };
+  });
+
+  if (reviewIssues.length === 0) {
+    sheet.addRow(['', '', '', '', '자동 검토 기준에 해당하는 이슈가 없습니다.', '', '', '', '']);
+  }
+
+  reviewIssues.forEach((issue, index) => {
+    const vendorMatch = issue.title.match(/^\[([^\]]+)\]/);
+    const vendor = vendorMatch?.[1] ?? '';
+    const itemLabel = issue.lineKey ? (lineRefMap.get(issue.lineKey) ?? issue.lineKey) : '-';
+    const cellAddress =
+      getIssuePrimaryCellAddress(issue, lineKeys, rankedPartnerIds) ?? '-';
+    const noteText = issue.excelNote ?? issue.title;
+
+    const row = sheet.addRow([
+      index + 1,
+      BID_REVIEW_CATEGORY_LABELS[issue.category],
+      issue.severity === 'critical' ? '긴급' : '확인',
+      vendor,
+      itemLabel,
+      cellAddress,
+      issue.title.replace(/^\[[^\]]+\]\s*/, ''),
+      issue.reviewerAction ?? '',
+      noteText,
+    ]);
+
+    if (issue.severity === 'critical') {
+      row.getCell(3).fill = {
+        type: 'pattern',
+        pattern: 'solid',
+        fgColor: { argb: 'FFFFE5E5' },
+      };
+    }
+
+    row.getCell(9).alignment = { wrapText: true, vertical: 'top' };
+  });
+
+  sheet.getColumn(5).width = 28;
+  sheet.getColumn(6).width = 14;
+  sheet.getColumn(7).width = 36;
+  sheet.getColumn(8).width = 42;
+  sheet.getColumn(9).width = 72;
 }
 
 function sanitizeFileName(value: string): string {
@@ -659,10 +893,56 @@ export async function analyzePartnerQuotations(
     )[0] ??
     null;
 
-  const comparisonBlob =
+  const integratedLines =
     template && rankedParsed.length >= 1
-      ? buildComparisonWorkbook(rankedParsed, template)
-      : null;
+      ? buildIntegratedLineMatrix(rankedParsed, template)
+      : [];
+
+  const reviewIssuesRaw =
+    template && rankedParsed.length >= 2
+      ? buildQuotationReviewIssues(
+          rankedItems.map(
+            (item): IntegratedVendorQuote => ({
+              partnerId: item.partnerId,
+              vendorName: item.vendorName,
+              rank: item.rank,
+              totalAmount: item.totalAmount ?? 0,
+            }),
+          ),
+          integratedLines,
+        )
+      : [];
+
+  const reviewIssues = finalizeReviewIssues(reviewIssuesRaw, integratedLines);
+  const reviewerSummary = buildReviewerSummary(
+    reviewIssues,
+    integratedLines,
+    rankedItems.map(
+      (item): IntegratedVendorQuote => ({
+        partnerId: item.partnerId,
+        vendorName: item.vendorName,
+        rank: item.rank,
+        totalAmount: item.totalAmount ?? 0,
+      }),
+    ),
+  );
+
+  let comparisonBlob: Blob | null = null;
+  let markCount = 0;
+
+  const regenerateComparisonExcel = async (): Promise<Blob | null> => {
+    if (!template || rankedParsed.length < 1) return null;
+    const rebuilt = await buildComparisonWorkbook(rankedParsed, template, reviewIssues);
+    comparisonBlob = rebuilt.blob;
+    markCount = rebuilt.markCount;
+    return rebuilt.blob;
+  };
+
+  if (template && rankedParsed.length >= 1) {
+    const built = await buildComparisonWorkbook(rankedParsed, template, reviewIssues);
+    comparisonBlob = built.blob;
+    markCount = built.markCount;
+  }
 
   const comparisonFileName = `${sanitizeFileName(projectCode)}_견적비교분석.xlsx`;
 
@@ -670,6 +950,10 @@ export async function analyzePartnerQuotations(
     items: [...rankedItems, ...errors],
     comparisonBlob,
     comparisonFileName,
+    reviewIssues,
+    reviewerSummary,
+    markCount,
+    regenerateComparisonExcel,
   };
 }
 

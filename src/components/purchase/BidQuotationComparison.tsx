@@ -1,68 +1,37 @@
 import { Button } from '@/components/ui/Button';
+import { type BidReviewerSummary } from '@/utils/bidQuotationReview';
 import { formatWon, type BidQuotationCompareItem } from '@/utils/bidQuotationAnalysis';
 
 interface BidQuotationComparisonProps {
   items: BidQuotationCompareItem[];
-  executionBudget: number;
+  reviewerSummary: BidReviewerSummary;
   comparisonBlob: Blob | null;
   comparisonFileName: string;
+  markCount: number;
+  downloadingExcel: boolean;
   onDownloadAnalysis: () => void;
 }
 
 export function BidQuotationComparison({
   items,
-  executionBudget,
+  reviewerSummary,
   comparisonBlob,
   comparisonFileName,
+  markCount,
+  downloadingExcel,
   onDownloadAnalysis,
 }: BidQuotationComparisonProps) {
   const ranked = items.filter((item) => item.rank > 0);
   const failed = items.filter((item) => item.rank === 0);
-  const topBid = ranked.find((item) => item.rank === 1);
-  const topAmount = topBid?.totalAmount ?? null;
-
-  const showVerdict = topAmount != null && executionBudget > 0;
-  const isFailed = showVerdict && topAmount > executionBudget;
 
   if (items.length === 0) return null;
 
   return (
-    <section className="bid-quotation-compare" aria-label="협력사 견적 비교">
-      <h4 className="bid-quotation-compare__title">견적 총액 순위 비교</h4>
+    <section className="bid-quotation-compare" aria-label="1차 분석결과">
+      <h4 className="bid-quotation-compare__title">1차 분석결과</h4>
       <p className="bid-quotation-compare__subtitle">
-        ERP 견적서 · 시트명 무관, 발주품의명·견적수량 상세내역 시트 자동 선택 · 통합내역 작성 후 순위 비교
+        통합내역 기준 견적금액 합계 · 낮은 순(1위=최저가)
       </p>
-
-      {showVerdict && (
-        <div
-          className={`bid-quotation-compare__verdict${
-            isFailed
-              ? ' bid-quotation-compare__verdict--failed'
-              : ' bid-quotation-compare__verdict--awarded'
-          }`}
-          role="alert"
-        >
-          {isFailed ? (
-            <>
-              <strong className="bid-quotation-compare__verdict-label">유찰</strong>
-              <p className="bid-quotation-compare__verdict-text">
-                1위 업체({topBid?.vendorName}) 견적금액{' '}
-                <strong>{formatWon(topAmount)}</strong>이 실행예산{' '}
-                <strong>{formatWon(executionBudget)}</strong>을 초과했습니다.
-              </p>
-            </>
-          ) : (
-            <>
-              <strong className="bid-quotation-compare__verdict-label">낙찰</strong>
-              <p className="bid-quotation-compare__verdict-text">
-                1위 업체({topBid?.vendorName}) 견적금액{' '}
-                <strong>{formatWon(topAmount)}</strong>이 실행예산{' '}
-                <strong>{formatWon(executionBudget)}</strong> 이내입니다.
-              </p>
-            </>
-          )}
-        </div>
-      )}
 
       {ranked.length > 0 ? (
         <div className="bid-quotation-compare__columns">
@@ -96,14 +65,94 @@ export function BidQuotationComparison({
         </ul>
       )}
 
+      {ranked.length >= 2 && (
+        <div className="bid-quotation-review">
+          <h5 className="bid-quotation-review__title">검토자 확인사항</h5>
+          <p className="bid-quotation-review__overview">{reviewerSummary.overview}</p>
+
+          {reviewerSummary.groups.length > 0 ? (
+            <ul className="bid-reviewer-summary__list">
+              {reviewerSummary.groups.map((group) => (
+                <li
+                  key={group.id}
+                  className={`bid-reviewer-summary__item bid-reviewer-summary__item--${group.priority}`}
+                >
+                  <div className="bid-reviewer-summary__head">
+                    <span className="bid-reviewer-summary__badge">
+                      {group.priority === 'high' ? '긴급' : '확인'}
+                    </span>
+                    <strong className="bid-reviewer-summary__title">{group.title}</strong>
+                    <span className="bid-reviewer-summary__count">{group.count}건</span>
+                  </div>
+                  <p className="bid-reviewer-summary__situation">{group.description}</p>
+
+                  <div className="bid-reviewer-summary__criteria">
+                    <span className="bid-reviewer-summary__criteria-label">발생 기준</span>
+                    <ul>
+                      {group.criteria.map((rule) => (
+                        <li key={rule}>{rule}</li>
+                      ))}
+                    </ul>
+                  </div>
+
+                  {group.vendors.length > 0 ? (
+                    <ul className="bid-reviewer-summary__vendors">
+                      {group.vendors.map((vendor) => (
+                        <li key={vendor.partnerId} className="bid-reviewer-summary__vendor">
+                          <strong className="bid-reviewer-summary__vendor-name">
+                            {vendor.vendorName}
+                          </strong>
+                          <ul className="bid-reviewer-summary__vendor-items">
+                            {vendor.items.map((item) => (
+                              <li key={item}>{item}</li>
+                            ))}
+                          </ul>
+                          {vendor.rankChangeNote && (
+                            <p className="bid-reviewer-summary__rank-note">
+                              {vendor.rankChangeNote}
+                            </p>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    group.emptyMessage && (
+                      <p className="bid-reviewer-summary__empty">{group.emptyMessage}</p>
+                    )
+                  )}
+
+                  <div className="bid-reviewer-summary__actions">
+                    <span className="bid-reviewer-summary__actions-label">추가 검토</span>
+                    <ul>
+                      {group.actions.map((action) => (
+                        <li key={action}>{action}</li>
+                      ))}
+                    </ul>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="bid-quotation-review__empty">{reviewerSummary.overview}</p>
+          )}
+        </div>
+      )}
+
       {comparisonBlob && (
         <div className="bid-quotation-compare__download">
           <h5 className="bid-quotation-compare__download-title">분석파일</h5>
           <p className="bid-quotation-compare__download-desc">
-            순위별 견적단가~경비금액 컬럼을 우측으로 나열한 Excel 비교표입니다. 오프라인 검토용으로
-            내려받을 수 있습니다.
+            통합 비교 Excel · <strong>내역서</strong> 시트 이슈 셀 색상·테두리·메모 +
+            <strong> 검토이슈</strong> 시트 상세 목록
+            {markCount > 0 ? ` (${markCount}개 셀 마킹)` : ''}. Excel에서 [검토] → [메모
+            표시]로 셀 메모를 확인하세요.
           </p>
-          <Button variant="primary" onClick={onDownloadAnalysis}>
+          <Button
+            variant="primary"
+            onClick={onDownloadAnalysis}
+            loading={downloadingExcel}
+            disabled={downloadingExcel}
+          >
             {comparisonFileName || '견적비교분석.xlsx'} 다운로드
           </Button>
         </div>
