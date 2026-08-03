@@ -10,13 +10,9 @@ import {
 import {
   BUDGET_SCENARIOS,
   DEFAULT_BUDGET,
-  EXECUTIVE_OFFICE,
-  DIVISIONS,
-  EMPLOYEES,
   INITIAL_ALLOCATIONS,
   INITIAL_PROJECTS,
   ROLE_CONFIGS,
-  TEAMS,
   buildInitialProjectTeamAllocations,
 } from '@/data/mockData';
 import type {
@@ -76,32 +72,42 @@ import {
   syncProjectTeamAllocationNames,
   syncProjectsWithOrg,
 } from '@/utils/projectSync';
+import {
+  getPhoneDirectoryOrgState,
+  shouldSeedPhoneDirectoryOrg,
+} from '@/utils/phoneDirectoryImport';
+import { filterAffiliateOrg } from '@/utils/orgAffiliateFilter';
+import { applyOrgManualOverrides } from '@/utils/orgManualOverrides';
 import { inferAccessRoleFromEmployee } from '@/utils/webAccessRole';
 
 type OrgMutationResult = { ok: true } | { ok: false; reason: string };
+
+function normalizeLoadedOrgState(saved: NonNullable<ReturnType<typeof loadOrgState>>) {
+  return applyOrgManualOverrides(
+    filterAffiliateOrg({
+      executiveOffice: normalizeExecutiveOffice(saved.executiveOffice),
+      divisions: saved.divisions,
+      teams: saved.teams,
+      employees: saved.employees,
+    }),
+  );
+}
 
 function createInitialOrgState() {
   try {
     repairStoredData();
     const saved = loadOrgState();
-    if (saved) {
-      return {
-        executiveOffice: normalizeExecutiveOffice(saved.executiveOffice),
-        divisions: saved.divisions,
-        teams: saved.teams,
-        employees: saved.employees,
-      };
+    if (saved && !shouldSeedPhoneDirectoryOrg(saved)) {
+      return normalizeLoadedOrgState(saved);
+    }
+    if (saved && shouldSeedPhoneDirectoryOrg(saved)) {
+      return getPhoneDirectoryOrgState();
     }
   } catch {
-    // fall through to defaults
+    // fall through to phone directory seed
   }
 
-  return {
-    executiveOffice: normalizeExecutiveOffice(EXECUTIVE_OFFICE),
-    divisions: [...DIVISIONS],
-    teams: [...TEAMS],
-    employees: [...EMPLOYEES],
-  };
+  return getPhoneDirectoryOrgState();
 }
 
 function createInitialAppState(divisions: Division[]) {

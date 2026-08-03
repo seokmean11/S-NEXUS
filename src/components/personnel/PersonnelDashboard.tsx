@@ -21,6 +21,11 @@ import {
   WEB_ACCESS_ROLE_OPTIONS,
   accessRoleBadgeClass,
 } from '@/utils/webAccessRole';
+import {
+  exportPersonnelSearchResults,
+  PERSONNEL_EXPORT_FORMAT_OPTIONS,
+  type PersonnelExportFormat,
+} from '@/utils/personnelExport';
 
 type ManageEntity = 'executive' | 'division' | 'team' | 'employee';
 type CreateMode = ManageEntity | 'division_head' | 'team_head';
@@ -142,6 +147,8 @@ export function PersonnelDashboard({ embedded = false }: { embedded?: boolean })
   const [deletePersonTarget, setDeletePersonTarget] = useState<PersonnelRow | null>(null);
   const [deleteDivisionTarget, setDeleteDivisionTarget] = useState<Division | null>(null);
   const [deleteTeamTarget, setDeleteTeamTarget] = useState<Team | null>(null);
+  const [exportFormat, setExportFormat] = useState<PersonnelExportFormat>('excel');
+  const [exporting, setExporting] = useState(false);
 
   const divisionNameById = useMemo(
     () => new Map(divisions.map((division) => [division.id, division.name])),
@@ -226,6 +233,31 @@ export function PersonnelDashboard({ embedded = false }: { embedded?: boolean })
     setError(text);
     setMessage('');
     setTimeout(() => setError(''), 4000);
+  };
+
+  const handleExportResults = async () => {
+    if (resultCount === 0) {
+      showError('내보낼 검색 결과가 없습니다.');
+      return;
+    }
+
+    setExporting(true);
+    try {
+      await exportPersonnelSearchResults({
+        format: exportFormat,
+        entityType,
+        personRows: filteredPersonRows,
+        divisions: filteredDivisions,
+        teams: filteredTeams,
+        divisionNameById,
+        filters,
+      });
+      showMessage('검색 결과를 내보냈습니다.');
+    } catch {
+      showError('내보내기에 실패했습니다.');
+    } finally {
+      setExporting(false);
+    }
   };
 
   const closeEditor = () => {
@@ -643,7 +675,28 @@ export function PersonnelDashboard({ embedded = false }: { embedded?: boolean })
         </div>
 
         <div className="personnel-dashboard__summary">
-          전체 {totalCount}건 · 검색 결과 {resultCount}건
+          <span>
+            전체 {totalCount}건 · 검색 결과 {resultCount}건
+          </span>
+          <div className="personnel-dashboard__export-actions no-print">
+            <Select
+              label="내보내기 형식"
+              value={exportFormat}
+              onChange={(e) => setExportFormat(e.target.value as PersonnelExportFormat)}
+              options={PERSONNEL_EXPORT_FORMAT_OPTIONS.map((option) => ({
+                value: option.value,
+                label: option.label,
+              }))}
+            />
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleExportResults}
+              disabled={exporting || resultCount === 0}
+            >
+              {exporting ? '내보내는 중…' : '검색 결과 내보내기'}
+            </Button>
+          </div>
         </div>
 
         <div className="personnel-table-wrap">

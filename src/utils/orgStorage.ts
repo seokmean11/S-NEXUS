@@ -11,6 +11,8 @@ export interface StoredOrgState {
   divisions: Division[];
   teams: Team[];
   employees: Employee[];
+  /** 내선전화표 파서 버전 — 팀 분류 로직 변경 시 증가 */
+  parseVersion?: number;
 }
 
 export interface StoredAppState {

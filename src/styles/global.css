@@ -2729,9 +2729,26 @@ body {
 }
 
 .personnel-dashboard__summary {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
   margin-bottom: 12px;
   font-size: 13px;
   color: var(--color-text-secondary);
+}
+
+.personnel-dashboard__export-actions {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.personnel-dashboard__export-actions .form-field {
+  min-width: 160px;
+  margin-bottom: 0;
 }
 
 .personnel-table-wrap {
