@@ -1,13 +1,14 @@
 import { startTransition, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
+import { OutsourcingDbStatsPanel } from '@/components/purchase/OutsourcingDbStatsPanel';
 import { OutsourcingDetailPanel } from '@/components/purchase/OutsourcingDetailPanel';
 import { OutsourcingFilterPanel } from '@/components/purchase/OutsourcingFilterPanel';
 import { OutsourcingKpiPanel } from '@/components/purchase/OutsourcingKpiPanel';
 import { OutsourcingVendorChart } from '@/components/purchase/OutsourcingVendorChart';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
-import { useDebouncedValue } from '@/hooks/useDebouncedValue';import {
-  fetchLocalOutsourcingInfo,
+import { useDebouncedValue } from '@/hooks/useDebouncedValue';
+import {  fetchLocalOutsourcingInfo,
   fetchLocalOutsourcingRecords,
   formatOutsourcingSourceLabel,
   getLocalOutsourcingSetupHint,
@@ -23,7 +24,9 @@ import {
   filterOutsourcingRecords,
   summarizeOutsourcingKpi,
 } from '@/utils/outsourcingAnalysis';
+import { summarizeOutsourcingDbStats } from '@/utils/outsourcingDbStats';
 
+const AUTO_REFRESH_INTERVAL_MS = 60_000;
 function formatUpdatedAt(value?: string): string {
   if (!value) return '';
   const date = new Date(value);
@@ -41,17 +44,24 @@ export function OutsourcingSearchPage() {
   const [loadResult, setLoadResult] = useState<OutsourcingLoadResult | null>(null);
   const [localInfo, setLocalInfo] = useState<OutsourcingLocalInfo | null>(null);
   const [setupOpen, setSetupOpen] = useState(false);
+  const [dbStatsOpen, setDbStatsOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const loadResultRef = useRef<OutsourcingLoadResult | null>(null);
 
-  const applyLoadResult = (result: OutsourcingLoadResult) => {
+  useEffect(() => {
+    loadResultRef.current = loadResult;
+  }, [loadResult]);
+
+  const applyLoadResult = (result: OutsourcingLoadResult, resetFilters = true) => {
     startTransition(() => {
       setRecords(result.records);
       setLoadResult(result);
-      setFilters(EMPTY_OUTSOURCING_FILTERS);
-      setDateRange(EMPTY_OUTSOURCING_DATE_RANGE);
+      if (resetFilters) {
+        setFilters(EMPTY_OUTSOURCING_FILTERS);
+        setDateRange(EMPTY_OUTSOURCING_DATE_RANGE);
+      }
     });
   };
-
   const loadFromLocalFolder = async () => {
     setLoading(true);
     setError(null);
@@ -96,6 +106,33 @@ export function OutsourcingSearchPage() {
     void loadFromLocalFolder();
   }, []);
 
+  useEffect(() => {
+    if (!localInfo?.configured || localInfo.error) return undefined;
+
+    const syncIfFileUpdated = async () => {
+      try {
+        const info = await fetchLocalOutsourcingInfo();
+        if (!info.configured || info.error || !info.updatedAt) return;
+
+        const current = loadResultRef.current;
+        if (current?.updatedAt === info.updatedAt) return;
+
+        const result = await fetchLocalOutsourcingRecords();
+        applyLoadResult(result, false);
+        setNotice('외주 DB 파일 변경을 감지해 데이터를 자동 갱신했습니다.');
+      } catch {
+        // 자동 갱신 실패는 조용히 무시 (수동 새로고침 가능)
+      }
+    };
+
+    const timer = window.setInterval(() => {
+      void syncIfFileUpdated();
+    }, AUTO_REFRESH_INTERVAL_MS);
+
+    return () => window.clearInterval(timer);
+  }, [localInfo?.configured, localInfo?.error]);
+
+  const dbStats = useMemo(() => summarizeOutsourcingDbStats(records), [records]);
   const debouncedDateRange = useDebouncedValue(dateRange, 180);
 
   const filteredRecords = useMemo(
@@ -197,8 +234,14 @@ export function OutsourcingSearchPage() {
                 <Button variant="ghost" size="sm" onClick={() => void loadFromLocalFolder()}>
                   폴더 새로고침
                 </Button>
-                <Button variant="outline" size="sm" onClick={handleReset}>
-                  필터 초기화
+                <Button
+                  variant={dbStatsOpen ? 'primary' : 'outline'}
+                  size="sm"
+                  onClick={() => setDbStatsOpen((open) => !open)}
+                >
+                  {dbStatsOpen ? 'DB정보량 닫기' : 'DB정보량보기'}
+                </Button>
+                <Button variant="outline" size="sm" onClick={handleReset}>                  필터 초기화
                 </Button>
               </div>
             </div>
@@ -225,8 +268,15 @@ export function OutsourcingSearchPage() {
               </Card>
             )}
 
-            <OutsourcingFilterPanel
-              allRecords={records}
+            {dbStatsOpen && (
+              <OutsourcingDbStatsPanel
+                stats={dbStats}
+                loadResult={loadResult}
+                updatedAtLabel={loadResult.updatedAt ? formatUpdatedAt(loadResult.updatedAt) : undefined}
+              />
+            )}
+
+            <OutsourcingFilterPanel              allRecords={records}
               filters={filters}
               dateRange={dateRange}
               filteredCount={filteredRecords.length}

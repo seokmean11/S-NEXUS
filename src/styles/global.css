@@ -2979,6 +2979,199 @@ body {
   margin-bottom: 0;
 }
 
+.outsourcing-db-stats-card {
+  margin-bottom: 0;
+}
+
+.outsourcing-db-stats-card__meta {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 16px;
+}
+
+.outsourcing-db-stats-card__source,
+.outsourcing-db-stats-card__updated,
+.outsourcing-db-stats-card__cycle {
+  margin: 0;
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+.outsourcing-db-stats-card__updated {
+  color: var(--color-text);
+  font-weight: 600;
+}
+
+.outsourcing-db-stats-card__metrics {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.outsourcing-db-stats-metric {
+  padding: 14px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: #f8fafc;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.outsourcing-db-stats-metric__label {
+  font-size: 12px;
+  color: var(--color-text-muted);
+  font-weight: 600;
+}
+
+.outsourcing-db-stats-metric__value {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  font-size: 22px;
+  line-height: 1.2;
+  color: var(--color-text);
+  font-variant-numeric: tabular-nums;
+}
+
+.outsourcing-db-stats-metric__unit {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-text-muted);
+}
+
+.outsourcing-db-stats-card__chart-section {
+  border-top: 1px solid var(--color-border);
+  padding-top: 16px;
+}
+
+.outsourcing-db-stats-card__charts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 24px;
+}
+
+.outsourcing-db-stats-chart {
+  min-width: 0;
+}
+
+.outsourcing-db-stats-card__chart-title {
+  margin: 0 0 12px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.outsourcing-db-stats-card__empty {
+  margin: 0;
+  color: var(--color-text-muted);
+}
+
+.outsourcing-db-stats-donut-wrap {
+  display: grid;
+  grid-template-columns: minmax(0, 220px) minmax(0, 1fr);
+  gap: 16px;
+  align-items: center;
+}
+
+.outsourcing-db-stats-donut {
+  position: relative;
+  width: 220px;
+  height: 220px;
+  margin: 0 auto;
+}
+
+.outsourcing-db-stats-donut__svg {
+  width: 100%;
+  height: 100%;
+}
+
+.outsourcing-db-stats-donut__center {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  text-align: center;
+  pointer-events: none;
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+.outsourcing-db-stats-donut__center strong {
+  font-size: 13px;
+  color: var(--color-text);
+}
+
+.outsourcing-db-stats-legend {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.outsourcing-db-stats-legend__item {
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  padding: 8px 10px;
+  border-radius: var(--radius-md);
+  cursor: default;
+}
+
+.outsourcing-db-stats-legend__item--active {
+  background: rgba(49, 130, 246, 0.06);
+}
+
+.outsourcing-db-stats-legend__swatch {
+  width: 12px;
+  height: 12px;
+  border-radius: 999px;
+}
+
+.outsourcing-db-stats-legend__label {
+  font-size: 13px;
+  color: var(--color-text);
+  min-width: 0;
+  word-break: break-all;
+}
+
+.outsourcing-db-stats-legend__value {
+  font-size: 12px;
+  color: var(--color-text-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+@media (max-width: 1400px) {
+  .outsourcing-db-stats-card__charts {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 1100px) {
+  .outsourcing-db-stats-card__metrics {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 768px) {
+  .outsourcing-db-stats-card__metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .outsourcing-db-stats-donut-wrap {
+    grid-template-columns: 1fr;
+  }
+}
+
 .outsourcing-filter-card {
   overflow: visible;
 }
