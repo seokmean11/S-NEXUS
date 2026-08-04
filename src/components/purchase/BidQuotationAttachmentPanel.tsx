@@ -56,7 +56,7 @@ interface BidQuotationAttachmentPanelProps {
 export function BidQuotationAttachmentPanel({
   projectName,
   projectCode,
-  executionBudget: _executionBudget,
+  executionBudget,
   attachments,
   onAttachmentsChange,
   onClose,
@@ -462,6 +462,7 @@ export function BidQuotationAttachmentPanel({
         {compareItems.length > 0 && (
           <BidQuotationComparison
             items={compareItems}
+            executionBudget={executionBudget}
             reviewerSummary={reviewerSummary}
             comparisonBlob={comparisonBlob}
             comparisonFileName={comparisonFileName}

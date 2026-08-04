@@ -15,6 +15,7 @@ import {
   type BidReviewerSummary,
   type IntegratedLineQuote,
   type IntegratedVendorQuote,
+  type VendorOverheadRatioResult,
 } from '@/utils/bidQuotationReview';
 
 export type { BidReviewIssue, BidReviewerSummary } from '@/utils/bidQuotationReview';
@@ -28,6 +29,63 @@ export interface BidQuotationCompareItem {
   rank: number;
   status: 'ok' | 'unsupported' | 'error';
   message?: string;
+}
+
+export type BidAwardOutcome = 'awarded' | 'failed' | 'unknown';
+
+export interface BidAwardVerdict {
+  outcome: BidAwardOutcome;
+  outcomeLabel: string;
+  executionBudget: number;
+  firstRankAmount: number | null;
+  firstRankVendorName: string | null;
+  /** (1위 금액 − 실행예산) ÷ 실행예산 × 100 */
+  budgetOverrunRatio: number | null;
+}
+
+export function computeBidAwardVerdict(
+  executionBudget: number,
+  items: BidQuotationCompareItem[],
+): BidAwardVerdict | null {
+  const first = items.find((item) => item.rank === 1 && item.status === 'ok');
+  if (!first) return null;
+
+  const base = {
+    executionBudget,
+    firstRankAmount: first.totalAmount,
+    firstRankVendorName: first.vendorName,
+  };
+
+  if (!executionBudget || executionBudget <= 0 || first.totalAmount == null) {
+    return {
+      ...base,
+      outcome: 'unknown',
+      outcomeLabel: '판정 불가',
+      budgetOverrunRatio: null,
+    };
+  }
+
+  const budgetOverrunRatio =
+    ((first.totalAmount - executionBudget) / executionBudget) * 100;
+  const awarded = first.totalAmount <= executionBudget;
+
+  return {
+    ...base,
+    outcome: awarded ? 'awarded' : 'failed',
+    outcomeLabel: awarded ? '낙찰' : '유찰',
+    budgetOverrunRatio,
+  };
+}
+
+export function formatBudgetDelta(
+  ratio: number | null,
+  firstRankAmount: number | null,
+  executionBudget: number,
+): string {
+  if (ratio == null || firstRankAmount == null || !executionBudget) return '-';
+  const diff = firstRankAmount - executionBudget;
+  const sign = ratio > 0 ? '+' : '';
+  return `${sign}${ratio.toFixed(1)}% (${formatWon(diff)})`;
 }
 
 export interface BidQuotationAnalysisResult {
@@ -271,7 +329,68 @@ function isAdjustmentBudgetItem(label: string): boolean {
   return /공과잡비|단수정리|단수조정|할증|간접|절사|원단위/.test(normalized);
 }
 
+function getBudgetCode(row: unknown[], columns: QuotationColumns): string {
+  return columns.budgetCode >= 0 ? String(getCell(row, columns.budgetCode) ?? '').trim() : '';
+}
+
+function getRowItemLabel(row: unknown[], columns: QuotationColumns): string {
+  const orderName = String(getCell(row, columns.orderItemName) ?? '').trim();
+  const budgetName = getBudgetItemLabel(row, columns);
+  return (budgetName || orderName).replace(/\s/g, '');
+}
+
+function isRoundingRow(row: unknown[], columns: QuotationColumns): boolean {
+  return /단수정리|단수조정/.test(getRowItemLabel(row, columns));
+}
+
+function isExplicitOverheadRow(row: unknown[], columns: QuotationColumns): boolean {
+  return /공과잡비/.test(getRowItemLabel(row, columns));
+}
+
+/** 실행예산코드 없음 · 단수정리 제외 → 공과잡비성 항목 */
+function isCodelessOverheadRow(row: unknown[], columns: QuotationColumns): boolean {
+  if (getBudgetCode(row, columns)) return false;
+  if (isRoundingRow(row, columns)) return false;
+  return true;
+}
+
+function readDirectQuoteAmount(row: unknown[], columns: QuotationColumns): number {
+  const quoteAmountCell =
+    columns.quoteAmount >= 0 ? parseCellNumber(getCell(row, columns.quoteAmount)) : null;
+  if (quoteAmountCell != null && quoteAmountCell !== 0) return roundWon(quoteAmountCell);
+
+  const expenseAmountCell =
+    columns.expenseAmount >= 0 ? parseCellNumber(getCell(row, columns.expenseAmount)) : null;
+  if (expenseAmountCell != null && expenseAmountCell !== 0) return roundWon(expenseAmountCell);
+
+  const laborAmountCell =
+    columns.laborAmount >= 0 ? parseCellNumber(getCell(row, columns.laborAmount)) : null;
+  const materialAmountCell =
+    columns.materialAmount >= 0 ? parseCellNumber(getCell(row, columns.materialAmount)) : null;
+  const lmeSum =
+    (laborAmountCell ?? 0) + (materialAmountCell ?? 0) + (expenseAmountCell ?? 0);
+  if (lmeSum !== 0) return roundWon(lmeSum);
+
+  const quoteUnitCell =
+    columns.quoteUnit >= 0 ? parseCellNumber(getCell(row, columns.quoteUnit)) : null;
+  if (quoteUnitCell != null && quoteUnitCell !== 0) return roundWon(quoteUnitCell);
+
+  return 0;
+}
+
 function shouldIncludeRow(row: unknown[], columns: QuotationColumns): boolean {
+  if (isRoundingRow(row, columns)) {
+    const quantity = parseCellNumber(getCell(row, columns.quantity));
+    if (quantity != null && quantity > 0) return true;
+    return readDirectQuoteAmount(row, columns) !== 0;
+  }
+
+  if (isCodelessOverheadRow(row, columns)) {
+    const quantity = parseCellNumber(getCell(row, columns.quantity));
+    if (quantity != null && quantity > 0) return true;
+    return readDirectQuoteAmount(row, columns) !== 0;
+  }
+
   const orderName = String(getCell(row, columns.orderItemName) ?? '').trim();
   const budgetName = getBudgetItemLabel(row, columns);
   const quantity = parseCellNumber(getCell(row, columns.quantity));
@@ -324,7 +443,23 @@ function calculateRowPriceBreakdown(
   columns: QuotationColumns,
 ): RowPriceBreakdown | null {
   const quantity = parseCellNumber(getCell(row, columns.quantity));
-  if (quantity == null || quantity <= 0) return null;
+  if (quantity == null || quantity <= 0) {
+    if (isCodelessOverheadRow(row, columns)) {
+      const quoteAmount = readDirectQuoteAmount(row, columns);
+      if (quoteAmount === 0) return null;
+      return {
+        quoteUnit: 0,
+        quoteAmount,
+        laborUnit: 0,
+        laborAmount: 0,
+        materialUnit: 0,
+        materialAmount: 0,
+        expenseUnit: 0,
+        expenseAmount: quoteAmount,
+      };
+    }
+    return null;
+  }
 
   const labor = readCellAmount(row, columns.laborUnit, columns.laborAmount, quantity);
   const material = readCellAmount(row, columns.materialUnit, columns.materialAmount, quantity);
@@ -379,6 +514,67 @@ function calculateRowPriceBreakdown(
 
 function rowQuoteAmount(row: unknown[], columns: QuotationColumns): number {
   return calculateRowPriceBreakdown(row, columns)?.quoteAmount ?? 0;
+}
+
+/** 원본 견적서 행 기준 공과잡비율 — 통합내역 누락 없이 합산 */
+export function computeVendorOverheadStats(
+  rows: unknown[][],
+  headerRowIndex: number,
+  columns: QuotationColumns,
+  vendorName: string,
+): VendorOverheadRatioResult | null {
+  let totalAmount = 0;
+  let codedTotal = 0;
+  let overheadAmount = 0;
+  let explicitOverheadAmount = 0;
+  let implicitOverheadAmount = 0;
+  let overheadLineKey: string | undefined;
+
+  for (let rowIndex = headerRowIndex + 1; rowIndex < rows.length; rowIndex++) {
+    const row = rows[rowIndex] ?? [];
+    if (!shouldIncludeRow(row, columns)) continue;
+
+    const quoteAmount = rowQuoteAmount(row, columns);
+    if (quoteAmount === 0) continue;
+
+    totalAmount += quoteAmount;
+
+    if (isRoundingRow(row, columns)) continue;
+
+    const explicitOverhead = isExplicitOverheadRow(row, columns);
+    const codelessOverhead = isCodelessOverheadRow(row, columns);
+    const lineOverhead = explicitOverhead || codelessOverhead;
+
+    if (lineOverhead) {
+      overheadAmount += quoteAmount;
+      const lineKey = rowKey(row, columns, rowIndex);
+      if (codelessOverhead && !explicitOverhead) {
+        implicitOverheadAmount += quoteAmount;
+        overheadLineKey = overheadLineKey ?? lineKey;
+      } else {
+        explicitOverheadAmount += quoteAmount;
+        overheadLineKey = lineKey;
+      }
+      continue;
+    }
+
+    if (getBudgetCode(row, columns)) {
+      codedTotal += quoteAmount;
+    }
+  }
+
+  if (overheadAmount <= 0 || codedTotal <= 0) return null;
+
+  return {
+    ratio: (overheadAmount / codedTotal) * 100,
+    totalAmount,
+    codedTotal,
+    vendorName,
+    overheadAmount,
+    explicitOverheadAmount,
+    implicitOverheadAmount,
+    overheadLineKey,
+  };
 }
 
 function rowKey(row: unknown[], columns: QuotationColumns, rowIndex: number): string {
@@ -522,16 +718,20 @@ function buildIntegratedLineMatrix(
 
   return baseItems.map(({ key, row, columns }) => {
     const budgetItemName = getBudgetItemLabel(row, columns);
-    const normalizedBudget = budgetItemName.replace(/\s/g, '');
+    const orderItemName = String(getCell(row, columns.orderItemName) ?? '').trim();
+    const budgetCode = getBudgetCode(row, columns);
+    const isRoundingItem = isRoundingRow(row, columns);
+    const explicitOverhead = isExplicitOverheadRow(row, columns);
+    const codelessOverhead = isCodelessOverheadRow(row, columns);
 
     return {
       key,
-      budgetCode:
-        columns.budgetCode >= 0 ? String(getCell(row, columns.budgetCode) ?? '').trim() : '',
+      budgetCode,
       budgetItemName,
-      orderItemName: String(getCell(row, columns.orderItemName) ?? '').trim(),
-      isOverheadItem: /공과잡비/.test(normalizedBudget),
-      isRoundingItem: /단수정리|단수조정/.test(normalizedBudget),
+      orderItemName,
+      isOverheadItem: explicitOverhead || codelessOverhead,
+      isImplicitOverheadItem: codelessOverhead && !explicitOverhead,
+      isRoundingItem,
       vendorQuotes: ranked.map((parsed, vendorIndex) => {
         const vendorRow = vendorLookups[vendorIndex].get(key);
         if (!vendorRow) {
@@ -539,6 +739,8 @@ function buildIntegratedLineMatrix(
             partnerId: parsed.partnerId,
             vendorName: parsed.vendorName,
             quoteAmount: 0,
+            unitPrice: 0,
+            quantity: 0,
             missing: true,
             hasLabor: false,
             hasMaterial: false,
@@ -546,10 +748,22 @@ function buildIntegratedLineMatrix(
         }
 
         const breakdown = calculateRowPriceBreakdown(vendorRow, parsed.columns);
+        const quantity = parseCellNumber(getCell(vendorRow, parsed.columns.quantity)) ?? 0;
+        let unitPrice = breakdown?.quoteUnit ?? 0;
+        let quoteAmount = breakdown?.quoteAmount ?? 0;
+        if (quoteAmount === 0 && isCodelessOverheadRow(vendorRow, parsed.columns)) {
+          quoteAmount = readDirectQuoteAmount(vendorRow, parsed.columns);
+        }
+        if (unitPrice <= 0 && quantity > 0 && quoteAmount !== 0) {
+          unitPrice = roundWon(quoteAmount / quantity);
+        }
+
         return {
           partnerId: parsed.partnerId,
           vendorName: parsed.vendorName,
-          quoteAmount: breakdown?.quoteAmount ?? 0,
+          quoteAmount,
+          unitPrice,
+          quantity,
           missing: false,
           hasLabor: (breakdown?.laborAmount ?? 0) !== 0,
           hasMaterial: (breakdown?.materialAmount ?? 0) !== 0,
@@ -898,6 +1112,17 @@ export async function analyzePartnerQuotations(
       ? buildIntegratedLineMatrix(rankedParsed, template)
       : [];
 
+  const overheadByPartner = new Map<string, VendorOverheadRatioResult>();
+  for (const parsed of rankedParsed) {
+    const stats = computeVendorOverheadStats(
+      parsed.rows,
+      parsed.headerRowIndex,
+      parsed.columns,
+      parsed.vendorName,
+    );
+    if (stats) overheadByPartner.set(parsed.partnerId, stats);
+  }
+
   const reviewIssuesRaw =
     template && rankedParsed.length >= 2
       ? buildQuotationReviewIssues(
@@ -910,6 +1135,7 @@ export async function analyzePartnerQuotations(
             }),
           ),
           integratedLines,
+          overheadByPartner,
         )
       : [];
 

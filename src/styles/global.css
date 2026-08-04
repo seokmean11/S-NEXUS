@@ -573,6 +573,42 @@ body {
   line-height: 1.5;
 }
 
+.bid-quotation-compare__verdict-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin: 14px 0 0;
+}
+
+.bid-quotation-compare__verdict-stat {
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.65);
+  border: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.bid-quotation-compare__verdict-stat dt {
+  margin: 0 0 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+}
+
+.bid-quotation-compare__verdict-stat dd {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--color-text);
+}
+
+.bid-quotation-compare__verdict-stat-value--over {
+  color: #dc2626;
+}
+
+.bid-quotation-compare__verdict--awarded .bid-quotation-compare__verdict-stat-value--over {
+  color: var(--color-text);
+}
+
 .bid-quotation-compare__actions {
   display: flex;
   justify-content: center;
@@ -685,6 +721,11 @@ body {
   background: rgba(240, 68, 82, 0.05);
 }
 
+.bid-reviewer-summary__item--normal {
+  border-color: rgba(59, 130, 246, 0.25);
+  background: rgba(59, 130, 246, 0.04);
+}
+
 .bid-reviewer-summary__head {
   display: flex;
   align-items: center;
@@ -706,6 +747,11 @@ body {
 .bid-reviewer-summary__item--high .bid-reviewer-summary__badge {
   background: #fee2e2;
   color: #b91c1c;
+}
+
+.bid-reviewer-summary__item--normal .bid-reviewer-summary__badge {
+  background: rgba(59, 130, 246, 0.12);
+  color: var(--color-primary);
 }
 
 .bid-reviewer-summary__title {

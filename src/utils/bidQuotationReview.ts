@@ -2,6 +2,11 @@ import { formatWon } from '@/utils/bidQuotationAnalysis';
 
 const DEVIATION_RATIO = 0.1;
 const KEY_ITEM_RATIO = 0.1;
+/** 담합 의심 — 1위 대비 동일 견적단가(재+노+경) 품목 금액이 제출 총액의 50% 이상 */
+const COLLUSION_IDENTICAL_AMOUNT_RATIO = 0.5;
+/** 담합 의심 — 1위 대비 ±5% 이내 유사 견적단가 품목 비율 70% 이상 */
+const COLLUSION_SIMILAR_ITEM_RATIO = 0.7;
+const COLLUSION_SIMILAR_PRICE_TOLERANCE = 0.05;
 /** 공과잡비율(%) — 타사 대비 허용 초과폭 */
 const OVERHEAD_RATIO_MARGIN = 5;
 /** 공과잡비율(%) — 과다 안내 절대 하한(이 값 초과 필수) */
@@ -11,6 +16,7 @@ const ALWAYS_VISIBLE_DASHBOARD_GROUPS: BidReviewDisplayGroupKey[] = [
   'missing',
   'deviation',
   'overhead',
+  'collusion',
 ];
 const EMPTY_DASHBOARD_GROUP_MESSAGE = '해당 유형의 검토 이슈가 없습니다.';
 
@@ -24,7 +30,8 @@ export type BidReviewIssueCategory =
   | 'key_item_labor_extra'
   | 'key_item_material_missing'
   | 'key_item_material_extra'
-  | 'rank_change';
+  | 'rank_change'
+  | 'collusion_suspected';
 
 export type BidReviewIssueSeverity = 'critical' | 'warning';
 
@@ -52,7 +59,12 @@ export interface BidReviewerVendorEntry {
   rankChangeNote?: string;
 }
 
-export type BidReviewDisplayGroupKey = 'missing' | 'deviation' | 'overhead' | 'rank_change';
+export type BidReviewDisplayGroupKey =
+  | 'missing'
+  | 'deviation'
+  | 'collusion'
+  | 'overhead'
+  | 'rank_change';
 
 export interface BidReviewerSummaryGroup {
   id: BidReviewDisplayGroupKey;
@@ -123,6 +135,8 @@ const REVIEWER_ACTION_BY_CATEGORY: Record<BidReviewIssueCategory, string> = {
     '① 타사는 자재 내역 없이 제출했으나 본 업체만 기재 ② 견적서 양식 차이인지 확인 ③ 불필요 기재·이중 반영 여부 검토',
   rank_change:
     '① 과다 주요품목을 타사 평균으로 조정 시 순위가 바뀜 ② 해당 품목 단가 재협상·재산출 검토 ③ 조정 후 낙찰 가능성 재평가',
+  collusion_suspected:
+    '① 1위 업체와 동일·유사 견적단가 품목의 산출 근거·협의 이력 확인 ② 1위 견적이 타사 견적을 일률 반영(대리 작성)했는지 확인 ③ 입찰 전 단가 공유·담합 여부 조사 ④ 필요 시 해당 업체 견적 무효·재입찰 검토',
 };
 
 const AUTO_DETECT_REASON: Record<BidReviewIssueCategory, string[]> = {
@@ -153,6 +167,11 @@ const AUTO_DETECT_REASON: Record<BidReviewIssueCategory, string[]> = {
     '· 본 업체만 자재 단가·금액 기재',
   ],
   rank_change: ['· 주요품목 과다분을 타사 평균가로 환산하면 총액·순위가 변경됨(시뮬레이션)'],
+  collusion_suspected: [
+    '· 1위 업체 견적단가(재+노+경 합산) 대비 동일 단가 품목 금액이 제출 총액의 50% 이상',
+    '· 또는 비교 가능 품목의 70% 이상이 1위 대비 ±5% 이내 유사 견적단가',
+    '· 또는 1위·타사 품목별 단가 비율(1위÷타사)이 70% 이상 ±5% 이내로 일치(대리 작성·일률 상승 의심)',
+  ],
 };
 
 const CATEGORY_TO_DISPLAY_GROUP: Record<BidReviewIssueCategory, BidReviewDisplayGroupKey> = {
@@ -166,6 +185,7 @@ const CATEGORY_TO_DISPLAY_GROUP: Record<BidReviewIssueCategory, BidReviewDisplay
   key_item_material_missing: 'deviation',
   key_item_material_extra: 'deviation',
   rank_change: 'rank_change',
+  collusion_suspected: 'collusion',
 };
 
 const DISPLAY_GROUP_ORDER: BidReviewDisplayGroupKey[] = [
@@ -173,6 +193,7 @@ const DISPLAY_GROUP_ORDER: BidReviewDisplayGroupKey[] = [
   'deviation',
   'overhead',
   'rank_change',
+  'collusion',
 ];
 
 const DISPLAY_GROUP_META: Record<
@@ -201,13 +222,12 @@ const DISPLAY_GROUP_META: Record<
   overhead: {
     title: '공과잡비',
     description:
-      '공과잡비율 15% 초과를 기본으로, 기재 업체 수에 따라 단독 제출·최저 대비·평균 대비 과다를 검토합니다.',
+      '공과잡비율 15% 초과를 기본으로, 공과잡비 행·코드 없는 견적금액(단수정리 제외)을 합산해 과다 여부를 검토합니다.',
     criteria: [
-      '공과잡비율(%) = 견적금액 총액(공과잡비·단수정리 포함) ÷ 실행예산코드가 있는 품목 견적금액 합계 × 100 − 100',
-      '과다 안내 공통: 공과잡비율 15% 초과(필수)',
-      '공과잡비 보유 1개사: 15% 초과 시 과다 이슈, 15% 이하이면 단독 제출 안내',
-      '공과잡비 보유 2개사: 15% 초과이면서 최저 공과잡비율 업체 대비 5% 초과 시 과다 이슈',
-      '공과잡비 보유 3개사 이상: 15% 초과이면서 전체 보유 업체 평균 대비 5% 초과 시 과다 이슈',
+      '공과잡비율(%) = 공과잡비 합계(공과잡비·코드없음) ÷ 실행예산코드 품목 견적금액 합계 × 100',
+      '공과잡비 합산: 공과잡비 행 + 실행예산코드 없이 견적금액만 있는 모든 항목(경비 등)',
+      '단수정리·단수조정(− 금액)은 공과잡비 합산에서 제외(총액에는 포함)',
+      '과다 안내: 공과잡비율 15% 초과 시 경고 (타사 비교는 설명에 참고 표시)',
       '공과잡비·단수정리 항목의 견적 누락은 검토 대상에서 제외',
     ],
     actions: ['산출 근거·요율·포함 범위 확인', '타사 대비 사유·양식 차이 확인', '재협상·보완 검토'],
@@ -224,6 +244,26 @@ const DISPLAY_GROUP_META: Record<
     ],
     actions: ['단가·수량·규격·범위 대조', '누락·과다·양식 차이 확인', '조정·보완 견적 검토'],
     priority: 'normal',
+  },
+  collusion: {
+    title: '담합 의심',
+    description:
+      '1위(최저가) 업체 견적단가(재+노+경 합산)를 기준으로, 타사 견적과 동일·유사 단가 또는 일률적 비율 패턴이 검출된 경우입니다.',
+    criteria: [
+      '기준 업체: 견적 총액 1위(최저가) 업체',
+      '비교 단가: 세부 품목별 견적단가(노무+자재+경비 단가 합산, 재+노+경)',
+      '기준 A: 1위와 동일 견적단가 품목의 견적금액 합계 ≥ 해당 업체 제출 총액의 50%',
+      '기준 B: 1위와 ±5% 이내 유사 견적단가 품목 ≥ 비교 가능 품목 수의 70%',
+      '기준 C: 1위÷타사 품목별 단가 비율이 70% 이상 ±5% 이내로 일치(타사 견적 일률 반영·대리 작성 의심)',
+      '공과잡비·단수정리 항목은 비교에서 제외',
+    ],
+    actions: [
+      '동일·유사 단가 품목의 산출 근거·협의 이력 확인',
+      '1위 견적이 타사 견적을 일률 상승·반영한 대리 작성 여부 확인',
+      '입찰 전 단가 공유·담합 여부 조사',
+      '필요 시 견적 무효·재입찰 검토',
+    ],
+    priority: 'high',
   },
   rank_change: {
     title: '순위 변동',
@@ -251,11 +291,16 @@ export interface IntegratedLineQuote {
   budgetItemName: string;
   orderItemName: string;
   isOverheadItem: boolean;
+  /** 실행예산코드 없이 견적금액만 있는 공과잡비성 항목(단수정리 제외) */
+  isImplicitOverheadItem: boolean;
   isRoundingItem: boolean;
-  vendorQuotes: Array<{
+    vendorQuotes: Array<{
     partnerId: string;
     vendorName: string;
     quoteAmount: number;
+    /** 견적단가(재+노+경 단가 합산) */
+    unitPrice: number;
+    quantity: number;
     missing: boolean;
     hasLabor: boolean;
     hasMaterial: boolean;
@@ -406,12 +451,31 @@ function isExcludedFromMissingReview(line: IntegratedLineQuote): boolean {
   return line.isOverheadItem || line.isRoundingItem;
 }
 
-interface VendorOverheadRatioResult {
+export interface VendorOverheadRatioResult {
   ratio: number;
   totalAmount: number;
   codedTotal: number;
   vendorName: string;
+  overheadAmount: number;
+  explicitOverheadAmount: number;
+  implicitOverheadAmount: number;
   overheadLineKey?: string;
+}
+
+function formatOverheadAmountBreakdown(data: VendorOverheadRatioResult): string {
+  const parts: string[] = [];
+  if (data.explicitOverheadAmount > 0) {
+    parts.push(`공과잡비 ${formatWon(Math.round(data.explicitOverheadAmount))}`);
+  }
+  if (data.implicitOverheadAmount > 0) {
+    parts.push(`코드없음 ${formatWon(Math.round(data.implicitOverheadAmount))}`);
+  }
+  const totalLabel = formatWon(Math.round(data.overheadAmount));
+  return parts.length > 1 ? `${totalLabel} (${parts.join(' + ')})` : totalLabel;
+}
+
+function resolveDashboardGroupPriority(count: number): 'high' | 'normal' {
+  return count > 0 ? 'high' : 'normal';
 }
 
 function computeVendorOverheadRatio(
@@ -421,7 +485,9 @@ function computeVendorOverheadRatio(
 ): VendorOverheadRatioResult | null {
   let totalAmount = 0;
   let codedTotal = 0;
-  let hasOverhead = false;
+  let overheadAmount = 0;
+  let explicitOverheadAmount = 0;
+  let implicitOverheadAmount = 0;
   let overheadLineKey: string | undefined;
 
   for (const line of lines) {
@@ -430,44 +496,42 @@ function computeVendorOverheadRatio(
 
     totalAmount += quote.quoteAmount;
 
-    if (line.isOverheadItem) {
-      hasOverhead = true;
-      overheadLineKey = line.key;
+    const lineOverhead =
+      !line.isRoundingItem &&
+      (line.isOverheadItem || (!line.budgetCode.trim() && quote.quoteAmount !== 0));
+
+    if (lineOverhead && quote.quoteAmount !== 0) {
+      overheadAmount += quote.quoteAmount;
+      if (line.isImplicitOverheadItem || !line.budgetCode.trim()) {
+        implicitOverheadAmount += quote.quoteAmount;
+        overheadLineKey = overheadLineKey ?? line.key;
+      } else {
+        explicitOverheadAmount += quote.quoteAmount;
+        overheadLineKey = line.key;
+      }
     }
 
-    if (!line.isOverheadItem && !line.isRoundingItem && line.budgetCode.trim()) {
+    if (line.budgetCode.trim() && !line.isRoundingItem && !lineOverhead) {
       codedTotal += quote.quoteAmount;
     }
   }
 
-  if (!hasOverhead || codedTotal <= 0) return null;
+  if (overheadAmount <= 0 || codedTotal <= 0) return null;
 
   return {
-    ratio: (totalAmount / codedTotal) * 100 - 100,
+    ratio: (overheadAmount / codedTotal) * 100,
     totalAmount,
     codedTotal,
     vendorName,
+    overheadAmount,
+    explicitOverheadAmount,
+    implicitOverheadAmount,
     overheadLineKey,
   };
 }
 
-function passesOverheadHighThreshold(
-  ratio: number,
-  overheadVendorCount: number,
-  minRatio: number,
-  avgRatio: number,
-  isLowestVendor: boolean,
-): boolean {
-  if (ratio <= OVERHEAD_ABSOLUTE_LIMIT) return false;
-
-  if (overheadVendorCount === 1) return true;
-
-  if (overheadVendorCount === 2) {
-    if (isLowestVendor) return false;
-    return ratio > minRatio + OVERHEAD_RATIO_MARGIN;
-  }
-
-  return ratio > avgRatio + OVERHEAD_RATIO_MARGIN;
+function passesOverheadHighThreshold(ratio: number): boolean {
+  return ratio > OVERHEAD_ABSOLUTE_LIMIT;
 }
 
 function pushOverheadHighIssue(
@@ -486,7 +550,9 @@ function pushOverheadHighIssue(
     severity: 'warning',
     title: `[${data.vendorName}] 공과잡비율 과다 — ${data.ratio.toFixed(1)}%`,
     description: joinIssueLines([
-      `■ 상황: ${data.vendorName} 공과잡비율 ${data.ratio.toFixed(1)}% (견적 총액 ${formatWon(Math.round(data.totalAmount))} ÷ 코드 품목 합계 ${formatWon(Math.round(data.codedTotal))})`,
+      `■ 상황: ${data.vendorName} 공과잡비율 ${data.ratio.toFixed(1)}% (공과잡비 합계 ${formatWon(Math.round(data.overheadAmount))} ÷ 코드 품목 합계 ${formatWon(Math.round(data.codedTotal))})`,
+      `■ 견적 총액: ${formatWon(Math.round(data.totalAmount))} (단수정리 등 포함)`,
+      `■ 공과잡비 합계: ${formatOverheadAmountBreakdown(data)}`,
       `■ 절대 기준: 공과잡비율 ${OVERHEAD_ABSOLUTE_LIMIT}% 초과 (${data.ratio.toFixed(1)}%)`,
       count === 1
         ? `■ 비교: 공과잡비 보유 1개사 — 타사 비교 없음, 15% 초과 단독 기준 적용`
@@ -509,12 +575,19 @@ function reviewOverheadRatioIssues(
   vendors: IntegratedVendorQuote[],
   lines: IntegratedLineQuote[],
   pushIssue: (issue: Omit<BidReviewIssue, 'id'>) => void,
+  overheadByPartner?: Map<string, VendorOverheadRatioResult>,
 ): void {
   const ratioByPartner = new Map<string, VendorOverheadRatioResult>();
 
-  for (const vendor of vendors) {
-    const result = computeVendorOverheadRatio(lines, vendor.partnerId, vendor.vendorName);
-    if (result) ratioByPartner.set(vendor.partnerId, result);
+  if (overheadByPartner && overheadByPartner.size > 0) {
+    for (const [partnerId, stats] of overheadByPartner) {
+      ratioByPartner.set(partnerId, stats);
+    }
+  } else {
+    for (const vendor of vendors) {
+      const result = computeVendorOverheadRatio(lines, vendor.partnerId, vendor.vendorName);
+      if (result) ratioByPartner.set(vendor.partnerId, result);
+    }
   }
 
   const count = ratioByPartner.size;
@@ -525,7 +598,7 @@ function reviewOverheadRatioIssues(
   if (count === 1) {
     const [partnerId, data] = entries[0]!;
 
-    if (passesOverheadHighThreshold(data.ratio, 1, data.ratio, data.ratio, false)) {
+    if (passesOverheadHighThreshold(data.ratio)) {
       pushOverheadHighIssue(pushIssue, data, partnerId, 1, data, data.ratio);
       return;
     }
@@ -535,8 +608,9 @@ function reviewOverheadRatioIssues(
       severity: 'warning',
       title: `[${data.vendorName}] 공과잡비 단독 제출`,
       description: joinIssueLines([
-        `■ 상황: 참여 ${vendors.length}개사 중 ${data.vendorName}만 공과잡비 행을 기재했습니다.`,
-        `■ 공과잡비율: ${data.ratio.toFixed(1)}% (견적 총액 ${formatWon(Math.round(data.totalAmount))} ÷ 코드 품목 합계 ${formatWon(Math.round(data.codedTotal))})`,
+        `■ 상황: 참여 ${vendors.length}개사 중 ${data.vendorName}만 공과잡비(또는 코드없음 항목) 행을 기재했습니다.`,
+        `■ 공과잡비율: ${data.ratio.toFixed(1)}% (공과잡비 합계 ${formatWon(Math.round(data.overheadAmount))} ÷ 코드 품목 합계 ${formatWon(Math.round(data.codedTotal))})`,
+        `■ 공과잡비 합계: ${formatOverheadAmountBreakdown(data)}`,
         `■ 판단 기준: 공과잡비 보유 1곳, 공과잡비율 ${OVERHEAD_ABSOLUTE_LIMIT}% 이하 → 단독 제출 안내`,
         `■ 검토 포인트: 타사는 공과잡비를 별도 기재하지 않았는지, 산출·포함 범위 차이를 확인하세요.`,
       ]),
@@ -551,23 +625,233 @@ function reviewOverheadRatioIssues(
   const minEntry = entries.reduce((lowest, current) =>
     current[1].ratio < lowest[1].ratio ? current : lowest,
   );
-  const [minPartnerId, minData] = minEntry;
+  const [, minData] = minEntry;
 
   for (const [partnerId, data] of entries) {
-    const isLowestVendor = partnerId === minPartnerId;
-    if (
-      !passesOverheadHighThreshold(data.ratio, count, minData.ratio, avgRatio, isLowestVendor)
-    ) {
-      continue;
+    if (!passesOverheadHighThreshold(data.ratio)) continue;
+    pushOverheadHighIssue(pushIssue, data, partnerId, count, minData, avgRatio);
+  }
+}
+
+function isIdenticalUnitPrice(leaderUnit: number, peerUnit: number): boolean {
+  const leader = roundCollusionUnit(leaderUnit);
+  const peer = roundCollusionUnit(peerUnit);
+  return leader > 0 && peer > 0 && leader === peer;
+}
+
+function isSimilarUnitPrice(leaderUnit: number, peerUnit: number): boolean {
+  const leader = roundCollusionUnit(leaderUnit);
+  const peer = roundCollusionUnit(peerUnit);
+  if (leader <= 0 || peer <= 0) return false;
+  if (isIdenticalUnitPrice(leader, peer)) return true;
+  return Math.abs(peer - leader) / leader <= COLLUSION_SIMILAR_PRICE_TOLERANCE;
+}
+
+function roundCollusionUnit(value: number): number {
+  return Math.round(value);
+}
+
+function resolveCollusionUnitPrice(
+  quote: IntegratedLineQuote['vendorQuotes'][number],
+): number {
+  if (quote.missing || quote.quoteAmount === 0) return 0;
+  if (quote.unitPrice > 0) return roundCollusionUnit(quote.unitPrice);
+  if (quote.quantity > 0) return roundCollusionUnit(quote.quoteAmount / quote.quantity);
+  return 0;
+}
+
+function isCollusionComparableLine(line: IntegratedLineQuote): boolean {
+  return (
+    line.budgetCode.trim() !== '' &&
+    !line.isRoundingItem &&
+    !line.isOverheadItem
+  );
+}
+
+function median(values: number[]): number {
+  if (values.length === 0) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 0
+    ? (sorted[mid - 1] + sorted[mid]) / 2
+    : sorted[mid];
+}
+
+function isConsistentUnitPriceRatio(ratio: number, referenceRatio: number): boolean {
+  if (ratio <= 0 || referenceRatio <= 0) return false;
+  return Math.abs(ratio - referenceRatio) / referenceRatio <= COLLUSION_SIMILAR_PRICE_TOLERANCE;
+}
+
+function formatUniformRatioLabel(medianRatio: number): string {
+  const deltaPercent = (medianRatio - 1) * 100;
+  if (Math.abs(deltaPercent) < 0.05) return '동일 수준';
+  const direction = deltaPercent > 0 ? '상승' : '하락';
+  return `약 ${Math.abs(deltaPercent).toFixed(1)}% ${direction}`;
+}
+
+function formatSampleItems(items: string[], limit = 5): string {
+  if (items.length === 0) return '-';
+  const sample = items.slice(0, limit).join(', ');
+  return items.length > limit ? `${sample} 외 ${items.length - limit}건` : sample;
+}
+
+function reviewCollusionIssues(
+  vendors: IntegratedVendorQuote[],
+  lines: IntegratedLineQuote[],
+  pushIssue: (issue: Omit<BidReviewIssue, 'id'>) => void,
+): void {
+  if (vendors.length < 2) return;
+
+  const leader =
+    vendors.find((vendor) => vendor.rank === 1) ??
+    [...vendors].sort((a, b) => a.totalAmount - b.totalAmount)[0];
+  if (!leader || leader.totalAmount <= 0) return;
+
+  const comparableLines = lines.filter(isCollusionComparableLine);
+
+  for (const vendor of vendors) {
+    if (vendor.partnerId === leader.partnerId) continue;
+    if (vendor.totalAmount <= 0) continue;
+
+    let identicalAmountSum = 0;
+    let comparableCount = 0;
+    let similarCount = 0;
+    const identicalItems: string[] = [];
+    const similarOnlyItems: string[] = [];
+
+    for (const line of comparableLines) {
+      const leaderQuote = line.vendorQuotes.find(
+        (quote) => quote.partnerId === leader.partnerId,
+      );
+      const peerQuote = line.vendorQuotes.find(
+        (quote) => quote.partnerId === vendor.partnerId,
+      );
+      if (!leaderQuote || !peerQuote) continue;
+
+      const leaderUnit = resolveCollusionUnitPrice(leaderQuote);
+      const peerUnit = resolveCollusionUnitPrice(peerQuote);
+      if (leaderUnit <= 0 || peerUnit <= 0) continue;
+
+      comparableCount += 1;
+
+      if (isIdenticalUnitPrice(leaderUnit, peerUnit)) {
+        identicalAmountSum += peerQuote.quoteAmount;
+        identicalItems.push(formatLineRef(line));
+      }
+
+      if (isSimilarUnitPrice(leaderUnit, peerUnit)) {
+        similarCount += 1;
+        if (!isIdenticalUnitPrice(leaderUnit, peerUnit)) {
+          similarOnlyItems.push(formatLineRef(line));
+        }
+      }
     }
 
-    pushOverheadHighIssue(pushIssue, data, partnerId, count, minData, avgRatio);
+    if (comparableCount === 0) continue;
+
+    const identicalAmountRatio = identicalAmountSum / vendor.totalAmount;
+    const similarItemRatio = similarCount / comparableCount;
+    const triggersIdentical = identicalAmountRatio >= COLLUSION_IDENTICAL_AMOUNT_RATIO;
+    const triggersSimilar = similarItemRatio >= COLLUSION_SIMILAR_ITEM_RATIO;
+
+    if (!triggersIdentical && !triggersSimilar) continue;
+
+    const triggerLabels = [
+      triggersIdentical ? '동일 단가 50% 이상' : '',
+      triggersSimilar ? '유사 단가 70% 이상' : '',
+    ]
+      .filter(Boolean)
+      .join(' · ');
+
+    pushIssue({
+      category: 'collusion_suspected',
+      severity: 'warning',
+      title: `[${vendor.vendorName}] 담합 의심 — 1위 ${leader.vendorName} 견적단가 유사 (${triggerLabels})`,
+      description: joinIssueLines([
+        `■ 상황: 1위 업체(${leader.vendorName}) 견적단가(재+노+경 합산) 대비 ${vendor.vendorName} 견적에 담합 의심 패턴이 검출되었습니다.`,
+        triggersIdentical
+          ? `■ 기준 A(동일 단가): 1위와 동일 견적단가 품목 금액 ${formatWon(Math.round(identicalAmountSum))} → 제출 총액 ${formatWon(vendor.totalAmount)} 대비 ${(identicalAmountRatio * 100).toFixed(1)}% (기준 50% 이상)`
+          : '',
+        triggersSimilar
+          ? `■ 기준 B(유사 단가): 비교 가능 ${comparableCount}개 품목 중 ${similarCount}개(${(similarItemRatio * 100).toFixed(1)}%)가 1위 대비 ±5% 이내 (기준 70% 이상)`
+          : '',
+        identicalItems.length > 0
+          ? `■ 동일 단가 품목 예: ${formatSampleItems(identicalItems)}`
+          : '',
+        similarOnlyItems.length > 0
+          ? `■ 유사 단가(±5%) 품목 예: ${formatSampleItems(similarOnlyItems)}`
+          : '',
+        `■ 1위 기준 업체: ${leader.vendorName} (${formatWon(leader.totalAmount)})`,
+        `■ 검토 포인트: 협력사 간 견적단가 공유·담합 여부, 산출 근거·협의 이력을 확인하세요.`,
+      ]),
+      partnerId: vendor.partnerId,
+      priceColumnOffsets: [0],
+    });
+  }
+
+  for (const peer of vendors) {
+    if (peer.partnerId === leader.partnerId) continue;
+    if (peer.totalAmount <= 0) continue;
+
+    const ratioEntries: Array<{ line: IntegratedLineQuote; ratio: number }> = [];
+
+    for (const line of comparableLines) {
+      const leaderQuote = line.vendorQuotes.find(
+        (quote) => quote.partnerId === leader.partnerId,
+      );
+      const peerQuote = line.vendorQuotes.find(
+        (quote) => quote.partnerId === peer.partnerId,
+      );
+      if (!leaderQuote || !peerQuote) continue;
+
+      const leaderUnit = resolveCollusionUnitPrice(leaderQuote);
+      const peerUnit = resolveCollusionUnitPrice(peerQuote);
+      if (leaderUnit <= 0 || peerUnit <= 0) continue;
+
+      ratioEntries.push({ line, ratio: leaderUnit / peerUnit });
+    }
+
+    if (ratioEntries.length === 0) continue;
+
+    const medianRatio = median(ratioEntries.map((entry) => entry.ratio));
+    const consistentItems: string[] = [];
+    let consistentCount = 0;
+
+    for (const entry of ratioEntries) {
+      if (!isConsistentUnitPriceRatio(entry.ratio, medianRatio)) continue;
+      consistentCount += 1;
+      consistentItems.push(formatLineRef(entry.line));
+    }
+
+    const consistentItemRatio = consistentCount / ratioEntries.length;
+    if (consistentItemRatio < COLLUSION_SIMILAR_ITEM_RATIO) continue;
+
+    const ratioLabel = formatUniformRatioLabel(medianRatio);
+
+    pushIssue({
+      category: 'collusion_suspected',
+      severity: 'warning',
+      title: `[${leader.vendorName}] 담합 의심 — ${peer.vendorName} 견적 일률 반영 (${ratioLabel})`,
+      description: joinIssueLines([
+        `■ 상황: 1위 업체(${leader.vendorName}) 견적단가가 ${peer.vendorName} 견적 대비 품목별로 일률적 비율(1위÷타사)을 이루어, 타사 견적서를 일괄 상승·반영한 대리 작성이 의심됩니다.`,
+        `■ 기준 C(유사 비율): 비교 가능 ${ratioEntries.length}개 품목 중 ${consistentCount}개(${(consistentItemRatio * 100).toFixed(1)}%)의 단가 비율이 중앙값 ${medianRatio.toFixed(4)} 대비 ±5% 이내 (기준 70% 이상)`,
+        `■ 추정 반영 폭: ${peer.vendorName} 대비 ${ratioLabel} (중앙 비율 ${(medianRatio * 100).toFixed(1)}%)`,
+        consistentItems.length > 0
+          ? `■ 유사 비율 품목 예: ${formatSampleItems(consistentItems)}`
+          : '',
+        `■ 비교 대상: ${peer.vendorName} (${formatWon(peer.totalAmount)}) · 1위 ${leader.vendorName} (${formatWon(leader.totalAmount)})`,
+        `■ 검토 포인트: 1위 업체가 타사 견적서를 기반으로 세부 품목 단가를 일률 조정해 제출했는지, 견적 대리 작성·담합 여부를 확인하세요.`,
+      ]),
+      partnerId: leader.partnerId,
+      priceColumnOffsets: [0],
+    });
   }
 }
 
 export function buildQuotationReviewIssues(
   vendors: IntegratedVendorQuote[],
   lines: IntegratedLineQuote[],
+  overheadByPartner?: Map<string, VendorOverheadRatioResult>,
 ): BidReviewIssue[] {
   if (vendors.length < 2 || lines.length === 0) return [];
 
@@ -609,7 +893,7 @@ export function buildQuotationReviewIssues(
     }
   }
 
-  reviewOverheadRatioIssues(vendors, lines, pushIssue);
+  reviewOverheadRatioIssues(vendors, lines, pushIssue, overheadByPartner);
 
   const keyLineKeys = new Set<string>();
   for (const vendor of vendors) {
@@ -741,6 +1025,8 @@ export function buildQuotationReviewIssues(
     }
   }
 
+  reviewCollusionIssues(vendors, lines, pushIssue);
+
   return issues;
 }
 
@@ -794,6 +1080,22 @@ function formatIssueDashboardItem(issue: BidReviewIssue): string {
       return rankMatch
         ? `과다품목 평균가 조정 시 ${rankMatch[1]}위 → ${rankMatch[2]}위`
         : issue.title.replace(/^\[[^\]]+\]\s*/, '');
+    }
+    case 'collusion_suspected': {
+      const identicalMatch = issue.description.match(/기준 A\(동일 단가\).*?(\d+\.?\d*)%/);
+      const similarMatch = issue.description.match(/기준 B\(유사 단가\).*?(\d+\.?\d*)%/);
+      const uniformMatch = issue.description.match(/기준 C\(유사 비율\).*?(\d+\.?\d*)%/);
+      if (uniformMatch) {
+        const ratioLabelMatch = issue.description.match(/■ 추정 반영 폭: .*? 대비 ([^(]+)/);
+        const ratioLabel = ratioLabelMatch?.[1]?.trim() ?? '일률 반영';
+        return `${ratioLabel} · 유사 비율 ${uniformMatch[1]}%`;
+      }
+      if (identicalMatch && similarMatch) {
+        return `1위 대비 동일 ${identicalMatch[1]}% · 유사 ${similarMatch[1]}%`;
+      }
+      if (identicalMatch) return `1위 대비 동일 견적단가 ${identicalMatch[1]}%`;
+      if (similarMatch) return `1위 대비 유사 견적단가 ${similarMatch[1]}%`;
+      return '1위 견적단가 유사 · 담합 의심';
     }
     default:
       return item;
@@ -901,6 +1203,7 @@ function buildExcelNote(issue: BidReviewIssue, line?: IntegratedLineQuote): stri
     '  · 색상: 빨강=견적 누락(긴급), 주황=편차·불일치',
     '  · 메모 보기: Excel [검토] > [메모 표시] 또는 셀 우클릭',
     '  · 기준: 타사 평균 ±10%, 주요품목=총액 10%+, 다수결=참여 50%+',
+    '  · 담합: 1위 대비 동일 단가 50%+ 또는 ±5% 유사 70%+',
   ]);
 }
 
@@ -966,7 +1269,7 @@ export function buildReviewerSummary(
 
     groups.push({
       id: groupId,
-      priority: meta.priority,
+      priority: resolveDashboardGroupPriority(groupIssues.length),
       title: meta.title,
       description: meta.description,
       criteria: meta.criteria,
@@ -981,7 +1284,7 @@ export function buildReviewerSummary(
     const meta = DISPLAY_GROUP_META[groupId];
     groups.push({
       id: groupId,
-      priority: meta.priority,
+      priority: 'normal',
       title: meta.title,
       description: meta.description,
       criteria: meta.criteria,
@@ -992,16 +1295,19 @@ export function buildReviewerSummary(
     });
   }
 
-  groups.sort(
-    (a, b) => DISPLAY_GROUP_ORDER.indexOf(a.id) - DISPLAY_GROUP_ORDER.indexOf(b.id),
-  );
+  groups.sort((a, b) => {
+    const aHasIssues = a.count > 0 ? 0 : 1;
+    const bHasIssues = b.count > 0 ? 0 : 1;
+    if (aHasIssues !== bHasIssues) return aHasIssues - bHasIssues;
+    return DISPLAY_GROUP_ORDER.indexOf(a.id) - DISPLAY_GROUP_ORDER.indexOf(b.id);
+  });
 
   const criticalCount = issues.filter((issue) => issue.severity === 'critical').length;
 
   if (issues.length === 0) {
     return {
       overview:
-        '자동 검토 기준에 해당하는 특이 이슈가 없습니다. 견적 누락·금액 편차·공과잡비 유형은 이슈 없음으로 표시됩니다. 통합 Excel을 오프라인으로 검토하세요.',
+        '자동 검토 기준에 해당하는 특이 이슈가 없습니다. 견적 누락·금액 편차·공과잡비·담합 유형은 이슈 없음으로 표시됩니다. 통합 Excel을 오프라인으로 검토하세요.',
       groups,
     };
   }
@@ -1026,6 +1332,7 @@ export const BID_REVIEW_CATEGORY_LABELS: Record<BidReviewIssueCategory, string> 
   key_item_material_missing: '자재 내역 누락',
   key_item_material_extra: '자재 내역 불일치',
   rank_change: '순위 변동',
+  collusion_suspected: '담합 의심',
 };
 
 export interface ReviewCellMark {
@@ -1074,7 +1381,7 @@ export function buildReviewCellMarks(
       continue;
     }
 
-    if (issue.category === 'rank_change') {
+    if (issue.category === 'rank_change' || issue.category === 'collusion_suspected') {
       marks.push({
         sheetRow: 1,
         sheetCol: vendorStartCol + 1,
