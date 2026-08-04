@@ -7,6 +7,7 @@ import type {
   OutsourcingRecord,
   UnitPriceStats,
   VendorChartItem,
+  VendorContractBreakdownItem,
 } from '@/types/outsourcing';
 import { OUTSOURCING_DIVISION_ORDER, OUTSOURCING_FILTER_ORDER } from '@/types/outsourcing';
 import {
@@ -178,6 +179,12 @@ interface VendorAggregate {
   laborAmount: number;
   expenseAmount: number;
   recordCount: number;
+  projects: Set<string>;
+  contracts: Map<string, VendorContractBreakdownItem>;
+}
+
+function vendorContractKey(project: string, contract: string): string {
+  return `${project}\0${contract}`;
 }
 
 export function buildVendorChartData(rows: OutsourcingRecord[]): VendorChartItem[] {
@@ -193,14 +200,31 @@ export function buildVendorChartData(rows: OutsourcingRecord[]): VendorChartItem
       laborAmount: 0,
       expenseAmount: 0,
       recordCount: 0,
+      projects: new Set<string>(),
+      contracts: new Map<string, VendorContractBreakdownItem>(),
     };
 
+    const rowTotal = rowAmount(row);
+    if (row.project) current.projects.add(row.project);
+    if (row.contract) {
+      const contractKey = vendorContractKey(row.project, row.contract);
+      const contractItem = current.contracts.get(contractKey) ?? {
+        project: row.project,
+        contract: row.contract,
+        amount: 0,
+      };
+      contractItem.amount += rowTotal;
+      current.contracts.set(contractKey, contractItem);
+    }
+
     totals.set(label, {
-      amount: current.amount + rowAmount(row),
+      amount: current.amount + rowTotal,
       materialAmount: current.materialAmount + row.materialAmount,
       laborAmount: current.laborAmount + row.laborAmount,
       expenseAmount: current.expenseAmount + row.expenseAmount,
       recordCount: current.recordCount + 1,
+      projects: current.projects,
+      contracts: current.contracts,
     });
   });
 
@@ -215,6 +239,10 @@ export function buildVendorChartData(rows: OutsourcingRecord[]): VendorChartItem
       laborAmount: aggregate.laborAmount,
       expenseAmount: aggregate.expenseAmount,
       recordCount: aggregate.recordCount,
+      contractBreakdown: [...aggregate.contracts.values()].sort((a, b) => b.amount - a.amount),
+      projectCount: aggregate.projects.size,
+      projectAverageAmount:
+        aggregate.projects.size > 0 ? aggregate.amount / aggregate.projects.size : 0,
     }))
     .sort((a, b) => b.amount - a.amount);
 }

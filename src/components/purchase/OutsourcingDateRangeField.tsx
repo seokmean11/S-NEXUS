@@ -17,6 +17,7 @@ import {
 interface OutsourcingDateRangeFieldProps {
   dateRange: OutsourcingDateRange;
   onChange: (dateRange: OutsourcingDateRange) => void;
+  onActivate?: () => void;
 }
 
 interface MaskedDateDigitsProps {
@@ -68,7 +69,11 @@ function MaskedDateDigits({ digits, rangeOffset, cursorDigit, focused }: MaskedD
   );
 }
 
-function OutsourcingDateRangeFieldComponent({ dateRange, onChange }: OutsourcingDateRangeFieldProps) {
+function OutsourcingDateRangeFieldComponent({
+  dateRange,
+  onChange,
+  onActivate,
+}: OutsourcingDateRangeFieldProps) {
   const controlRef = useRef<HTMLDivElement>(null);
   const [cursorDigit, setCursorDigit] = useState(0);
   const [focused, setFocused] = useState(false);
@@ -87,6 +92,7 @@ function OutsourcingDateRangeFieldComponent({ dateRange, onChange }: Outsourcing
   };
 
   const handleFocus = () => {
+    onActivate?.();
     setFocused(true);
     setCursorDigit(getInitialRangeDigitIndex(dateRange));
   };
@@ -96,6 +102,8 @@ function OutsourcingDateRangeFieldComponent({ dateRange, onChange }: Outsourcing
   };
 
   const handleClick = (event: React.MouseEvent<HTMLDivElement>) => {
+    onActivate?.();
+
     const digitTarget = (event.target as HTMLElement).closest('[data-digit-index]');
     if (digitTarget) {
       focusDigit(Number(digitTarget.getAttribute('data-digit-index')));

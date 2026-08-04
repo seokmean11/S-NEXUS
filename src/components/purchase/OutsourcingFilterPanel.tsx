@@ -1,4 +1,4 @@
-import { memo, useCallback, useMemo } from 'react';
+import { memo, useCallback, useMemo, useState } from 'react';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { OutsourcingDateRangeField } from '@/components/purchase/OutsourcingDateRangeField';
@@ -32,6 +32,8 @@ function OutsourcingFilterPanelComponent({
   onFiltersChange,
   onDateRangeChange,
 }: OutsourcingFilterPanelProps) {
+  const [activeFilterKey, setActiveFilterKey] = useState<OutsourcingFilterKey | 'date' | null>(null);
+
   const activeFilterCount = useMemo(
     () => countActiveOutsourcingFilters(filters, dateRange),
     [filters, dateRange],
@@ -50,6 +52,7 @@ function OutsourcingFilterPanelComponent({
   );
 
   const handleResetAll = () => {
+    setActiveFilterKey(null);
     onFiltersChange(EMPTY_OUTSOURCING_FILTERS);
     onDateRangeChange({ ...EMPTY_OUTSOURCING_DATE_RANGE });
   };
@@ -60,7 +63,12 @@ function OutsourcingFilterPanelComponent({
       className="outsourcing-filter-card"
       subtitle="한 입력창에서 키워드 검색과 항목 선택(체크)을 동시에 사용합니다. 필터 간 교차 검색이 적용됩니다."
       headerAction={
-        <Button variant="ghost" size="sm" onClick={handleResetAll}>
+        <Button
+          variant="outline"
+          size="sm"
+          className="outsourcing-filter-card__reset-btn"
+          onClick={handleResetAll}
+        >
           전체 초기화
         </Button>
       }
@@ -72,7 +80,11 @@ function OutsourcingFilterPanelComponent({
       </p>
 
       <div className="outsourcing-filter-grid">
-        <OutsourcingDateRangeField dateRange={dateRange} onChange={onDateRangeChange} />
+        <OutsourcingDateRangeField
+          dateRange={dateRange}
+          onChange={onDateRangeChange}
+          onActivate={() => setActiveFilterKey('date')}
+        />
 
         {OUTSOURCING_FILTER_ORDER.map((key) => (
           <OutsourcingMultiSelectFilter
@@ -80,6 +92,8 @@ function OutsourcingFilterPanelComponent({
             filterKey={key}
             options={facetedOptions[key]}
             field={filters[key]}
+            activeFilterKey={activeFilterKey}
+            onActivate={() => setActiveFilterKey(key)}
             onChange={(field) => setField(key, field)}
           />
         ))}

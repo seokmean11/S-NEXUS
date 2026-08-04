@@ -116,6 +116,12 @@ export interface OutsourcingKpiSummary {
   expenseUnitPrice: UnitPriceStats;
 }
 
+export interface VendorContractBreakdownItem {
+  project: string;
+  contract: string;
+  amount: number;
+}
+
 export interface VendorChartItem {
   vendorLabel: string;
   amount: number;
@@ -124,4 +130,7 @@ export interface VendorChartItem {
   laborAmount: number;
   expenseAmount: number;
   recordCount: number;
+  contractBreakdown: VendorContractBreakdownItem[];
+  projectCount: number;
+  projectAverageAmount: number;
 }

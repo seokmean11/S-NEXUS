@@ -11,6 +11,8 @@ interface OutsourcingMultiSelectFilterProps {
   filterKey: OutsourcingFilterKey;
   options: string[];
   field: OutsourcingFilterFieldState;
+  activeFilterKey: OutsourcingFilterKey | 'date' | null;
+  onActivate: () => void;
   onChange: (field: OutsourcingFilterFieldState) => void;
 }
 
@@ -18,6 +20,8 @@ function OutsourcingMultiSelectFilterComponent({
   filterKey,
   options,
   field,
+  activeFilterKey,
+  onActivate,
   onChange,
 }: OutsourcingMultiSelectFilterProps) {
   const [open, setOpen] = useState(false);
@@ -41,6 +45,16 @@ function OutsourcingMultiSelectFilterComponent({
     }, KEYWORD_DEBOUNCE_MS);
     return () => window.clearTimeout(timer);
   }, [field, localKeyword, onChange]);
+
+  useEffect(() => {
+    if (activeFilterKey === null || activeFilterKey === filterKey) return;
+    if (field.selected.length > 0) return;
+    if (!localKeyword.trim() && !field.keyword.trim()) return;
+
+    setLocalKeyword('');
+    setOpen(false);
+    onChange({ ...field, keyword: '' });
+  }, [activeFilterKey, field, filterKey, localKeyword, onChange]);
 
   const filteredOptions = useMemo(() => {
     const keyword = localKeyword.trim().toLowerCase();
@@ -133,6 +147,7 @@ function OutsourcingMultiSelectFilterComponent({
   };
 
   const openPanel = () => {
+    onActivate();
     setOpen(true);
     requestAnimationFrame(() => inputRef.current?.focus());
   };
@@ -224,7 +239,10 @@ function OutsourcingMultiSelectFilterComponent({
               setLocalKeyword(e.target.value);
               setOpen(true);
             }}
-            onFocus={() => setOpen(true)}
+            onFocus={() => {
+              onActivate();
+              setOpen(true);
+            }}
             onClick={(event) => event.stopPropagation()}
             placeholder={
               hasSelection ? '키워드 검색 또는 추가 선택' : '키워드 검색 · 항목 선택'
