@@ -178,7 +178,6 @@ interface VendorAggregate {
   materialAmount: number;
   laborAmount: number;
   expenseAmount: number;
-  recordCount: number;
   projects: Set<string>;
   contracts: Map<string, VendorContractBreakdownItem>;
 }
@@ -199,14 +198,13 @@ export function buildVendorChartData(rows: OutsourcingRecord[]): VendorChartItem
       materialAmount: 0,
       laborAmount: 0,
       expenseAmount: 0,
-      recordCount: 0,
       projects: new Set<string>(),
       contracts: new Map<string, VendorContractBreakdownItem>(),
     };
 
     const rowTotal = rowAmount(row);
     if (row.project) current.projects.add(row.project);
-    if (row.contract) {
+    if (row.project && row.contract) {
       const contractKey = vendorContractKey(row.project, row.contract);
       const contractItem = current.contracts.get(contractKey) ?? {
         project: row.project,
@@ -222,7 +220,6 @@ export function buildVendorChartData(rows: OutsourcingRecord[]): VendorChartItem
       materialAmount: current.materialAmount + row.materialAmount,
       laborAmount: current.laborAmount + row.laborAmount,
       expenseAmount: current.expenseAmount + row.expenseAmount,
-      recordCount: current.recordCount + 1,
       projects: current.projects,
       contracts: current.contracts,
     });
@@ -231,19 +228,22 @@ export function buildVendorChartData(rows: OutsourcingRecord[]): VendorChartItem
   const grandTotal = [...totals.values()].reduce((sum, value) => sum + value.amount, 0);
 
   return [...totals.entries()]
-    .map(([vendorLabel, aggregate]) => ({
-      vendorLabel,
-      amount: aggregate.amount,
-      sharePercent: grandTotal > 0 ? (aggregate.amount / grandTotal) * 100 : 0,
-      materialAmount: aggregate.materialAmount,
-      laborAmount: aggregate.laborAmount,
-      expenseAmount: aggregate.expenseAmount,
-      recordCount: aggregate.recordCount,
-      contractBreakdown: [...aggregate.contracts.values()].sort((a, b) => b.amount - a.amount),
-      projectCount: aggregate.projects.size,
-      projectAverageAmount:
-        aggregate.projects.size > 0 ? aggregate.amount / aggregate.projects.size : 0,
-    }))
+    .map(([vendorLabel, aggregate]) => {
+      const contractBreakdown = [...aggregate.contracts.values()].sort((a, b) => b.amount - a.amount);
+      return {
+        vendorLabel,
+        amount: aggregate.amount,
+        sharePercent: grandTotal > 0 ? (aggregate.amount / grandTotal) * 100 : 0,
+        materialAmount: aggregate.materialAmount,
+        laborAmount: aggregate.laborAmount,
+        expenseAmount: aggregate.expenseAmount,
+        contractCount: contractBreakdown.length,
+        contractBreakdown,
+        projectCount: aggregate.projects.size,
+        projectAverageAmount:
+          aggregate.projects.size > 0 ? aggregate.amount / aggregate.projects.size : 0,
+      };
+    })
     .sort((a, b) => b.amount - a.amount);
 }
 

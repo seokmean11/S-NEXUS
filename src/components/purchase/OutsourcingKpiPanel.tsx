@@ -12,7 +12,7 @@ interface OutsourcingKpiPanelProps {
 
 export function OutsourcingKpiPanel({ summary, rowCount }: OutsourcingKpiPanelProps) {
   return (
-    <Card title="검색결과(KPI)" subtitle={`필터 적용 ${rowCount.toLocaleString('ko-KR')}건`}>
+    <Card title="검색결과(KPI)" className="outsourcing-kpi-card" subtitle={`필터 적용 ${rowCount.toLocaleString('ko-KR')}건`}>
       <dl className="outsourcing-kpi-list">
         <div className="outsourcing-kpi-row">
           <dt>외주_총금액</dt>

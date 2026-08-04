@@ -129,7 +129,7 @@ export interface VendorChartItem {
   materialAmount: number;
   laborAmount: number;
   expenseAmount: number;
-  recordCount: number;
+  contractCount: number;
   contractBreakdown: VendorContractBreakdownItem[];
   projectCount: number;
   projectAverageAmount: number;

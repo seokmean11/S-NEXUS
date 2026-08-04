@@ -45,15 +45,20 @@ import { summarizeOutsourcingDbStats } from '@/utils/outsourcingDbStats';
 
 
 function formatUpdatedAt(value?: string): string {
-
   if (!value) return '';
-
   const date = new Date(value);
-
   if (Number.isNaN(date.getTime())) return value;
-
   return date.toLocaleString('ko-KR');
+}
 
+function isOutsourcingDataStale(updatedAt?: string): boolean {
+  if (!updatedAt) return false;
+  const updated = new Date(updatedAt);
+  if (Number.isNaN(updated.getTime())) return false;
+
+  const staleAfter = new Date(updated);
+  staleAfter.setMonth(staleAfter.getMonth() + 1);
+  return Date.now() >= staleAfter.getTime();
 }
 
 
@@ -127,11 +132,13 @@ export function OutsourcingSearchPage() {
   const kpiSummary = useMemo(() => summarizeOutsourcingKpi(deferredFilteredRecords), [deferredFilteredRecords]);
 
   const vendorChartItems = useMemo(
-
     () => buildVendorChartData(deferredFilteredRecords),
-
     [deferredFilteredRecords],
+  );
 
+  const showStaleDataAlert = useMemo(
+    () => Boolean(loadResult?.updatedAt && isOutsourcingDataStale(loadResult.updatedAt)),
+    [loadResult?.updatedAt],
   );
 
 
@@ -184,7 +191,11 @@ export function OutsourcingSearchPage() {
 
         </div>
 
-
+        {showStaleDataAlert && (
+          <div className="outsourcing-stale-data-alert no-print" role="alert">
+            데이터를 갱신해 주세요.
+          </div>
+        )}
 
         {loading && records.length === 0 && (
 
