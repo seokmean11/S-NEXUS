@@ -1,0 +1,17 @@
+#!/bin/sh
+# Commit 후 origin 원격 저장소로 자동 push (실패해도 커밋은 유지)
+
+remote="origin"
+upstream=$(git rev-parse --abbrev-ref --symbolic-full-name "@{u}" 2>/dev/null)
+
+if [ -n "$upstream" ]; then
+  remote_name="${upstream%%/*}"
+  remote_branch="${upstream#*/}"
+  git push "$remote_name" "HEAD:$remote_branch" >/dev/null 2>&1 || \
+    git push "$remote_name" >/dev/null 2>&1 || \
+    echo "[post-commit] GitHub push failed. Run: git push" >&2
+else
+  branch=$(git symbolic-ref --short HEAD 2>/dev/null) || exit 0
+  git push -u "$remote" "$branch" >/dev/null 2>&1 || \
+    echo "[post-commit] GitHub push failed. Run: git push -u origin $branch" >&2
+fi
