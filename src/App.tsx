@@ -8,6 +8,7 @@ import { OrgChartPage } from '@/pages/OrgChartPage';
 import { AnalysisPage } from '@/pages/AnalysisPage';
 import { PurchaseLayout } from '@/pages/PurchaseLayout';
 import { BidManagementPage } from '@/pages/BidManagementPage';
+import { OutsourcingSearchPage } from '@/pages/OutsourcingSearchPage';
 
 export function AppRoutes() {
   return (
@@ -34,6 +35,14 @@ export function AppRoutes() {
           }
         />
         <Route
+          path="outsourcing"
+          element={
+            <ErrorBoundary fallbackTitle="외주정보검색 화면 오류">
+              <OutsourcingSearchPage />
+            </ErrorBoundary>
+          }
+        />
+        <Route
           path="purchase"
           element={
             <ErrorBoundary fallbackTitle="구매관리 화면 오류">
@@ -43,6 +52,7 @@ export function AppRoutes() {
         >
           <Route index element={<Navigate to="bidding" replace />} />
           <Route path="bidding" element={<BidManagementPage />} />
+          <Route path="outsourcing" element={<Navigate to="/outsourcing" replace />} />
         </Route>
         <Route path="reports" element={<Navigate to="/" replace />} />
         <Route path="*" element={<Navigate to="/" replace />} />

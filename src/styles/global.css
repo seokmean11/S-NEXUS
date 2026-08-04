@@ -2896,3 +2896,704 @@ body {
     grid-template-columns: 1fr;
   }
 }
+
+/* Outsourcing Search */
+.outsourcing-search-page {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.outsourcing-search-page__toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.outsourcing-search-page__toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.outsourcing-search-page__meta-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.outsourcing-search-page__meta-sub {
+  font-size: 12px;
+  color: var(--color-text-muted);
+  word-break: break-all;
+}
+
+.outsourcing-file-input {
+  display: none;
+}
+
+.outsourcing-search-page__results {
+  display: grid;
+  grid-template-columns: minmax(320px, 420px) minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.outsourcing-setup-card__message {
+  margin: 0 0 12px;
+  color: var(--color-text-muted);
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.outsourcing-setup-card__hint {
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: var(--radius-md);
+  background: var(--color-bg-muted);
+  font-size: 13px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+
+.outsourcing-status {
+  margin: 0;
+  color: var(--color-text-muted);
+}
+
+.outsourcing-status--error {
+  color: #d92d20;
+  margin-bottom: 12px;
+}
+
+.outsourcing-status--warn {
+  color: #b54708;
+  margin: 0;
+}
+
+.outsourcing-notice-card {
+  margin-bottom: 0;
+}
+
+.outsourcing-filter-card {
+  overflow: visible;
+}
+
+.outsourcing-filter-card .card__body {
+  overflow: visible;
+}
+
+.outsourcing-filter-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px 16px;
+}
+
+.outsourcing-filter-field {
+  position: relative;
+}
+
+.outsourcing-filter-field__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.outsourcing-filter-field__header .form-field__label {
+  margin-bottom: 0;
+}
+
+.outsourcing-filter-field__clear-all {
+  border: none;
+  background: transparent;
+  color: #d92d20;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0;
+  white-space: nowrap;
+}
+
+.outsourcing-filter-field__clear-all:hover {
+  text-decoration: underline;
+}
+
+.outsourcing-filter-field__control {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+  min-height: 84px;
+  max-height: 152px;
+  padding: 10px 10px;
+  border: 1.5px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  cursor: text;
+  overflow: hidden;
+}
+
+.outsourcing-filter-field__control--open {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 2px rgba(49, 130, 246, 0.12);
+}
+
+.outsourcing-filter-field__main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.outsourcing-filter-field__chips-scroll {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  max-height: 104px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-right: 2px;
+}
+
+.outsourcing-filter-field__chips-scroll::-webkit-scrollbar {
+  width: 6px;
+}
+
+.outsourcing-filter-field__chips-scroll::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.15);
+  border-radius: 999px;
+}
+
+.outsourcing-filter-field__input {
+  flex: 0 0 auto;
+  width: 100%;
+  border: none;
+  outline: none;
+  background: transparent;
+  font-size: 15px;
+  font-family: inherit;
+  color: var(--color-text);
+  padding: 4px 2px;
+  min-height: 36px;
+}
+
+.outsourcing-filter-field__input::placeholder {
+  color: var(--color-text-muted);
+}
+
+.outsourcing-filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: rgba(49, 130, 246, 0.1);
+  color: var(--color-primary);
+  font-size: 12px;
+}
+
+.outsourcing-filter-chip__remove {
+  border: none;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  padding: 0;
+}
+
+.outsourcing-filter-field__add {
+  flex: 0 0 auto;
+  align-self: center;
+  width: 28px;
+  height: 28px;
+  border: 1.5px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-primary);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.outsourcing-filter-popover {
+  z-index: 1200;
+  padding: 10px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.outsourcing-filter-popover__search {
+  margin-bottom: 8px;
+}
+
+.outsourcing-filter-popover__toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+
+.outsourcing-filter-popover__count {
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+.outsourcing-filter-popover__actions {
+  display: flex;
+  gap: 8px;
+}
+
+.outsourcing-filter-popover__action {
+  border: none;
+  background: transparent;
+  color: var(--color-primary);
+  font-size: 12px;
+  cursor: pointer;
+  padding: 0;
+}
+
+.outsourcing-filter-summary {
+  margin: 0 0 14px;
+  font-size: 13px;
+  color: var(--color-text-muted);
+}
+
+.outsourcing-date-range-field__control {
+  min-height: 52px;
+  max-height: none;
+  align-items: center;
+}
+
+.outsourcing-date-range-field__control--invalid {
+  border-color: #f04438;
+}
+
+.outsourcing-date-range-field__inner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+  overflow-x: auto;
+  font-size: 14px;
+}
+
+.outsourcing-date-range-field__inline-label {
+  flex: 0 0 auto;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
+.outsourcing-date-range-field__date {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+}
+
+.outsourcing-date-range-field__digit {
+  display: inline-block;
+  min-width: 0.72em;
+  text-align: center;
+  border-radius: 3px;
+  line-height: 1.4;
+}
+
+.outsourcing-date-range-field__digit--active {
+  background: rgba(49, 130, 246, 0.14);
+  box-shadow: inset 0 -2px 0 var(--color-primary);
+  color: var(--color-text);
+}
+
+.outsourcing-date-range-field__suffix {
+  flex: 0 0 auto;
+  color: var(--color-text-muted);
+  user-select: none;
+  pointer-events: none;
+}
+
+.outsourcing-date-range-field__sep {
+  flex: 0 0 auto;
+  color: var(--color-text-muted);
+  font-weight: 600;
+}
+
+.outsourcing-date-range-field__error {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: #d92d20;
+}
+
+.outsourcing-filter-popover__list {
+  flex: 1;
+  min-height: 0;
+  max-height: none;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.outsourcing-filter-popover__option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 4px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.outsourcing-filter-popover__empty {
+  margin: 0;
+  padding: 8px 4px;
+  font-size: 13px;
+  color: var(--color-text-muted);
+}
+
+.outsourcing-kpi-list {
+  margin: 0;
+}
+
+.outsourcing-kpi-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.outsourcing-kpi-row:last-child {
+  border-bottom: none;
+}
+
+.outsourcing-kpi-row dt {
+  flex: 1;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.outsourcing-kpi-row dd {
+  margin: 0;
+  text-align: right;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.outsourcing-kpi-row--detail dd {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+}
+
+.outsourcing-kpi-row--detail dd span {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--color-text-muted);
+}
+
+.outsourcing-chart__empty {
+  margin: 0;
+  color: var(--color-text-muted);
+}
+
+.outsourcing-chart__legend {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  font-size: 13px;
+  color: var(--color-text-muted);
+}
+
+.outsourcing-chart__legend-swatch {
+  width: 12px;
+  height: 12px;
+  border-radius: 2px;
+  background: var(--color-primary);
+}
+
+.outsourcing-chart__plot {
+  display: grid;
+  grid-template-columns: minmax(96px, auto) minmax(0, 1fr);
+  gap: 12px;
+  min-height: 320px;
+}
+
+.outsourcing-chart__y-axis {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  height: 248px;
+  font-size: 11px;
+  color: var(--color-text-muted);
+  text-align: right;
+  padding-top: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.outsourcing-chart__chart-panel {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.outsourcing-chart__scroll {
+  overflow-x: auto;
+}
+
+.outsourcing-chart__scroll-inner {
+  display: flex;
+  flex-direction: column;
+}
+
+.outsourcing-chart__plot-area {
+  position: relative;
+  height: 248px;
+  border-left: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--color-border);
+  background: linear-gradient(to top, rgba(0, 0, 0, 0.015) 1px, transparent 1px);
+  background-size: 100% 25%;
+}
+
+.outsourcing-chart__grid-line {
+  position: absolute;
+  left: 0;
+  right: 0;
+  border-top: 1px dashed rgba(0, 0, 0, 0.08);
+  pointer-events: none;
+}
+
+.outsourcing-chart__bars {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  padding: 0 4px;
+}
+
+.outsourcing-chart__bar-group {
+  position: relative;
+  flex: 1 0 72px;
+  max-width: 140px;
+  min-width: 72px;
+  height: 100%;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+
+.outsourcing-chart__bar {
+  width: 70%;
+  min-height: 0;
+  border-radius: 4px 4px 0 0;
+  background: rgba(49, 130, 246, 0.75);
+  transition: background 0.15s, transform 0.15s;
+}
+
+.outsourcing-chart__bar--active {
+  background: var(--color-primary);
+  transform: scaleX(1.05);
+}
+
+.outsourcing-chart__x-labels {
+  display: flex;
+  gap: 8px;
+  padding: 8px 4px 0;
+}
+
+.outsourcing-chart__x-label {
+  flex: 1 0 72px;
+  max-width: 140px;
+  min-width: 72px;
+  min-height: 64px;
+  font-size: 10px;
+  line-height: 1.35;
+  text-align: center;
+  color: var(--color-text-muted);
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+}
+
+.outsourcing-chart__tooltip {
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: #fff;
+  color: var(--color-text);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+  pointer-events: none;
+}
+
+.outsourcing-chart__tooltip-title {
+  margin-bottom: 10px;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.4;
+  word-break: break-all;
+}
+
+.outsourcing-chart__tooltip-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.outsourcing-chart__tooltip-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.outsourcing-chart__tooltip-row-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  color: var(--color-text-muted);
+}
+
+.outsourcing-chart__tooltip-row--emphasized .outsourcing-chart__tooltip-row-label {
+  color: var(--color-text);
+  font-weight: 500;
+}
+
+.outsourcing-chart__tooltip-swatch {
+  flex: 0 0 auto;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--color-primary);
+}
+
+.outsourcing-chart__tooltip-value {
+  flex: 0 0 auto;
+  font-size: 13px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.outsourcing-chart__tooltip-footer {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--color-border);
+  font-size: 11px;
+  color: var(--color-text-muted);
+}
+
+@media (max-width: 1100px) {
+  .outsourcing-search-page__results {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 768px) {
+  .outsourcing-filter-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.outsourcing-detail__empty {
+  margin: 0;
+  color: var(--color-text-muted);
+}
+
+.outsourcing-detail__scroll {
+  max-height: 520px;
+  overflow: auto;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.outsourcing-detail__table {
+  width: max-content;
+  min-width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 12px;
+}
+
+.outsourcing-detail__table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: #f2f4f6;
+  color: var(--color-text);
+  font-weight: 600;
+  text-align: center;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--color-border);
+  white-space: nowrap;
+}
+
+.outsourcing-detail__table tbody td {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--color-border);
+  vertical-align: top;
+  background: var(--color-surface);
+}
+
+.outsourcing-detail__table tbody tr:hover td {
+  background: rgba(49, 130, 246, 0.04);
+}
+
+.outsourcing-detail__spacer td {
+  padding: 0;
+  border: 0;
+  line-height: 0;
+}
+
+.outsourcing-detail__pending {
+  margin: 0 0 8px;
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+.outsourcing-detail__table tbody tr:not(.outsourcing-detail__spacer) td {
+  height: 34px;
+  box-sizing: border-box;
+}
+
+.outsourcing-detail__cell--text {
+  text-align: left;
+  white-space: normal;
+  min-width: 120px;
+  max-width: 320px;
+}
+
+.outsourcing-detail__cell--number {
+  text-align: right;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
