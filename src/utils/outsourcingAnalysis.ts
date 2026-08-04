@@ -131,30 +131,28 @@ export function filterOutsourcingRecords(
   return filtered;
 }
 
+function hasOutsourcingAmount(value: number): boolean {
+  return Number.isFinite(value) && value !== 0;
+}
+
 function computeUnitPriceStats(
   rows: OutsourcingRecord[],
   unitPriceKey: 'materialUnitPrice' | 'laborUnitPrice' | 'expenseUnitPrice',
-  qtyKey: 'materialQty' | 'laborQty' | 'expenseQty',
   amountKey: 'materialAmount' | 'laborAmount' | 'expenseAmount',
 ): UnitPriceStats {
+  const amountRows = rows.filter((row) => hasOutsourcingAmount(row[amountKey]));
+  const amountTotal = amountRows.reduce((sum, row) => sum + row[amountKey], 0);
+  const quantityForAverage = amountRows.reduce((sum, row) => sum + (row.outsourcingQty || 0), 0);
+
   const unitPrices = rows
     .map((row) => row[unitPriceKey])
     .filter((value) => Number.isFinite(value) && value !== 0);
-  const quantity = rows.reduce((sum, row) => sum + (row[qtyKey] || 0), 0);
-  const amountTotal = rows.reduce((sum, row) => sum + (row[amountKey] || 0), 0);
-
-  const average =
-    quantity > 0
-      ? amountTotal / quantity
-      : unitPrices.length > 0
-        ? unitPrices.reduce((sum, value) => sum + value, 0) / unitPrices.length
-        : 0;
 
   return {
-    average,
+    average: quantityForAverage > 0 ? amountTotal / quantityForAverage : 0,
     max: unitPrices.length > 0 ? Math.max(...unitPrices) : 0,
     min: unitPrices.length > 0 ? Math.min(...unitPrices) : 0,
-    quantity,
+    quantity: quantityForAverage,
   };
 }
 
@@ -163,15 +161,14 @@ export function summarizeOutsourcingKpi(rows: OutsourcingRecord[]): OutsourcingK
   const materialTotal = rows.reduce((sum, row) => sum + row.materialAmount, 0);
   const laborTotal = rows.reduce((sum, row) => sum + row.laborAmount, 0);
   const expenseTotal = rows.reduce((sum, row) => sum + row.expenseAmount, 0);
-
   return {
     totalAmount,
     materialTotal,
     laborTotal,
     expenseTotal,
-    materialUnitPrice: computeUnitPriceStats(rows, 'materialUnitPrice', 'materialQty', 'materialAmount'),
-    laborUnitPrice: computeUnitPriceStats(rows, 'laborUnitPrice', 'laborQty', 'laborAmount'),
-    expenseUnitPrice: computeUnitPriceStats(rows, 'expenseUnitPrice', 'expenseQty', 'expenseAmount'),
+    materialUnitPrice: computeUnitPriceStats(rows, 'materialUnitPrice', 'materialAmount'),
+    laborUnitPrice: computeUnitPriceStats(rows, 'laborUnitPrice', 'laborAmount'),
+    expenseUnitPrice: computeUnitPriceStats(rows, 'expenseUnitPrice', 'expenseAmount'),
   };
 }
 
