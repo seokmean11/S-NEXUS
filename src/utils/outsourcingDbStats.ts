@@ -131,15 +131,8 @@ function buildDivisionShares(
 
 
 export function formatOutsourcingAmountInMillions(value: number): string {
-
   if (!Number.isFinite(value)) return '-';
-
-  const millions = value / MILLION;
-
-  const rounded = Math.round(millions * 10) / 10;
-
-  return rounded.toLocaleString('ko-KR', { maximumFractionDigits: 1 });
-
+  return Math.round(value / MILLION).toLocaleString('ko-KR');
 }
 
 
