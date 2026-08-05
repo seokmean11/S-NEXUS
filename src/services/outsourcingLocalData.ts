@@ -96,9 +96,9 @@ export function getLocalOutsourcingSetupHint(): string {
   return [
     '1. AppSheet에서 CSV 내보내기(AppSheet.ViewData.*.csv) 후 PC 폴더에 저장',
     '2. 프로젝트 루트 outsourcing-data.path 파일에 폴더 경로 1줄 입력',
-    '   예: C:\\Users\\seosm\\Desktop\\appsheet(외주DB)',
+    '   예: C:\\Users\\seosm\\Desktop\\S-NEXUS(DB)\\appsheet(외주DB)',
     '   (또는 .env OUTSOURCING_DATA_PATH 사용 가능)',
-    '3. 폴더 지정 시 수정한 날짜 기준 최신 .csv 자동 선택',
+    '3. 폴더 지정 시 수정한 날짜 기준 최신 .csv / .xlsx 자동 선택',
     '4. npm run dev 개발 서버 재시작 → 외주정보검색에서 「폴더 새로고침」',
   ].join('\n');
 }

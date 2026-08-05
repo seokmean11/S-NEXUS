@@ -9,6 +9,8 @@ import { AnalysisPage } from '@/pages/AnalysisPage';
 import { PurchaseLayout } from '@/pages/PurchaseLayout';
 import { BidManagementPage } from '@/pages/BidManagementPage';
 import { OutsourcingSearchPage } from '@/pages/OutsourcingSearchPage';
+import { MiscInfoLayout } from '@/pages/MiscInfoLayout';
+import { ExhibitionBusinessCostPage } from '@/pages/ExhibitionBusinessCostPage';
 
 export function AppRoutes() {
   return (
@@ -53,6 +55,17 @@ export function AppRoutes() {
           <Route index element={<Navigate to="bidding" replace />} />
           <Route path="bidding" element={<BidManagementPage />} />
           <Route path="outsourcing" element={<Navigate to="/outsourcing" replace />} />
+        </Route>
+        <Route
+          path="misc-info"
+          element={
+            <ErrorBoundary fallbackTitle="기타정보 화면 오류">
+              <MiscInfoLayout />
+            </ErrorBoundary>
+          }
+        >
+          <Route index element={<Navigate to="exhibition-business-cost" replace />} />
+          <Route path="exhibition-business-cost" element={<ExhibitionBusinessCostPage />} />
         </Route>
         <Route path="reports" element={<Navigate to="/" replace />} />
         <Route path="*" element={<Navigate to="/" replace />} />

@@ -35,8 +35,16 @@ const PURCHASE_SUB_ITEMS = [
   { path: '/outsourcing', label: '외주정보검색' },
 ] as const;
 
+const MISC_INFO_SUB_ITEMS = [
+  { path: '/misc-info/exhibition-business-cost', label: '유형별사업비(전시)' },
+] as const;
+
 function isPurchaseSectionPath(pathname: string): boolean {
   return pathname.startsWith('/purchase') || pathname.startsWith('/outsourcing');
+}
+
+function isMiscInfoSectionPath(pathname: string): boolean {
+  return pathname.startsWith('/misc-info');
 }
 
 
@@ -64,20 +72,19 @@ export function AppLayout() {
   const [ppmMessage, setPpmMessage] = useState('');
 
   const [purchaseOpen, setPurchaseOpen] = useState(() => isPurchaseSectionPath(location.pathname));
-
-
+  const [miscInfoOpen, setMiscInfoOpen] = useState(() => isMiscInfoSectionPath(location.pathname));
 
   const showPurchaseNav = canAccessPurchase(permissions);
-
   const purchaseActive = isPurchaseSectionPath(location.pathname);
-
-
+  const miscInfoActive = isMiscInfoSectionPath(location.pathname);
 
   useEffect(() => {
-
     if (purchaseActive) setPurchaseOpen(true);
-
   }, [purchaseActive]);
+
+  useEffect(() => {
+    if (miscInfoActive) setMiscInfoOpen(true);
+  }, [miscInfoActive]);
 
 
 
@@ -309,6 +316,35 @@ export function AppLayout() {
               </div>
 
             )}
+
+            <div className={`lnb__group ${miscInfoActive ? 'lnb__group--active' : ''}`}>
+              <button
+                type="button"
+                className={`lnb__group-toggle ${miscInfoActive ? 'lnb__group-toggle--active' : ''}`}
+                onClick={() => setMiscInfoOpen((open) => !open)}
+                aria-expanded={miscInfoOpen}
+              >
+                <span className="lnb__icon">📁</span>
+                <span className="lnb__group-label">기타정보</span>
+                <span className="lnb__group-chevron">{miscInfoOpen ? '▾' : '▸'}</span>
+              </button>
+
+              {miscInfoOpen && (
+                <div className="lnb__subnav">
+                  {MISC_INFO_SUB_ITEMS.map((item) => (
+                    <NavLink
+                      key={item.path}
+                      to={item.path}
+                      className={({ isActive }) =>
+                        `lnb__sublink ${isActive ? 'lnb__sublink--active' : ''}`
+                      }
+                    >
+                      {item.label}
+                    </NavLink>
+                  ))}
+                </div>
+              )}
+            </div>
 
           </nav>
 

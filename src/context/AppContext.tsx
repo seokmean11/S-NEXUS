@@ -32,6 +32,8 @@ import type {
   TeamAllocationEntry,
   TrackAllocation,
   WebAccessRole,
+  PersonnelPermissionLevel,
+  PersonnelGradeLevel,
 } from '@/types';
 import type { HistoryEvent } from '@/types/history';
 import type {
@@ -74,23 +76,55 @@ import {
 } from '@/utils/projectSync';
 import {
   getPhoneDirectoryOrgState,
+  PHONE_DIRECTORY_PARSE_VERSION,
   shouldSeedPhoneDirectoryOrg,
 } from '@/utils/phoneDirectoryImport';
 import { filterAffiliateOrg } from '@/utils/orgAffiliateFilter';
-import { applyOrgManualOverrides } from '@/utils/orgManualOverrides';
+import { applyOrgManualOverrides, ORG_MANUAL_OVERRIDE_VERSION, shouldApplyOrgManualOverrides } from '@/utils/orgManualOverrides';
+import { ensureSafetyManagementOrg } from '@/utils/orgSafetyOffice';
+import { ensureExecutiveOfficeOrg } from '@/utils/orgExecutiveOffice';
 import { inferAccessRoleFromEmployee } from '@/utils/webAccessRole';
 
 type OrgMutationResult = { ok: true } | { ok: false; reason: string };
 
 function normalizeLoadedOrgState(saved: NonNullable<ReturnType<typeof loadOrgState>>) {
-  return applyOrgManualOverrides(
-    filterAffiliateOrg({
-      executiveOffice: normalizeExecutiveOffice(saved.executiveOffice),
-      divisions: saved.divisions,
-      teams: saved.teams,
-      employees: saved.employees,
-    }),
+  const filtered = filterAffiliateOrg({
+    executiveOffice: normalizeExecutiveOffice(saved.executiveOffice),
+    divisions: saved.divisions,
+    teams: saved.teams,
+    employees: saved.employees,
+  });
+
+  if (!shouldApplyOrgManualOverrides(saved.manualOverrideVersion)) {
+    return ensureExecutiveOfficeOrg(ensureSafetyManagementOrg(filtered));
+  }
+
+  return ensureExecutiveOfficeOrg(
+    ensureSafetyManagementOrg(applyOrgManualOverrides(filtered)),
   );
+}
+
+function persistOrgStateIfNeeded(
+  saved: NonNullable<ReturnType<typeof loadOrgState>>,
+  org: ReturnType<typeof normalizeLoadedOrgState>,
+) {
+  const shouldPersistOverrideVersion = shouldApplyOrgManualOverrides(saved.manualOverrideVersion);
+  const shouldRestoreParseVersion = saved.parseVersion == null;
+
+  if (!shouldPersistOverrideVersion && !shouldRestoreParseVersion) {
+    return;
+  }
+
+  saveOrgState({
+    executiveOffice: org.executiveOffice,
+    divisions: org.divisions,
+    teams: org.teams,
+    employees: org.employees,
+    parseVersion: saved.parseVersion ?? PHONE_DIRECTORY_PARSE_VERSION,
+    manualOverrideVersion: shouldPersistOverrideVersion
+      ? ORG_MANUAL_OVERRIDE_VERSION
+      : saved.manualOverrideVersion,
+  });
 }
 
 function createInitialOrgState() {
@@ -98,7 +132,9 @@ function createInitialOrgState() {
     repairStoredData();
     const saved = loadOrgState();
     if (saved && !shouldSeedPhoneDirectoryOrg(saved)) {
-      return normalizeLoadedOrgState(saved);
+      const normalized = normalizeLoadedOrgState(saved);
+      persistOrgStateIfNeeded(saved, normalized);
+      return normalized;
     }
     if (saved && shouldSeedPhoneDirectoryOrg(saved)) {
       return getPhoneDirectoryOrgState();
@@ -159,12 +195,30 @@ interface AppContextValue {
   removeExecutiveAdmin: (id: string) => void;
   updateExecutiveAdmin: (
     id: string,
-    updates: { name?: string; rank?: string; accessRole?: WebAccessRole },
+    updates: {
+      name?: string;
+      rank?: string;
+      accessRole?: WebAccessRole;
+      permissionLevel?: PersonnelPermissionLevel;
+      position?: string;
+      gradeLevel?: PersonnelGradeLevel;
+      gradeRank?: string;
+      divisionId?: string;
+      teamId?: string;
+    },
   ) => void;
   addDivision: (name: string) => string;
   updateDivision: (
     id: string,
-    updates: { name?: string; headName?: string; headRank?: string },
+    updates: {
+      name?: string;
+      headName?: string;
+      headRank?: string;
+      headPermissionLevel?: PersonnelPermissionLevel;
+      headPosition?: string;
+      headGradeLevel?: PersonnelGradeLevel;
+      headGradeRank?: string;
+    },
   ) => void;
   removeDivision: (id: string) => OrgMutationResult;
   addTeam: (divisionId: string, name: string) => string;
@@ -175,6 +229,10 @@ interface AppContextValue {
       divisionId?: string;
       headName?: string;
       headRank?: string;
+      headPermissionLevel?: PersonnelPermissionLevel;
+      headPosition?: string;
+      headGradeLevel?: PersonnelGradeLevel;
+      headGradeRank?: string;
     },
   ) => void;
   removeTeam: (id: string) => OrgMutationResult;
@@ -186,7 +244,22 @@ interface AppContextValue {
   ) => void;
   updateEmployee: (
     id: string,
-    updates: Partial<Pick<Employee, 'name' | 'role' | 'teamId' | 'accessRole'>>,
+    updates: Partial<
+      Pick<
+        Employee,
+        | 'name'
+        | 'role'
+        | 'teamId'
+        | 'divisionId'
+        | 'divisionName'
+        | 'teamName'
+        | 'accessRole'
+        | 'gradeLevel'
+        | 'gradeRank'
+        | 'permissionLevel'
+        | 'position'
+      >
+    >,
   ) => void;
   removeEmployee: (id: string) => OrgMutationResult;
   createProject: (project: Omit<Project, 'id' | 'createdAt' | 'updatedAt'>) => void;
@@ -231,6 +304,13 @@ const AppContext = createContext<AppContextValue | null>(null);
 
 export function AppProvider({ children }: { children: ReactNode }) {
   const initialOrg = useMemo(() => createInitialOrgState(), []);
+  const orgStorageMeta = useMemo(() => {
+    const saved = loadOrgState();
+    return {
+      parseVersion: saved?.parseVersion ?? PHONE_DIRECTORY_PARSE_VERSION,
+      manualOverrideVersion: saved?.manualOverrideVersion ?? ORG_MANUAL_OVERRIDE_VERSION,
+    };
+  }, []);
   const initialApp = useMemo(
     () => createInitialAppState(initialOrg.divisions),
     [initialOrg.divisions],
@@ -291,8 +371,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
-    saveOrgState({ executiveOffice, divisions, teams, employees });
-  }, [executiveOffice, divisions, teams, employees]);
+    saveOrgState({
+      executiveOffice,
+      divisions,
+      teams,
+      employees,
+      parseVersion: orgStorageMeta.parseVersion,
+      manualOverrideVersion: orgStorageMeta.manualOverrideVersion,
+    });
+  }, [executiveOffice, divisions, teams, employees, orgStorageMeta]);
 
   useEffect(() => {
     saveAppState({
@@ -399,10 +486,36 @@ export function AppProvider({ children }: { children: ReactNode }) {
   );
 
   const updateExecutiveAdmin = useCallback(
-    (id: string, updates: { name?: string; rank?: string; accessRole?: WebAccessRole }) => {
+    (
+      id: string,
+      updates: {
+        name?: string;
+        rank?: string;
+        accessRole?: WebAccessRole;
+        permissionLevel?: PersonnelPermissionLevel;
+        position?: string;
+        gradeLevel?: PersonnelGradeLevel;
+        gradeRank?: string;
+        divisionId?: string;
+        teamId?: string;
+      },
+    ) => {
       const before = executiveOffice.admins?.find((a) => a.id === id);
       setExecutiveOffice((prev) => ({
-        admins: (prev.admins ?? []).map((a) => (a.id === id ? { ...a, ...updates } : a)),
+        admins: (prev.admins ?? []).map((a) => {
+          if (a.id !== id) return a;
+          return {
+            ...a,
+            ...updates,
+            permissionLevel:
+              'permissionLevel' in updates ? updates.permissionLevel : a.permissionLevel,
+            position: 'position' in updates ? updates.position : a.position,
+            gradeLevel: 'gradeLevel' in updates ? updates.gradeLevel : a.gradeLevel,
+            gradeRank: 'gradeRank' in updates ? updates.gradeRank : a.gradeRank,
+            divisionId: 'divisionId' in updates ? updates.divisionId : a.divisionId,
+            teamId: 'teamId' in updates ? updates.teamId : a.teamId,
+          };
+        }),
       }));
       const after = before ? { ...before, ...updates } : undefined;
       if (before && after) {
@@ -493,10 +606,34 @@ export function AppProvider({ children }: { children: ReactNode }) {
   );
 
   const updateDivision = useCallback(
-    (id: string, updates: { name?: string; headName?: string; headRank?: string }) => {
+    (
+      id: string,
+      updates: {
+        name?: string;
+        headName?: string;
+        headRank?: string;
+        headPermissionLevel?: PersonnelPermissionLevel;
+        headPosition?: string;
+        headGradeLevel?: PersonnelGradeLevel;
+        headGradeRank?: string;
+      },
+    ) => {
       const before = divisions.find((d) => d.id === id);
       setDivisions((prev) =>
-        prev.map((d) => (d.id === id ? { ...d, ...updates } : d)),
+        prev.map((d) => {
+          if (d.id !== id) return d;
+          return {
+            ...d,
+            ...updates,
+            headPermissionLevel:
+              'headPermissionLevel' in updates
+                ? updates.headPermissionLevel
+                : d.headPermissionLevel,
+            headPosition: 'headPosition' in updates ? updates.headPosition : d.headPosition,
+            headGradeLevel: 'headGradeLevel' in updates ? updates.headGradeLevel : d.headGradeLevel,
+            headGradeRank: 'headGradeRank' in updates ? updates.headGradeRank : d.headGradeRank,
+          };
+        }),
       );
       if (updates.name) syncDivisionNames(id, updates.name);
 
@@ -582,6 +719,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
         divisionId?: string;
         headName?: string;
         headRank?: string;
+        headPermissionLevel?: PersonnelPermissionLevel;
+        headPosition?: string;
+        headGradeLevel?: PersonnelGradeLevel;
+        headGradeRank?: string;
       },
     ) => {
       const before = teams.find((t) => t.id === id);
@@ -589,7 +730,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
         const current = prev.find((t) => t.id === id);
         if (!current) return prev;
 
-        const updated = { ...current, ...updates };
+        const updated = {
+          ...current,
+          ...updates,
+          headPermissionLevel:
+            'headPermissionLevel' in updates
+              ? updates.headPermissionLevel
+              : current.headPermissionLevel,
+          headPosition: 'headPosition' in updates ? updates.headPosition : current.headPosition,
+          headGradeLevel:
+            'headGradeLevel' in updates ? updates.headGradeLevel : current.headGradeLevel,
+          headGradeRank: 'headGradeRank' in updates ? updates.headGradeRank : current.headGradeRank,
+        };
         const divisionName =
           divisions.find((d) => d.id === updated.divisionId)?.name ?? '';
 
@@ -700,23 +852,70 @@ export function AppProvider({ children }: { children: ReactNode }) {
   );
 
   const updateEmployee = useCallback(
-    (id: string, updates: Partial<Pick<Employee, 'name' | 'role' | 'teamId' | 'accessRole'>>) => {
+    (
+      id: string,
+      updates: Partial<
+        Pick<
+          Employee,
+          | 'name'
+          | 'role'
+          | 'teamId'
+          | 'divisionId'
+          | 'divisionName'
+          | 'teamName'
+          | 'accessRole'
+          | 'gradeLevel'
+          | 'gradeRank'
+          | 'permissionLevel'
+          | 'position'
+        >
+      >,
+    ) => {
       const before = employees.find((e) => e.id === id);
       setEmployees((prev) =>
         prev.map((e) => {
           if (e.id !== id) return e;
+
+          if ('teamId' in updates && !updates.teamId) {
+            const nextDivisionId = updates.divisionId ?? e.divisionId;
+            const division = divisions.find((d) => d.id === nextDivisionId);
+            return {
+              ...e,
+              ...updates,
+              name: updates.name ?? e.name,
+              role: updates.role ?? e.role,
+              gradeLevel: 'gradeLevel' in updates ? updates.gradeLevel : e.gradeLevel,
+              gradeRank: 'gradeRank' in updates ? updates.gradeRank : e.gradeRank,
+              permissionLevel:
+                'permissionLevel' in updates ? updates.permissionLevel : e.permissionLevel,
+              position: 'position' in updates ? updates.position : e.position,
+              accessRole: updates.accessRole ?? e.accessRole,
+              teamId: '',
+              teamName: '없음',
+              divisionId: division?.id ?? nextDivisionId,
+              divisionName: division?.name ?? e.divisionName,
+            };
+          }
+
           const nextTeamId = updates.teamId ?? e.teamId;
           const team = teams.find((t) => t.id === nextTeamId);
-          const division = team ? divisions.find((d) => d.id === team.divisionId) : undefined;
+          const division = team
+            ? divisions.find((d) => d.id === team.divisionId)
+            : divisions.find((d) => d.id === (updates.divisionId ?? e.divisionId));
           return {
             ...e,
             ...updates,
             name: updates.name ?? e.name,
             role: updates.role ?? e.role,
+            gradeLevel: 'gradeLevel' in updates ? updates.gradeLevel : e.gradeLevel,
+            gradeRank: 'gradeRank' in updates ? updates.gradeRank : e.gradeRank,
+            permissionLevel:
+              'permissionLevel' in updates ? updates.permissionLevel : e.permissionLevel,
+            position: 'position' in updates ? updates.position : e.position,
             accessRole: updates.accessRole ?? e.accessRole,
             teamId: nextTeamId,
             teamName: team?.name ?? e.teamName,
-            divisionId: team?.divisionId ?? e.divisionId,
+            divisionId: team?.divisionId ?? division?.id ?? e.divisionId,
             divisionName: division?.name ?? e.divisionName,
           };
         }),

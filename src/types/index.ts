@@ -76,7 +76,23 @@ export interface ExecutiveAdmin {
   name: string;
   rank: string;
   accessRole?: WebAccessRole;
+  permissionLevel?: PersonnelPermissionLevel;
+  /** 지위 (본부장, 팀장 등) */
+  position?: string;
+  /** 임원급 급수 (회장, 부회장 등) */
+  gradeRank?: string;
+  /** 숫자 급수 (1~7급) */
+  gradeLevel?: PersonnelGradeLevel;
+  /** 소속 사업본부 */
+  divisionId?: string;
+  /** 소속 팀 */
+  teamId?: string;
 }
+
+export type PersonnelGradeLevel = 1 | 2 | 3 | 4 | 5 | 6 | 7;
+
+/** ERP 권한 등급 (1~10급, 추후 읽기/수정 권한과 매핑) */
+export type PersonnelPermissionLevel = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10;
 
 export interface ExecutiveOffice {
   admins: ExecutiveAdmin[];
@@ -87,6 +103,10 @@ export interface Division {
   name: string;
   headName?: string;
   headRank?: string;
+  headPermissionLevel?: PersonnelPermissionLevel;
+  headPosition?: string;
+  headGradeRank?: string;
+  headGradeLevel?: PersonnelGradeLevel;
 }
 
 export interface Team {
@@ -95,6 +115,10 @@ export interface Team {
   divisionId: string;
   headName?: string;
   headRank?: string;
+  headPermissionLevel?: PersonnelPermissionLevel;
+  headPosition?: string;
+  headGradeRank?: string;
+  headGradeLevel?: PersonnelGradeLevel;
 }
 
 export interface Employee {
@@ -106,6 +130,14 @@ export interface Employee {
   teamName: string;
   /** 직급/직책 */
   role: string;
+  /** 호봉 급수 (1~7급) */
+  gradeLevel?: PersonnelGradeLevel;
+  /** 임원급 급수 (회장, 부회장 등) */
+  gradeRank?: string;
+  /** ERP 권한 등급 (1~10급) */
+  permissionLevel?: PersonnelPermissionLevel;
+  /** 지위 (본부장, 팀장 등) */
+  position?: string;
   /** S-NEXUS 웹 사용 권한 */
   accessRole?: WebAccessRole;
 }

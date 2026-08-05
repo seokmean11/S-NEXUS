@@ -6,7 +6,7 @@ import {
   tableToWordHtml,
 } from '@/utils/reportExport';
 import type { PersonnelFilters, PersonnelRow } from '@/utils/personnelSearch';
-import { EXECUTIVE_DIVISION_FILTER } from '@/utils/personnelSearch';
+import { formatPersonnelGradeCell, formatPersonnelPermissionCell, formatPersonnelPositionCell } from '@/utils/personnelSearch';
 
 export type PersonnelExportEntityType = 'executive' | 'employee' | 'division' | 'team';
 export type PersonnelExportFormat = 'excel' | 'word' | 'pdf';
@@ -34,17 +34,28 @@ function todayStamp(): string {
 
 function buildFilterSummary(filters: PersonnelFilters, divisionNameById: Map<string, string>): string {
   const parts: string[] = [];
-  if (filters.divisionId === EXECUTIVE_DIVISION_FILTER) {
-    parts.push('사업본부: 경영관리');
-  } else if (filters.divisionId) {
-    parts.push(`사업본부: ${divisionNameById.get(filters.divisionId) ?? filters.divisionId}`);
+
+  if (filters.division.selected.length > 0) {
+    const labels = filters.division.selected.map(
+      (value) => divisionNameById.get(value) ?? value,
+    );
+    parts.push(`사업본부: ${labels.join(', ')}`);
+  } else if (filters.division.keyword.trim()) {
+    parts.push(`사업본부 검색: ${filters.division.keyword.trim()}`);
   }
-  if (filters.teamId) {
-    parts.push(`팀 필터 적용`);
+
+  if (filters.team.selected.length > 0) {
+    parts.push(`팀: ${filters.team.selected.length}개 선택`);
+  } else if (filters.team.keyword.trim()) {
+    parts.push(`팀 검색: ${filters.team.keyword.trim()}`);
   }
-  if (filters.keyword.trim()) {
-    parts.push(`검색어: ${filters.keyword.trim()}`);
+
+  if (filters.person.selected.length > 0) {
+    parts.push(`이름·직급: ${filters.person.selected.length}명 선택`);
+  } else if (filters.person.keyword.trim()) {
+    parts.push(`이름·직급 검색: ${filters.person.keyword.trim()}`);
   }
+
   return parts.length > 0 ? parts.join(' · ') : '전체';
 }
 
@@ -53,18 +64,26 @@ export function buildPersonnelExportTable(input: Omit<PersonnelExportInput, 'for
 
   if (entityType === 'executive') {
     return {
-      headers: ['이름', '직급', '권한'],
-      rows: personRows.map((row) => [row.name, row.rank, row.accessRole]),
+      headers: ['이름', '급수', '직급', '지위', '권한'],
+      rows: personRows.map((row) => [
+        row.name,
+        formatPersonnelGradeCell(row),
+        row.rank,
+        formatPersonnelPositionCell(row),
+        formatPersonnelPermissionCell(row),
+      ]),
     };
   }
 
   if (entityType === 'employee') {
     return {
-      headers: ['이름', '직급', '권한', '사업본부', '팀'],
+      headers: ['이름', '급수', '직급', '지위', '권한', '사업본부', '팀'],
       rows: personRows.map((row) => [
         row.name,
+        formatPersonnelGradeCell(row),
         row.rank,
-        row.accessRole,
+        formatPersonnelPositionCell(row),
+        formatPersonnelPermissionCell(row),
         row.divisionName,
         row.teamName,
       ]),

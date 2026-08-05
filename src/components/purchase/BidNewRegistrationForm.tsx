@@ -9,12 +9,11 @@ import { Button } from '@/components/ui/Button';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { Input, ReadonlyField, Select } from '@/components/ui/Input';
 import { useApp } from '@/context/AppContext';
+import { useBidManagement } from '@/context/BidManagementContext';
 import { MOCK_BIDS } from '@/data/mockBidData';
 import type { Project } from '@/types';
 import {
   BID_REGISTRATION_METHOD_OPTIONS,
-  EMPTY_BID_REGISTRATION_FORM,
-  type BidPartnerEntry,
   type BidRegistrationForm,
   type BidRegistrationMethod,
 } from '@/types/bidRegistration';
@@ -34,13 +33,20 @@ function applyProjectToForm(project: Project): Partial<BidRegistrationForm> {
 
 export function BidNewRegistrationForm() {
   const { projects } = useApp();
+  const {
+    registrationForm: form,
+    setRegistrationForm: setForm,
+    selectedProjectId,
+    setSelectedProjectId,
+    attachmentPanelOpen,
+    setAttachmentPanelOpen,
+    quotationAttachments,
+    setQuotationAttachments,
+    resetRegistration,
+  } = useBidManagement();
   const attachmentPanelRef = useRef<HTMLDivElement>(null);
 
-  const [form, setForm] = useState<BidRegistrationForm>({ ...EMPTY_BID_REGISTRATION_FORM });
-  const [selectedProjectId, setSelectedProjectId] = useState('');
   const [analysisConfirmOpen, setAnalysisConfirmOpen] = useState(false);
-  const [attachmentPanelOpen, setAttachmentPanelOpen] = useState(false);
-  const [quotationAttachments, setQuotationAttachments] = useState<BidPartnerEntry[]>([]);
 
   const isComplete = useMemo(
     () => isBidRegistrationComplete(form, selectedProjectId),
@@ -102,10 +108,7 @@ export function BidNewRegistrationForm() {
   };
 
   const handleReset = () => {
-    setForm({ ...EMPTY_BID_REGISTRATION_FORM });
-    setSelectedProjectId('');
-    setAttachmentPanelOpen(false);
-    setQuotationAttachments([]);
+    resetRegistration();
   };
 
   const handleConfirmAnalysis = () => {

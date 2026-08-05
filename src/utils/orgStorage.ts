@@ -2,6 +2,9 @@ import type { Division, Employee, ExecutiveOffice, Project, ProjectTeamAllocatio
 import type { ContractAmendment } from '@/types/contractChange';
 import type { LegacyExecutiveOffice } from '@/types/history';
 import { normalizeEmployeeAccessRole, normalizeExecutiveAccessRole } from '@/utils/webAccessRole';
+import { normalizePersonnelPosition } from '@/utils/personnelSearch';
+import { ensureSafetyManagementOrg } from '@/utils/orgSafetyOffice';
+import { ensureExecutiveOfficeOrg } from '@/utils/orgExecutiveOffice';
 
 const ORG_KEY = 'performance-dashboard-org';
 const APP_KEY = 'performance-dashboard-app';
@@ -13,6 +16,8 @@ export interface StoredOrgState {
   employees: Employee[];
   /** 내선전화표 파서 버전 — 팀 분류 로직 변경 시 증가 */
   parseVersion?: number;
+  /** 수동 조직 보정 버전 — 보정 로직 변경 시 증가, 적용 후에는 재실행하지 않음 */
+  manualOverrideVersion?: number;
 }
 
 export interface StoredAppState {
@@ -69,7 +74,23 @@ function migrateEmployees(employees: Employee[]): Employee[] {
       employee.id === 'emp-admin' && employee.name === '김개발'
         ? { ...employee, name: '서석민' }
         : employee;
-    return normalizeEmployeeAccessRole(migrated);
+    const withAccessRole = normalizeEmployeeAccessRole(migrated);
+    const position = normalizePersonnelPosition(withAccessRole.position);
+    return position ? { ...withAccessRole, position } : withAccessRole;
+  });
+}
+
+function migrateDivisions(divisions: Division[]): Division[] {
+  return divisions.map((division) => {
+    const headPosition = normalizePersonnelPosition(division.headPosition);
+    return headPosition ? { ...division, headPosition } : division;
+  });
+}
+
+function migrateTeamsWithPositions(teams: Team[], divisions: Division[]): Team[] {
+  return migrateTeams(teams, divisions).map((team) => {
+    const headPosition = normalizePersonnelPosition(team.headPosition);
+    return headPosition ? { ...team, headPosition } : team;
   });
 }
 
@@ -78,26 +99,48 @@ function migrateExecutiveOffice(
 ): ExecutiveOffice {
   const normalized = normalizeExecutiveOffice(office);
   return {
-    admins: (normalized.admins ?? []).map((admin) => normalizeExecutiveAccessRole(admin)),
+    admins: (normalized.admins ?? []).map((admin) => {
+      const withAccessRole = normalizeExecutiveAccessRole(admin);
+      const position = normalizePersonnelPosition(withAccessRole.position);
+      return position ? { ...withAccessRole, position } : withAccessRole;
+    }),
   };
+}
+
+function applyOrgMigrations(org: StoredOrgState): StoredOrgState {
+  const employees = migrateEmployees(org.employees);
+  const divisions = migrateDivisions(Array.isArray(org.divisions) ? org.divisions : []);
+  const teams = migrateTeamsWithPositions(
+    Array.isArray(org.teams) ? org.teams : [],
+    Array.isArray(org.divisions) ? org.divisions : [],
+  );
+
+  return ensureExecutiveOfficeOrg(
+    ensureSafetyManagementOrg({
+      ...org,
+      executiveOffice: migrateExecutiveOffice(org.executiveOffice),
+      divisions,
+      teams,
+      employees: Array.isArray(employees) ? employees : [],
+    }),
+  );
 }
 
 export function repairStoredData(): void {
   try {
-    const org = loadOrgState();
-    if (org) {
-      const employees = migrateEmployees(org.employees);
-      saveOrgState({
-        ...org,
-        executiveOffice: migrateExecutiveOffice(org.executiveOffice),
-        divisions: Array.isArray(org.divisions) ? org.divisions : [],
-        teams: migrateTeams(
-          Array.isArray(org.teams) ? org.teams : [],
-          Array.isArray(org.divisions) ? org.divisions : [],
-        ),
-        employees: Array.isArray(employees) ? employees : [],
-      });
+    const raw = localStorage.getItem(ORG_KEY);
+    if (!raw) return;
+
+    const parsed = JSON.parse(raw) as StoredOrgState;
+    if (
+      !Array.isArray(parsed.divisions) ||
+      !Array.isArray(parsed.teams) ||
+      !Array.isArray(parsed.employees)
+    ) {
+      return;
     }
+
+    saveOrgState(applyOrgMigrations(parsed) as StoredOrgState & { executiveOffice: ExecutiveOffice });
   } catch {
     try {
       localStorage.removeItem(ORG_KEY);
@@ -138,12 +181,7 @@ export function loadOrgState(): StoredOrgState | null {
       return null;
     }
 
-    return {
-      ...parsed,
-      employees: migrateEmployees(parsed.employees),
-      executiveOffice: migrateExecutiveOffice(parsed.executiveOffice),
-      teams: migrateTeams(parsed.teams, parsed.divisions),
-    };
+    return applyOrgMigrations(parsed);
   } catch {
     return null;
   }

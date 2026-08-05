@@ -101,6 +101,240 @@ body {
   margin-bottom: 16px;
 }
 
+.personnel-dashboard-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.personnel-resource-toolbar {
+  display: flex;
+  justify-content: flex-start;
+}
+
+.personnel-resource-status-card {
+  margin-bottom: 0;
+}
+
+.personnel-resource-status__metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.personnel-resource-metric {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: #f8fafc;
+  padding: 10px 12px;
+}
+
+.personnel-resource-metric__label {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  margin-bottom: 4px;
+}
+
+.personnel-resource-metric__value {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  font-size: 22px;
+  line-height: 1.2;
+  color: var(--color-text);
+  font-variant-numeric: tabular-nums;
+}
+
+.personnel-resource-metric__unit {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-text-muted);
+}
+
+.personnel-resource-status__chart-section {
+  border-top: 1px solid var(--color-border);
+  padding-top: 16px;
+}
+
+.personnel-resource-status__charts-heading {
+  margin: 0 0 10px;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--color-text);
+}
+
+.personnel-resource-status__charts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.personnel-resource-chart {
+  min-width: 0;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: #f8fafc;
+  overflow: hidden;
+}
+
+.personnel-resource-chart__header {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--color-border);
+  background: #fff;
+}
+
+.personnel-resource-chart__title {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--color-text);
+  line-height: 1.3;
+  word-break: keep-all;
+  text-align: center;
+}
+
+.personnel-resource-chart__body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 8px 8px;
+}
+
+.personnel-resource-chart__empty {
+  margin: 0;
+  padding: 10px;
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+.personnel-resource-donut {
+  position: relative;
+  width: min(100%, 168px);
+  height: auto;
+  aspect-ratio: 1;
+  flex-shrink: 0;
+}
+
+.personnel-resource-donut__svg {
+  width: 100%;
+  height: 100%;
+}
+
+.personnel-resource-donut__center {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  text-align: center;
+  pointer-events: none;
+  font-size: 10px;
+  color: var(--color-text-muted);
+  padding: 0 14px;
+}
+
+.personnel-resource-donut__center strong {
+  font-size: 11px;
+  color: var(--color-text);
+  line-height: 1.25;
+  word-break: keep-all;
+}
+
+.personnel-resource-donut__center span {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 2px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.personnel-resource-legend {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.personnel-resource-legend__item {
+  display: grid;
+  grid-template-columns: 8px minmax(0, 1fr) auto;
+  gap: 6px;
+  align-items: center;
+  padding: 5px 6px;
+  border-radius: var(--radius-sm);
+  cursor: default;
+  background: #fff;
+  border: 1px solid transparent;
+}
+
+.personnel-resource-legend__item--active {
+  background: rgba(49, 130, 246, 0.06);
+  border-color: rgba(49, 130, 246, 0.18);
+}
+
+.personnel-resource-legend__swatch {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+}
+
+.personnel-resource-legend__label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--color-text);
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.personnel-resource-legend__value {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.personnel-resource-legend__amount {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 1px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--color-text);
+}
+
+.personnel-resource-legend__percent {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--color-primary);
+}
+
+@media (max-width: 1100px) {
+  .personnel-resource-status__metrics,
+  .personnel-resource-status__charts {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 768px) {
+  .personnel-resource-donut {
+    width: min(100%, 180px);
+  }
+}
+
 .app-body {
   display: flex;
   flex: 1;
@@ -281,6 +515,133 @@ body {
   border-color: var(--color-primary);
   color: var(--color-primary);
   font-weight: 600;
+}
+
+.misc-info-subnav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 24px;
+}
+
+.misc-info-subnav__link {
+  display: inline-flex;
+  align-items: center;
+  padding: 8px 16px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text-secondary);
+  text-decoration: none;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.misc-info-subnav__link:hover {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+
+.misc-info-subnav__link--active {
+  background: #e8f3ff;
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+  font-weight: 600;
+}
+
+.exhibition-business-cost-page .page-header {
+  margin-bottom: 20px;
+}
+
+.exhibition-business-cost-dashboard {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.exhibition-business-cost-dashboard__kpis {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.exhibition-business-cost-kpi__value {
+  margin: 0;
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--color-text);
+}
+
+.exhibition-business-cost-kpi__unit {
+  margin-left: 4px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-text-muted);
+}
+
+.exhibition-business-cost-chart {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.exhibition-business-cost-chart__row {
+  display: grid;
+  grid-template-columns: minmax(140px, 180px) minmax(0, 1fr) minmax(120px, auto);
+  gap: 12px;
+  align-items: center;
+}
+
+.exhibition-business-cost-chart__label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.exhibition-business-cost-chart__label strong {
+  font-size: 14px;
+  color: var(--color-text);
+}
+
+.exhibition-business-cost-chart__label span {
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+.exhibition-business-cost-chart__bar-wrap {
+  height: 12px;
+  border-radius: 999px;
+  background: #eef2f7;
+  overflow: hidden;
+}
+
+.exhibition-business-cost-chart__bar {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #3182f6, #5b9dff);
+}
+
+.exhibition-business-cost-chart__amount {
+  text-align: right;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-text);
+  white-space: nowrap;
+}
+
+@media (max-width: 900px) {
+  .exhibition-business-cost-dashboard__kpis {
+    grid-template-columns: 1fr;
+  }
+
+  .exhibition-business-cost-chart__row {
+    grid-template-columns: 1fr;
+    gap: 6px;
+  }
+
+  .exhibition-business-cost-chart__amount {
+    text-align: left;
+  }
 }
 
 .bid-trade-type-search__hint {
@@ -2763,9 +3124,26 @@ body {
 
 .personnel-dashboard__filters {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(220px, 1fr));
   gap: 12px 16px;
   margin-bottom: 16px;
+  align-items: end;
+}
+
+.personnel-filter-field .outsourcing-filter-field__control--disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+  background: #f3f4f6;
+}
+
+.personnel-filter-field .outsourcing-filter-field__control--disabled .outsourcing-filter-field__input {
+  cursor: not-allowed;
+}
+
+@media (max-width: 1100px) {
+  .personnel-dashboard__filters {
+    grid-template-columns: 1fr;
+  }
 }
 
 .personnel-dashboard__filter-actions {
@@ -2838,6 +3216,79 @@ body {
   margin-top: 16px;
 }
 
+.personnel-edit-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(15, 23, 42, 0.45);
+}
+
+.personnel-edit-dialog {
+  width: min(100%, 760px);
+  max-height: min(90vh, 860px);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  background: var(--color-surface);
+  border-radius: var(--radius-md);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.16);
+}
+
+.personnel-edit-dialog__header {
+  padding: 24px 24px 16px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.personnel-edit-dialog__body {
+  flex: 1;
+  overflow: auto;
+  padding: 20px 24px;
+}
+
+.personnel-edit-dialog__footer {
+  flex-shrink: 0;
+  padding: 16px 24px 24px;
+  border-top: 1px solid var(--color-border);
+  background: #f8fafc;
+}
+
+.personnel-edit-dialog__title {
+  margin: 0 0 6px;
+  font-size: 18px;
+  color: var(--color-text);
+}
+
+.personnel-edit-dialog__subtitle {
+  margin: 0;
+  font-size: 13px;
+  color: var(--color-text-muted);
+}
+
+.personnel-edit-dialog__guide {
+  margin: 10px 0 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--color-text-secondary);
+}
+
+.personnel-edit-dialog__guide strong,
+.personnel-edit-dialog__save-hint strong {
+  color: var(--color-primary);
+  font-weight: 700;
+}
+
+.personnel-edit-dialog__save-hint {
+  margin: 0 0 12px;
+  font-size: 13px;
+  color: var(--color-text-muted);
+  text-align: right;
+}
+
 .personnel-editor-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -2846,8 +3297,15 @@ body {
 
 .personnel-editor-actions {
   display: flex;
-  gap: 8px;
-  margin-top: 16px;
+  gap: 10px;
+  justify-content: flex-end;
+  align-items: center;
+}
+
+.personnel-edit-dialog__save-btn {
+  min-width: 120px;
+  font-weight: 700;
+  box-shadow: 0 2px 8px rgba(49, 130, 246, 0.28);
 }
 
 .org-member-item {

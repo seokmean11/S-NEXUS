@@ -1,116 +1,72 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { Input, Select } from '@/components/ui/Input';
+import { PersonnelMultiSelectFilter } from '@/components/personnel/PersonnelMultiSelectFilter';
+import { PersonnelResourceStatusPanel } from '@/components/personnel/PersonnelResourceStatusPanel';
 import { useApp } from '@/context/AppContext';
-import type { Division, Team, WebAccessRole } from '@/types';
 import {
   buildPersonnelRows,
+  EMPTY_PERSONNEL_FILTERS,
   filterPersonnelRows,
-  EXECUTIVE_DIVISION_FILTER,
+  formatPersonnelGradeCell,
+  formatPersonnelPermissionCell,
+  formatPersonnelPositionCell,
+  getPersonnelDivisionFilterOptions,
   getDivisionOptions,
-  getPersonnelDivisionOptions,
-  getTeamOptions,
+  getScopedPersonFilterOptions,
+  getScopedTeamFilterOptions,
+  getPersonnelGradeFormValue,
+  getPersonnelPositionFormValue,
+  getPersonnelTeamFormValue,
+  getPersonnelEditorTeamSelectOptions,
+  isPersonnelOrgAffiliationEditable,
+  PERSONNEL_TEAM_NONE_VALUE,
+  appendLegacySelectOption,
+  buildPersonnelGradeUpdates,
+  buildPersonnelPermissionUpdates,
+  buildPersonnelPositionUpdates,
+  derivePersonnelRankFromGrade,
+  resolvePersonnelRankForSave,
+  PERSONNEL_GRADE_SELECT_OPTIONS,
+  PERSONNEL_RANK_SELECT_OPTIONS,
+  PERSONNEL_POSITION_SELECT_OPTIONS,
+  PERSONNEL_PERMISSION_LEVEL_OPTIONS,
+  prunePersonnelFilters,
   parseDivisionHeadRowId,
   parseTeamHeadRowId,
+  type PersonnelFilterKey,
   type PersonnelFilters,
   type PersonnelRow,
 } from '@/utils/personnelSearch';
-import {
-  WEB_ACCESS_ROLE_OPTIONS,
-  accessRoleBadgeClass,
-} from '@/utils/webAccessRole';
 import {
   exportPersonnelSearchResults,
   PERSONNEL_EXPORT_FORMAT_OPTIONS,
   type PersonnelExportFormat,
 } from '@/utils/personnelExport';
+import { summarizePersonnelResourceStats } from '@/utils/personnelResourceStats';
 
-type ManageEntity = 'executive' | 'division' | 'team' | 'employee';
-type CreateMode = ManageEntity | 'division_head' | 'team_head';
-
-const EMPTY_FILTERS: PersonnelFilters = {
-  keyword: '',
+const EMPTY_PERSON_FORM = {
+  name: '',
+  grade: '',
+  rank: '',
+  position: '',
+  permissionLevel: '',
   divisionId: '',
   teamId: '',
 };
 
-const EMPTY_EMPLOYEE_FORM = {
-  name: '',
-  rank: '',
-  accessRole: '직원' as WebAccessRole,
-  divisionId: '',
-  teamId: '',
-};
-
-const EMPTY_EXECUTIVE_FORM = {
-  name: '',
-  rank: '',
-  accessRole: '경영진' as WebAccessRole,
-};
-
-const EMPTY_DIVISION_FORM = {
-  name: '',
+const CLEAR_DIVISION_HEAD_FIELDS = {
   headName: '',
   headRank: '',
-};
+  headGradeLevel: undefined,
+  headGradeRank: undefined,
+  headPosition: undefined,
+  headPermissionLevel: undefined,
+} as const;
 
-const EMPTY_TEAM_FORM = {
-  name: '',
-  divisionId: '',
-  headName: '',
-  headRank: '',
-};
-
-const ENTITY_LABELS: Record<ManageEntity, string> = {
-  executive: '경영진',
-  division: '사업본부',
-  team: '팀',
-  employee: '팀원',
-};
-
-function filterDivisions(divisions: Division[], filters: PersonnelFilters): Division[] {
-  const keyword = filters.keyword.trim().toLowerCase();
-
-  return divisions.filter((division) => {
-    if (filters.divisionId && filters.divisionId !== EXECUTIVE_DIVISION_FILTER) {
-      if (division.id !== filters.divisionId) return false;
-    }
-    if (filters.teamId) return false;
-
-    if (!keyword) return true;
-
-    const haystack = [division.name, division.headName, division.headRank].join(' ').toLowerCase();
-    return haystack.includes(keyword);
-  });
-}
-
-function filterTeams(
-  teams: Team[],
-  divisionNameById: Map<string, string>,
-  filters: PersonnelFilters,
-): Team[] {
-  const keyword = filters.keyword.trim().toLowerCase();
-
-  return teams.filter((team) => {
-    if (filters.divisionId === EXECUTIVE_DIVISION_FILTER) return false;
-    if (filters.divisionId && team.divisionId !== filters.divisionId) return false;
-    if (filters.teamId && team.id !== filters.teamId) return false;
-
-    if (!keyword) return true;
-
-    const haystack = [
-      team.name,
-      team.headName,
-      team.headRank,
-      divisionNameById.get(team.divisionId),
-    ]
-      .join(' ')
-      .toLowerCase();
-    return haystack.includes(keyword);
-  });
-}
+const CLEAR_TEAM_HEAD_FIELDS = { ...CLEAR_DIVISION_HEAD_FIELDS };
 
 export function PersonnelDashboard({ embedded = false }: { embedded?: boolean }) {
   const {
@@ -118,37 +74,25 @@ export function PersonnelDashboard({ embedded = false }: { embedded?: boolean })
     divisions,
     teams,
     employees,
-    addExecutiveAdmin,
     updateExecutiveAdmin,
     removeExecutiveAdmin,
-    addEmployee,
     updateEmployee,
     removeEmployee,
-    addDivision,
     updateDivision,
-    removeDivision,
-    addTeam,
     updateTeam,
-    removeTeam,
   } = useApp();
 
-  const [entityType, setEntityType] = useState<ManageEntity>('employee');
-  const [filters, setFilters] = useState<PersonnelFilters>(EMPTY_FILTERS);
+  const [filters, setFilters] = useState<PersonnelFilters>(EMPTY_PERSONNEL_FILTERS);
+  const [activeFilterKey, setActiveFilterKey] = useState<PersonnelFilterKey | null>(null);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const [editingRow, setEditingRow] = useState<PersonnelRow | null>(null);
-  const [editingDivision, setEditingDivision] = useState<Division | null>(null);
-  const [editingTeam, setEditingTeam] = useState<Team | null>(null);
-  const [employeeForm, setEmployeeForm] = useState(EMPTY_EMPLOYEE_FORM);
-  const [executiveForm, setExecutiveForm] = useState(EMPTY_EXECUTIVE_FORM);
-  const [divisionForm, setDivisionForm] = useState(EMPTY_DIVISION_FORM);
-  const [teamForm, setTeamForm] = useState(EMPTY_TEAM_FORM);
-  const [createMode, setCreateMode] = useState<CreateMode | null>(null);
+  const [personForm, setPersonForm] = useState(EMPTY_PERSON_FORM);
   const [deletePersonTarget, setDeletePersonTarget] = useState<PersonnelRow | null>(null);
-  const [deleteDivisionTarget, setDeleteDivisionTarget] = useState<Division | null>(null);
-  const [deleteTeamTarget, setDeleteTeamTarget] = useState<Team | null>(null);
   const [exportFormat, setExportFormat] = useState<PersonnelExportFormat>('excel');
   const [exporting, setExporting] = useState(false);
+  const [resourceStatusOpen, setResourceStatusOpen] = useState(false);
+  const editorDialogRef = useRef<HTMLDivElement>(null);
 
   const divisionNameById = useMemo(
     () => new Map(divisions.map((division) => [division.id, division.name])),
@@ -160,68 +104,95 @@ export function PersonnelDashboard({ embedded = false }: { embedded?: boolean })
     [executiveOffice.admins, employees, divisions, teams],
   );
 
-  const filteredPersonRows = useMemo(() => {
-    if (entityType === 'executive') {
-      const keyword = filters.keyword.trim().toLowerCase();
-      return allPersonRows.filter((row) => {
-        if (row.kind !== 'executive') return false;
-        if (!keyword) return true;
-        const haystack = [row.name, row.rank, row.accessRole].join(' ').toLowerCase();
-        return haystack.includes(keyword);
-      });
-    }
-
-    if (entityType === 'employee') {
-      return filterPersonnelRows(
-        allPersonRows.filter((row) => row.kind !== 'executive'),
-        filters,
-      );
-    }
-
-    return [];
-  }, [allPersonRows, entityType, filters]);
-
-  const filteredDivisions = useMemo(
-    () => (entityType === 'division' ? filterDivisions(divisions, filters) : []),
-    [divisions, entityType, filters],
+  const resourceStats = useMemo(
+    () => summarizePersonnelResourceStats(allPersonRows),
+    [allPersonRows],
   );
 
-  const filteredTeams = useMemo(
-    () => (entityType === 'team' ? filterTeams(teams, divisionNameById, filters) : []),
-    [teams, divisionNameById, entityType, filters],
+  const filteredPersonRows = useMemo(
+    () => filterPersonnelRows(allPersonRows, filters),
+    [allPersonRows, filters],
   );
 
-  const teamOptions = useMemo(
-    () => getTeamOptions(teams, employeeForm.divisionId),
-    [teams, employeeForm.divisionId],
+  const divisionFilterOptions = useMemo(
+    () => getPersonnelDivisionFilterOptions(divisions),
+    [divisions],
   );
 
-  const filterTeamOptions = useMemo(() => {
-    if (filters.divisionId === EXECUTIVE_DIVISION_FILTER) return [];
-    if (filters.divisionId) return getTeamOptions(teams, filters.divisionId);
-    return teams.map((team) => ({
-      value: team.id,
-      label: `${divisionNameById.get(team.divisionId) ?? '-'} · ${team.name}`,
-    }));
-  }, [teams, filters.divisionId, divisionNameById]);
+  const teamFilterOptions = useMemo(
+    () => getScopedTeamFilterOptions(teams, divisions, filters),
+    [teams, divisions, filters],
+  );
 
-  const teamFilterDisabled = filters.divisionId === EXECUTIVE_DIVISION_FILTER;
+  const personFilterOptions = useMemo(
+    () => getScopedPersonFilterOptions(allPersonRows, filters),
+    [allPersonRows, filters],
+  );
 
-  const resultCount =
-    entityType === 'executive' || entityType === 'employee'
-      ? filteredPersonRows.length
-      : entityType === 'division'
-        ? filteredDivisions.length
-        : filteredTeams.length;
+  const editorTeamSelectOptions = useMemo(
+    () =>
+      getPersonnelEditorTeamSelectOptions(teams, personForm.divisionId, {
+        includeNone: Boolean(editingRow),
+        currentTeamId: personForm.teamId,
+      }),
+    [teams, personForm.divisionId, personForm.teamId, editingRow],
+  );
 
-  const totalCount =
-    entityType === 'executive'
-      ? (executiveOffice.admins ?? []).length
-      : entityType === 'employee'
-        ? allPersonRows.filter((row) => row.kind !== 'executive').length
-        : entityType === 'division'
-          ? divisions.length
-          : teams.length;
+  const autoDerivedRank = useMemo(
+    () => derivePersonnelRankFromGrade(personForm.grade),
+    [personForm.grade],
+  );
+
+  const gradeSelectOptions = useMemo(
+    () => [
+      { value: '', label: '선택' },
+      ...appendLegacySelectOption(PERSONNEL_GRADE_SELECT_OPTIONS, personForm.grade),
+    ],
+    [personForm.grade],
+  );
+
+  const rankSelectOptions = useMemo(
+    () => [
+      { value: '', label: '선택' },
+      ...appendLegacySelectOption(PERSONNEL_RANK_SELECT_OPTIONS, personForm.rank),
+    ],
+    [personForm.rank],
+  );
+
+  const positionSelectOptions = useMemo(
+    () => [
+      { value: '', label: '선택' },
+      ...appendLegacySelectOption(PERSONNEL_POSITION_SELECT_OPTIONS, personForm.position),
+    ],
+    [personForm.position],
+  );
+
+  useEffect(() => {
+    if (!editingRow) return;
+    editorDialogRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }, [editingRow]);
+
+  const resultCount = filteredPersonRows.length;
+  const totalCount = allPersonRows.length;
+
+  const updateFilters = (updater: (prev: PersonnelFilters) => PersonnelFilters) => {
+    setFilters((prev) => {
+      const next = updater(prev);
+      return prunePersonnelFilters(next, divisions, teams, allPersonRows);
+    });
+  };
+
+  const handleDivisionFilterChange = (field: PersonnelFilters['division']) => {
+    updateFilters((prev) => ({ ...prev, division: field }));
+  };
+
+  const handleTeamFilterChange = (field: PersonnelFilters['team']) => {
+    updateFilters((prev) => ({ ...prev, team: field }));
+  };
+
+  const handlePersonFilterChange = (field: PersonnelFilters['person']) => {
+    updateFilters((prev) => ({ ...prev, person: field }));
+  };
 
   const showMessage = (text: string) => {
     setMessage(text);
@@ -245,10 +216,10 @@ export function PersonnelDashboard({ embedded = false }: { embedded?: boolean })
     try {
       await exportPersonnelSearchResults({
         format: exportFormat,
-        entityType,
+        entityType: 'employee',
         personRows: filteredPersonRows,
-        divisions: filteredDivisions,
-        teams: filteredTeams,
+        divisions: [],
+        teams: [],
         divisionNameById,
         filters,
       });
@@ -262,262 +233,227 @@ export function PersonnelDashboard({ embedded = false }: { embedded?: boolean })
 
   const closeEditor = () => {
     setEditingRow(null);
-    setEditingDivision(null);
-    setEditingTeam(null);
-    setCreateMode(null);
-    setEmployeeForm(EMPTY_EMPLOYEE_FORM);
-    setExecutiveForm(EMPTY_EXECUTIVE_FORM);
-    setDivisionForm(EMPTY_DIVISION_FORM);
-    setTeamForm(EMPTY_TEAM_FORM);
-  };
-
-  const openCreate = () => {
-    setCreateMode(entityType);
-    setEditingRow(null);
-    setEditingDivision(null);
-    setEditingTeam(null);
-
-    if (entityType === 'executive') {
-      setExecutiveForm(EMPTY_EXECUTIVE_FORM);
-      return;
-    }
-    if (entityType === 'division') {
-      setDivisionForm(EMPTY_DIVISION_FORM);
-      return;
-    }
-    if (entityType === 'team') {
-      setTeamForm({
-        ...EMPTY_TEAM_FORM,
-        divisionId: filters.divisionId && filters.divisionId !== EXECUTIVE_DIVISION_FILTER
-          ? filters.divisionId
-          : '',
-      });
-      return;
-    }
-    setEmployeeForm({
-      ...EMPTY_EMPLOYEE_FORM,
-      divisionId: filters.divisionId && filters.divisionId !== EXECUTIVE_DIVISION_FILTER
-        ? filters.divisionId
-        : '',
-      teamId: filters.teamId ?? '',
-    });
+    setPersonForm(EMPTY_PERSON_FORM);
   };
 
   const openEditPerson = (row: PersonnelRow) => {
-    setCreateMode(null);
-    setEditingDivision(null);
-    setEditingTeam(null);
     setEditingRow(row);
+    setMessage('');
+    setError('');
 
-    if (row.kind === 'executive') {
-      setExecutiveForm({ name: row.name, rank: row.rank, accessRole: row.accessRole });
-      return;
+    const resolvedDivisionId =
+      row.divisionId ??
+      (row.teamId ? teams.find((team) => team.id === row.teamId)?.divisionId : undefined) ??
+      '';
+
+    setPersonForm({
+      name: row.name,
+      grade: getPersonnelGradeFormValue(row),
+      rank: row.rank,
+      position: getPersonnelPositionFormValue(row.position),
+      permissionLevel: row.permissionLevel ? String(row.permissionLevel) : '',
+      divisionId: resolvedDivisionId,
+      teamId: getPersonnelTeamFormValue(row),
+    });
+  };
+
+  const buildHeadFieldUpdates = (
+    gradeResult: ReturnType<typeof buildPersonnelGradeUpdates>,
+    permissionResult: ReturnType<typeof buildPersonnelPermissionUpdates>,
+    positionResult: ReturnType<typeof buildPersonnelPositionUpdates>,
+  ) => ({
+    ...(gradeResult.ok && gradeResult.updates
+      ? {
+          headGradeLevel: gradeResult.updates.gradeLevel,
+          headGradeRank: gradeResult.updates.gradeRank,
+        }
+      : {}),
+    ...(permissionResult.ok && permissionResult.updates
+      ? { headPermissionLevel: permissionResult.updates.permissionLevel }
+      : {}),
+    ...(positionResult.ok && positionResult.updates
+      ? { headPosition: positionResult.updates.position }
+      : {}),
+  });
+
+  const validateOrgAffiliation = (): { divisionId: string; teamId: string } | null => {
+    const divisionId = personForm.divisionId;
+    if (!divisionId) {
+      showError('사업본부를 선택해 주세요.');
+      return null;
     }
 
-    setEmployeeForm({
-      name: row.name,
-      rank: row.rank,
-      accessRole: row.accessRole,
-      divisionId: row.divisionId ?? '',
-      teamId: row.teamId ?? '',
-    });
+    if (!editingRow) return null;
+
+    const teamId = personForm.teamId;
+    if (!teamId) {
+      showError('소속 팀을 선택해 주세요.');
+      return null;
+    }
+
+    if (editingRow.kind === 'division_head') {
+      if (teamId !== PERSONNEL_TEAM_NONE_VALUE) {
+        showError('본부장은 소속 팀을 없음으로 선택해 주세요.');
+        return null;
+      }
+      return { divisionId, teamId: PERSONNEL_TEAM_NONE_VALUE };
+    }
+
+    if (teamId === PERSONNEL_TEAM_NONE_VALUE) {
+      if (editingRow.kind === 'team_head') {
+        showError('팀장은 소속 팀을 선택해 주세요.');
+        return null;
+      }
+      return { divisionId, teamId: PERSONNEL_TEAM_NONE_VALUE };
+    }
+
+    const team = teams.find((item) => item.id === teamId);
+    if (!team || team.divisionId !== divisionId) {
+      showError('선택한 팀이 사업본부와 일치하지 않습니다.');
+      return null;
+    }
+
+    return { divisionId, teamId };
   };
 
-  const openEditDivision = (division: Division) => {
-    setCreateMode(null);
-    setEditingRow(null);
-    setEditingTeam(null);
-    setEditingDivision(division);
-    setDivisionForm({
-      name: division.name,
-      headName: division.headName ?? '',
-      headRank: division.headRank ?? '',
-    });
-  };
-
-  const openEditTeam = (team: Team) => {
-    setCreateMode(null);
-    setEditingRow(null);
-    setEditingDivision(null);
-    setEditingTeam(team);
-    setTeamForm({
-      name: team.name,
-      divisionId: team.divisionId,
-      headName: team.headName ?? '',
-      headRank: team.headRank ?? '',
-    });
+  const resolveSavedTeamId = (teamId: string): string | undefined => {
+    if (teamId === PERSONNEL_TEAM_NONE_VALUE) return undefined;
+    return teamId;
   };
 
   const handleSavePersonEdit = () => {
     if (!editingRow) return;
 
+    const name = personForm.name.trim();
+
+    if (!name) {
+      showError('이름을 입력해 주세요.');
+      return;
+    }
+
+    const rankResult = resolvePersonnelRankForSave(personForm.grade, personForm.rank);
+    if (!rankResult.ok) {
+      showError(rankResult.message);
+      return;
+    }
+    const rank = rankResult.rank;
+
+    const gradeResult = buildPersonnelGradeUpdates(personForm.grade, editingRow);
+    if (!gradeResult.ok) {
+      showError(gradeResult.message);
+      return;
+    }
+
+    const permissionResult = buildPersonnelPermissionUpdates(
+      personForm.permissionLevel,
+      editingRow,
+    );
+    if (!permissionResult.ok) {
+      showError(permissionResult.message);
+      return;
+    }
+
+    const positionResult = buildPersonnelPositionUpdates(personForm.position, editingRow);
+    if (!positionResult.ok) {
+      showError(positionResult.message);
+      return;
+    }
+
+    const sharedUpdates = {
+      ...(gradeResult.updates ?? {}),
+      ...(permissionResult.updates ?? {}),
+      ...(positionResult.updates ?? {}),
+    };
+
     if (editingRow.kind === 'executive') {
-      const name = executiveForm.name.trim();
-      const rank = executiveForm.rank.trim();
-      if (!name || !rank) {
-        showError('이름과 직급을 입력해 주세요.');
-        return;
-      }
+      const affiliation = validateOrgAffiliation();
+      if (!affiliation) return;
+
       updateExecutiveAdmin(editingRow.id, {
         name,
         rank,
-        accessRole: executiveForm.accessRole,
+        ...sharedUpdates,
+        divisionId: affiliation.divisionId,
+        teamId: resolveSavedTeamId(affiliation.teamId),
       });
-      showMessage('경영진 정보가 저장되었습니다.');
+      showMessage('개인정보가 저장되었습니다.');
       closeEditor();
       return;
     }
 
     if (editingRow.kind === 'division_head') {
-      const divisionId = parseDivisionHeadRowId(editingRow.id);
-      const name = employeeForm.name.trim();
-      const rank = employeeForm.rank.trim();
-      if (!divisionId || !name || !rank) {
-        showError('이름과 직급을 입력해 주세요.');
+      const affiliation = validateOrgAffiliation();
+      if (!affiliation) return;
+
+      const oldDivisionId = parseDivisionHeadRowId(editingRow.id);
+      if (!oldDivisionId) {
+        showError('본부 정보를 찾을 수 없습니다.');
         return;
       }
-      updateDivision(divisionId, { headName: name, headRank: rank });
-      showMessage('본부장 정보가 저장되었습니다.');
+
+      const headUpdates = {
+        headName: name,
+        headRank: rank,
+        ...buildHeadFieldUpdates(gradeResult, permissionResult, positionResult),
+      };
+
+      if (oldDivisionId !== affiliation.divisionId) {
+        updateDivision(oldDivisionId, { ...CLEAR_DIVISION_HEAD_FIELDS });
+      }
+      updateDivision(affiliation.divisionId, headUpdates);
+      showMessage('개인정보가 저장되었습니다.');
       closeEditor();
       return;
     }
 
     if (editingRow.kind === 'team_head') {
-      const teamId = parseTeamHeadRowId(editingRow.id);
-      const name = employeeForm.name.trim();
-      const rank = employeeForm.rank.trim();
-      if (!teamId || !name || !rank) {
-        showError('이름과 직급을 입력해 주세요.');
+      const affiliation = validateOrgAffiliation();
+      if (!affiliation) return;
+
+      const oldTeamId = parseTeamHeadRowId(editingRow.id);
+      if (!oldTeamId) {
+        showError('팀 정보를 찾을 수 없습니다.');
         return;
       }
-      updateTeam(teamId, { headName: name, headRank: rank });
-      showMessage('팀장 정보가 저장되었습니다.');
+
+      const headUpdates = {
+        headName: name,
+        headRank: rank,
+        ...buildHeadFieldUpdates(gradeResult, permissionResult, positionResult),
+      };
+
+      if (oldTeamId !== affiliation.teamId) {
+        updateTeam(oldTeamId, { ...CLEAR_TEAM_HEAD_FIELDS });
+        updateTeam(affiliation.teamId, {
+          ...headUpdates,
+          divisionId: affiliation.divisionId,
+        });
+      } else {
+        updateTeam(affiliation.teamId, {
+          ...headUpdates,
+          divisionId: affiliation.divisionId,
+        });
+      }
+      showMessage('개인정보가 저장되었습니다.');
       closeEditor();
       return;
     }
 
-    const name = employeeForm.name.trim();
-    const rank = employeeForm.rank.trim();
-    if (!name || !rank) {
-      showError('이름과 직급을 입력해 주세요.');
-      return;
-    }
-    if (!employeeForm.teamId) {
-      showError('소속 팀을 선택해 주세요.');
-      return;
-    }
+    const affiliation = validateOrgAffiliation();
+    if (!affiliation) return;
 
     updateEmployee(editingRow.id, {
       name,
       role: rank,
-      accessRole: employeeForm.accessRole,
-      teamId: employeeForm.teamId,
+      ...(gradeResult.updates ?? {}),
+      ...(permissionResult.updates ?? {}),
+      ...(positionResult.updates ?? {}),
+      divisionId: affiliation.divisionId,
+      teamId:
+        affiliation.teamId === PERSONNEL_TEAM_NONE_VALUE ? '' : affiliation.teamId,
     });
-    showMessage('팀원 정보가 저장되었습니다.');
+    showMessage('개인정보가 저장되었습니다.');
     closeEditor();
-  };
-
-  const handleSaveDivisionEdit = () => {
-    if (!editingDivision) return;
-    const name = divisionForm.name.trim();
-    if (!name) {
-      showError('사업본부명을 입력해 주세요.');
-      return;
-    }
-    updateDivision(editingDivision.id, {
-      name,
-      headName: divisionForm.headName.trim(),
-      headRank: divisionForm.headRank.trim(),
-    });
-    showMessage('사업본부 정보가 저장되었습니다.');
-    closeEditor();
-  };
-
-  const handleSaveTeamEdit = () => {
-    if (!editingTeam) return;
-    const name = teamForm.name.trim();
-    if (!name) {
-      showError('팀명을 입력해 주세요.');
-      return;
-    }
-    updateTeam(editingTeam.id, {
-      name,
-      headName: teamForm.headName.trim(),
-      headRank: teamForm.headRank.trim(),
-    });
-    showMessage('팀 정보가 저장되었습니다.');
-    closeEditor();
-  };
-
-  const handleCreate = () => {
-    if (createMode === 'executive') {
-      const name = executiveForm.name.trim();
-      const rank = executiveForm.rank.trim();
-      if (!name || !rank) {
-        showError('이름과 직급을 입력해 주세요.');
-        return;
-      }
-      addExecutiveAdmin(name, rank, executiveForm.accessRole);
-      showMessage('경영진이 등록되었습니다.');
-      closeEditor();
-      return;
-    }
-
-    if (createMode === 'division') {
-      const name = divisionForm.name.trim();
-      if (!name) {
-        showError('사업본부명을 입력해 주세요.');
-        return;
-      }
-      const divisionId = addDivision(name);
-      if (divisionForm.headName.trim() || divisionForm.headRank.trim()) {
-        updateDivision(divisionId, {
-          headName: divisionForm.headName.trim(),
-          headRank: divisionForm.headRank.trim(),
-        });
-      }
-      showMessage('사업본부가 등록되었습니다.');
-      closeEditor();
-      return;
-    }
-
-    if (createMode === 'team') {
-      const name = teamForm.name.trim();
-      if (!teamForm.divisionId) {
-        showError('사업본부를 선택해 주세요.');
-        return;
-      }
-      if (!name) {
-        showError('팀명을 입력해 주세요.');
-        return;
-      }
-      const teamId = addTeam(teamForm.divisionId, name);
-      if (teamForm.headName.trim() || teamForm.headRank.trim()) {
-        updateTeam(teamId, {
-          headName: teamForm.headName.trim(),
-          headRank: teamForm.headRank.trim(),
-        });
-      }
-      showMessage('팀이 등록되었습니다.');
-      closeEditor();
-      return;
-    }
-
-    if (createMode === 'employee') {
-      const name = employeeForm.name.trim();
-      const rank = employeeForm.rank.trim();
-      if (!name || !rank) {
-        showError('이름과 직급을 입력해 주세요.');
-        return;
-      }
-      if (!employeeForm.teamId) {
-        showError('소속 팀을 선택해 주세요.');
-        return;
-      }
-      addEmployee(employeeForm.teamId, name, rank, employeeForm.accessRole);
-      showMessage('팀원이 등록되었습니다.');
-      closeEditor();
-    }
   };
 
   const handleDeletePersonConfirm = () => {
@@ -528,11 +464,29 @@ export function PersonnelDashboard({ embedded = false }: { embedded?: boolean })
       showMessage('경영진이 삭제되었습니다.');
     } else if (deletePersonTarget.kind === 'division_head') {
       const divisionId = parseDivisionHeadRowId(deletePersonTarget.id);
-      if (divisionId) updateDivision(divisionId, { headName: '', headRank: '' });
+      if (divisionId) {
+        updateDivision(divisionId, {
+          headName: '',
+          headRank: '',
+          headGradeLevel: undefined,
+          headGradeRank: undefined,
+          headPosition: undefined,
+          headPermissionLevel: undefined,
+        });
+      }
       showMessage('본부장 정보가 삭제되었습니다.');
     } else if (deletePersonTarget.kind === 'team_head') {
       const teamId = parseTeamHeadRowId(deletePersonTarget.id);
-      if (teamId) updateTeam(teamId, { headName: '', headRank: '' });
+      if (teamId) {
+        updateTeam(teamId, {
+          headName: '',
+          headRank: '',
+          headGradeLevel: undefined,
+          headGradeRank: undefined,
+          headPosition: undefined,
+          headPermissionLevel: undefined,
+        });
+      }
       showMessage('팀장 정보가 삭제되었습니다.');
     } else {
       const result = removeEmployee(deletePersonTarget.id);
@@ -548,130 +502,61 @@ export function PersonnelDashboard({ embedded = false }: { embedded?: boolean })
     setDeletePersonTarget(null);
   };
 
-  const handleDeleteDivisionConfirm = () => {
-    if (!deleteDivisionTarget) return;
-    const result = removeDivision(deleteDivisionTarget.id);
-    if (!result.ok) {
-      showError(result.reason ?? '삭제할 수 없습니다.');
-      setDeleteDivisionTarget(null);
-      return;
-    }
-    showMessage(`"${deleteDivisionTarget.name}" 사업본부가 삭제되었습니다.`);
-    if (editingDivision?.id === deleteDivisionTarget.id) closeEditor();
-    setDeleteDivisionTarget(null);
-  };
-
-  const handleDeleteTeamConfirm = () => {
-    if (!deleteTeamTarget) return;
-    const result = removeTeam(deleteTeamTarget.id);
-    if (!result.ok) {
-      showError(result.reason ?? '삭제할 수 없습니다.');
-      setDeleteTeamTarget(null);
-      return;
-    }
-    showMessage(`"${deleteTeamTarget.name}" 팀이 삭제되었습니다.`);
-    if (editingTeam?.id === deleteTeamTarget.id) closeEditor();
-    setDeleteTeamTarget(null);
-  };
-
-  const editorOpen = !!(editingRow || editingDivision || editingTeam || createMode);
-
-  const editorTitle = (() => {
-    if (createMode === 'executive') return '경영진 등록';
-    if (createMode === 'division') return '사업본부 등록';
-    if (createMode === 'team') return '팀 등록';
-    if (createMode === 'employee') return '팀원 등록';
-    if (editingRow?.kind === 'executive') return '경영진 수정';
-    if (editingRow?.kind === 'division_head') return '본부장 수정';
-    if (editingRow?.kind === 'team_head') return '팀장 수정';
-    if (editingDivision) return '사업본부 수정';
-    if (editingTeam) return '팀 수정';
-    if (editingRow) return '팀원 수정 · 전출';
-    return '';
-  })();
+  const editorOpen = !!editingRow;
 
   const handleEditorSave = () => {
-    if (createMode) {
-      handleCreate();
-      return;
-    }
-    if (editingDivision) {
-      handleSaveDivisionEdit();
-      return;
-    }
-    if (editingTeam) {
-      handleSaveTeamEdit();
-      return;
-    }
     handleSavePersonEdit();
   };
 
   return (
     <>
+      <div className="personnel-dashboard-stack">
+        <div className="personnel-resource-toolbar no-print">
+          <Button
+            variant={resourceStatusOpen ? 'primary' : 'outline'}
+            size="sm"
+            onClick={() => setResourceStatusOpen((open) => !open)}
+          >
+            {resourceStatusOpen ? '자원정보현황 닫기' : '자원정보현황'}
+          </Button>
+        </div>
+
+        {resourceStatusOpen && <PersonnelResourceStatusPanel stats={resourceStats} />}
+
       <Card
         title="인원검색"
-        subtitle="경영진 · 사업본부 · 팀 · 팀원 통합 조회 및 관리"
+        subtitle="사업본부 · 팀 · 이름·직급 검색으로 조직 인원을 통합 조회합니다"
         className={embedded ? 'personnel-dashboard--embedded' : undefined}
       >
         {message && <div className="toast toast--success no-print">{message}</div>}
         {error && <div className="toast toast--error no-print">{error}</div>}
 
-        <div className="personnel-dashboard__entity-tabs no-print">
-          {(Object.keys(ENTITY_LABELS) as ManageEntity[]).map((key) => (
-            <Button
-              key={key}
-              variant={entityType === key ? 'primary' : 'outline'}
-              size="sm"
-              onClick={() => {
-                setEntityType(key);
-                closeEditor();
-              }}
-            >
-              {ENTITY_LABELS[key]}
-            </Button>
-          ))}
-        </div>
-
         <div className="personnel-dashboard__filters no-print">
-          <Select
-            label="사업본부"
-            value={filters.divisionId}
-            onChange={(e) =>
-              setFilters((prev) => ({
-                ...prev,
-                divisionId: e.target.value,
-                teamId: '',
-              }))
-            }
-            options={[{ value: '', label: '전체' }, ...getPersonnelDivisionOptions(divisions)]}
+          <PersonnelMultiSelectFilter
+            filterKey="division"
+            options={divisionFilterOptions}
+            field={filters.division}
+            activeFilterKey={activeFilterKey}
+            onActivate={() => setActiveFilterKey('division')}
+            onChange={handleDivisionFilterChange}
           />
-          <Select
-            label="팀"
-            value={filters.teamId}
-            disabled={teamFilterDisabled}
-            onChange={(e) => setFilters((prev) => ({ ...prev, teamId: e.target.value }))}
-            options={[
-              { value: '', label: teamFilterDisabled ? '해당 없음' : '전체' },
-              ...filterTeamOptions,
-            ]}
+          <PersonnelMultiSelectFilter
+            filterKey="team"
+            options={teamFilterOptions}
+            field={filters.team}
+            activeFilterKey={activeFilterKey}
+            onActivate={() => setActiveFilterKey('team')}
+            onChange={handleTeamFilterChange}
           />
-          <Input
-            label="이름·직급 검색"
-            value={filters.keyword}
-            onChange={(e) => setFilters((prev) => ({ ...prev, keyword: e.target.value }))}
-            placeholder={
-              entityType === 'division'
-                ? '예: 건축사업본부, 본부장'
-                : entityType === 'team'
-                  ? '예: 건축1팀, 팀장'
-                  : '예: 홍길동, 팀장'
-            }
+          <PersonnelMultiSelectFilter
+            filterKey="person"
+            options={personFilterOptions}
+            field={filters.person}
+            activeFilterKey={activeFilterKey}
+            placeholder="예: 홍길동, 팀장"
+            onActivate={() => setActiveFilterKey('person')}
+            onChange={handlePersonFilterChange}
           />
-          <div className="personnel-dashboard__filter-actions">
-            <Button variant="primary" size="sm" onClick={openCreate}>
-              {ENTITY_LABELS[entityType]} 추가
-            </Button>
-          </div>
         </div>
 
         <div className="personnel-dashboard__summary">
@@ -700,293 +585,171 @@ export function PersonnelDashboard({ embedded = false }: { embedded?: boolean })
         </div>
 
         <div className="personnel-table-wrap">
-          {(entityType === 'executive' || entityType === 'employee') && (
-            <table className="personnel-table">
-              <thead>
+          <table className="personnel-table">
+            <thead>
+              <tr>
+                <th>이름</th>
+                <th>급수</th>
+                <th>직급</th>
+                <th>지위</th>
+                <th>권한</th>
+                <th>사업본부</th>
+                <th>팀</th>
+                <th className="personnel-table__actions">관리</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredPersonRows.length === 0 ? (
                 <tr>
-                  <th>이름</th>
-                  <th>직급</th>
-                  <th>권한</th>
-                  {entityType === 'employee' && (
-                    <>
-                      <th>사업본부</th>
-                      <th>팀</th>
-                    </>
-                  )}
-                  <th className="personnel-table__actions">관리</th>
+                  <td colSpan={9} className="personnel-table__empty">
+                    검색 결과가 없습니다.
+                  </td>
                 </tr>
-              </thead>
-              <tbody>
-                {filteredPersonRows.length === 0 ? (
-                  <tr>
-                    <td colSpan={entityType === 'employee' ? 6 : 4} className="personnel-table__empty">
-                      검색 결과가 없습니다.
+              ) : (
+                filteredPersonRows.map((row) => (
+                  <tr key={`${row.kind}-${row.id}`}>
+                    <td>{row.name}</td>
+                    <td>{formatPersonnelGradeCell(row)}</td>
+                    <td>{row.rank}</td>
+                    <td>{formatPersonnelPositionCell(row)}</td>
+                    <td>{formatPersonnelPermissionCell(row)}</td>
+                    <td>{row.divisionName}</td>
+                    <td>{row.teamName}</td>
+                    <td className="personnel-table__actions">
+                      <div className="personnel-table__action-group">
+                        <Button variant="outline" size="sm" onClick={() => openEditPerson(row)}>
+                          수정
+                        </Button>
+                        <Button variant="danger" size="sm" onClick={() => setDeletePersonTarget(row)}>
+                          삭제
+                        </Button>
+                      </div>
                     </td>
                   </tr>
-                ) : (
-                  filteredPersonRows.map((row) => (
-                    <tr key={`${row.kind}-${row.id}`}>
-                      <td>{row.name}</td>
-                      <td>{row.rank}</td>
-                      <td>
-                        <span className={`access-role-badge ${accessRoleBadgeClass(row.accessRole)}`}>
-                          {row.accessRole}
-                        </span>
-                      </td>
-                      {entityType === 'employee' && (
-                        <>
-                          <td>{row.divisionName}</td>
-                          <td>{row.teamName}</td>
-                        </>
-                      )}
-                      <td className="personnel-table__actions">
-                        <div className="personnel-table__action-group">
-                          <Button variant="outline" size="sm" onClick={() => openEditPerson(row)}>
-                            수정
-                          </Button>
-                          <Button variant="danger" size="sm" onClick={() => setDeletePersonTarget(row)}>
-                            삭제
-                          </Button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          )}
-
-          {entityType === 'division' && (
-            <table className="personnel-table">
-              <thead>
-                <tr>
-                  <th>사업본부</th>
-                  <th>본부장</th>
-                  <th>본부장 직급</th>
-                  <th className="personnel-table__actions">관리</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredDivisions.length === 0 ? (
-                  <tr>
-                    <td colSpan={4} className="personnel-table__empty">
-                      검색 결과가 없습니다.
-                    </td>
-                  </tr>
-                ) : (
-                  filteredDivisions.map((division) => (
-                    <tr key={division.id}>
-                      <td>{division.name}</td>
-                      <td>{division.headName ?? '-'}</td>
-                      <td>{division.headRank ?? '-'}</td>
-                      <td className="personnel-table__actions">
-                        <div className="personnel-table__action-group">
-                          <Button variant="outline" size="sm" onClick={() => openEditDivision(division)}>
-                            수정
-                          </Button>
-                          <Button variant="danger" size="sm" onClick={() => setDeleteDivisionTarget(division)}>
-                            삭제
-                          </Button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          )}
-
-          {entityType === 'team' && (
-            <table className="personnel-table">
-              <thead>
-                <tr>
-                  <th>사업본부</th>
-                  <th>팀</th>
-                  <th>팀장</th>
-                  <th>팀장 직급</th>
-                  <th className="personnel-table__actions">관리</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredTeams.length === 0 ? (
-                  <tr>
-                    <td colSpan={5} className="personnel-table__empty">
-                      검색 결과가 없습니다.
-                    </td>
-                  </tr>
-                ) : (
-                  filteredTeams.map((team) => (
-                    <tr key={team.id}>
-                      <td>{divisionNameById.get(team.divisionId) ?? '-'}</td>
-                      <td>{team.name}</td>
-                      <td>{team.headName ?? '-'}</td>
-                      <td>{team.headRank ?? '-'}</td>
-                      <td className="personnel-table__actions">
-                        <div className="personnel-table__action-group">
-                          <Button variant="outline" size="sm" onClick={() => openEditTeam(team)}>
-                            수정
-                          </Button>
-                          <Button variant="danger" size="sm" onClick={() => setDeleteTeamTarget(team)}>
-                            삭제
-                          </Button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          )}
+                ))
+              )}
+            </tbody>
+          </table>
         </div>
       </Card>
+      </div>
 
-      {editorOpen && (
-        <Card title={editorTitle} className="personnel-editor-card no-print">
-          {(createMode === 'executive' || editingRow?.kind === 'executive') && (
-            <div className="personnel-editor-grid">
-              <Input
-                label="이름"
-                value={executiveForm.name}
-                onChange={(e) => setExecutiveForm((prev) => ({ ...prev, name: e.target.value }))}
-              />
-              <Input
-                label="직급"
-                value={executiveForm.rank}
-                onChange={(e) => setExecutiveForm((prev) => ({ ...prev, rank: e.target.value }))}
-              />
-              <Select
-                label="권한"
-                value={executiveForm.accessRole}
-                onChange={(e) =>
-                  setExecutiveForm((prev) => ({
-                    ...prev,
-                    accessRole: e.target.value as WebAccessRole,
-                  }))
-                }
-                options={WEB_ACCESS_ROLE_OPTIONS}
-              />
+      {editorOpen && editingRow && (
+        <div className="personnel-edit-backdrop no-print" onClick={closeEditor}>
+          <div
+            ref={editorDialogRef}
+            className="personnel-edit-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="personnel-edit-dialog-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="personnel-edit-dialog__header">
+              <h3 id="personnel-edit-dialog-title" className="personnel-edit-dialog__title">
+                개인정보 수정
+              </h3>
+              <p className="personnel-edit-dialog__subtitle">
+                {editingRow.name} · {editingRow.divisionName} · {editingRow.teamName}
+              </p>
+              <p className="personnel-edit-dialog__guide">
+                아래 항목을 수정한 뒤 하단 <strong>저장</strong> 버튼을 눌러 반영해 주세요.
+              </p>
             </div>
-          )}
 
-          {(createMode === 'division' || editingDivision) && (
-            <div className="personnel-editor-grid">
-              <Input
-                label="사업본부명"
-                value={divisionForm.name}
-                onChange={(e) => setDivisionForm((prev) => ({ ...prev, name: e.target.value }))}
-                placeholder="예: 건축사업본부"
-              />
-              <Input
-                label="본부장"
-                value={divisionForm.headName}
-                onChange={(e) => setDivisionForm((prev) => ({ ...prev, headName: e.target.value }))}
-                placeholder="예: 홍길동"
-              />
-              <Input
-                label="본부장 직급"
-                value={divisionForm.headRank}
-                onChange={(e) => setDivisionForm((prev) => ({ ...prev, headRank: e.target.value }))}
-                placeholder="예: 상무, 이사"
-              />
-            </div>
-          )}
-
-          {(createMode === 'team' || editingTeam) && (
-            <div className="personnel-editor-grid">
-              {createMode === 'team' && (
-                <Select
-                  label="사업본부"
-                  value={teamForm.divisionId}
-                  onChange={(e) => setTeamForm((prev) => ({ ...prev, divisionId: e.target.value }))}
-                  options={[{ value: '', label: '선택' }, ...getDivisionOptions(divisions)]}
+            <div className="personnel-edit-dialog__body">
+              <div className="personnel-editor-grid">
+                <Input
+                  label="이름"
+                  value={personForm.name}
+                  onChange={(e) => setPersonForm((prev) => ({ ...prev, name: e.target.value }))}
                 />
-              )}
-              <Input
-                label="팀명"
-                value={teamForm.name}
-                onChange={(e) => setTeamForm((prev) => ({ ...prev, name: e.target.value }))}
-                placeholder="예: 건축1팀"
-              />
-              <Input
-                label="팀장"
-                value={teamForm.headName}
-                onChange={(e) => setTeamForm((prev) => ({ ...prev, headName: e.target.value }))}
-                placeholder="예: 홍길동"
-              />
-              <Input
-                label="팀장 직급"
-                value={teamForm.headRank}
-                onChange={(e) => setTeamForm((prev) => ({ ...prev, headRank: e.target.value }))}
-                placeholder="예: 수석매니저"
-              />
-            </div>
-          )}
-
-          {(createMode === 'employee' ||
-            (editingRow &&
-              editingRow.kind !== 'executive' &&
-              !editingDivision &&
-              !editingTeam)) && (
-            <div className="personnel-editor-grid">
-              <Input
-                label="이름"
-                value={employeeForm.name}
-                onChange={(e) => setEmployeeForm((prev) => ({ ...prev, name: e.target.value }))}
-              />
-              <Input
-                label="직급"
-                value={employeeForm.rank}
-                onChange={(e) => setEmployeeForm((prev) => ({ ...prev, rank: e.target.value }))}
-              />
-              {editingRow?.kind === 'employee' || createMode === 'employee' ? (
+                <Select
+                  label="급수"
+                  value={personForm.grade}
+                  onChange={(e) => {
+                    const grade = e.target.value;
+                    const derivedRank = derivePersonnelRankFromGrade(grade);
+                    setPersonForm((prev) => ({
+                      ...prev,
+                      grade,
+                      ...(derivedRank ? { rank: derivedRank } : {}),
+                    }));
+                  }}
+                  options={gradeSelectOptions}
+                />
+                <Select
+                  label="직급"
+                  value={personForm.rank}
+                  onChange={(e) =>
+                    setPersonForm((prev) => ({ ...prev, rank: e.target.value }))
+                  }
+                  options={rankSelectOptions}
+                  disabled={Boolean(autoDerivedRank)}
+                  title={
+                    autoDerivedRank
+                      ? '급수 선택에 따라 직급이 자동 설정됩니다.'
+                      : undefined
+                  }
+                />
+                <Select
+                  label="지위"
+                  value={personForm.position}
+                  onChange={(e) =>
+                    setPersonForm((prev) => ({ ...prev, position: e.target.value }))
+                  }
+                  options={positionSelectOptions}
+                />
+                {editingRow && isPersonnelOrgAffiliationEditable(editingRow.kind) && (
+                  <>
+                    <Select
+                      label="사업본부"
+                      value={personForm.divisionId}
+                      onChange={(e) =>
+                        setPersonForm((prev) => ({
+                          ...prev,
+                          divisionId: e.target.value,
+                          teamId:
+                            editingRow.kind === 'team_head' ? '' : PERSONNEL_TEAM_NONE_VALUE,
+                        }))
+                      }
+                      options={[{ value: '', label: '선택' }, ...getDivisionOptions(divisions)]}
+                    />
+                    <Select
+                      label="팀"
+                      value={personForm.teamId}
+                      onChange={(e) =>
+                        setPersonForm((prev) => ({ ...prev, teamId: e.target.value }))
+                      }
+                      options={editorTeamSelectOptions}
+                    />
+                  </>
+                )}
                 <Select
                   label="권한"
-                  value={employeeForm.accessRole}
+                  value={personForm.permissionLevel}
                   onChange={(e) =>
-                    setEmployeeForm((prev) => ({
-                      ...prev,
-                      accessRole: e.target.value as WebAccessRole,
-                    }))
+                    setPersonForm((prev) => ({ ...prev, permissionLevel: e.target.value }))
                   }
-                  options={WEB_ACCESS_ROLE_OPTIONS}
+                  options={[{ value: '', label: '선택' }, ...PERSONNEL_PERMISSION_LEVEL_OPTIONS]}
                 />
-              ) : (
-                <Input label="권한" value={employeeForm.accessRole} readOnly disabled />
-              )}
-              {(createMode === 'employee' || editingRow?.kind === 'employee') && (
-                <>
-                  <Select
-                    label="사업본부"
-                    value={employeeForm.divisionId}
-                    onChange={(e) =>
-                      setEmployeeForm((prev) => ({
-                        ...prev,
-                        divisionId: e.target.value,
-                        teamId: '',
-                      }))
-                    }
-                    options={[{ value: '', label: '선택' }, ...getDivisionOptions(divisions)]}
-                  />
-                  <Select
-                    label="팀"
-                    value={employeeForm.teamId}
-                    onChange={(e) => setEmployeeForm((prev) => ({ ...prev, teamId: e.target.value }))}
-                    options={[{ value: '', label: '선택' }, ...teamOptions]}
-                  />
-                </>
-              )}
+              </div>
             </div>
-          )}
 
-          <div className="personnel-editor-actions">
-            <Button variant="primary" onClick={handleEditorSave}>
-              {createMode ? '등록' : '저장'}
-            </Button>
-            <Button variant="ghost" onClick={closeEditor}>
-              취소
-            </Button>
+            <div className="personnel-edit-dialog__footer">
+              <p className="personnel-edit-dialog__save-hint">
+                변경 내용은 <strong>저장</strong>을 눌러야 목록에 반영됩니다.
+              </p>
+              <div className="personnel-editor-actions">
+                <Button variant="ghost" onClick={closeEditor}>
+                  취소
+                </Button>
+                <Button variant="primary" size="lg" className="personnel-edit-dialog__save-btn" onClick={handleEditorSave}>
+                  저장
+                </Button>
+              </div>
+            </div>
           </div>
-        </Card>
+        </div>
       )}
 
       <ConfirmDialog
@@ -997,30 +760,6 @@ export function PersonnelDashboard({ embedded = false }: { embedded?: boolean })
         cancelLabel="아니오"
         onConfirm={handleDeletePersonConfirm}
         onCancel={() => setDeletePersonTarget(null)}
-      />
-
-      <ConfirmDialog
-        open={deleteDivisionTarget !== null}
-        title="사업본부 삭제"
-        message={
-          deleteDivisionTarget
-            ? `"${deleteDivisionTarget.name}" 사업본부를 삭제하시겠습니까?`
-            : ''
-        }
-        confirmLabel="네"
-        cancelLabel="아니오"
-        onConfirm={handleDeleteDivisionConfirm}
-        onCancel={() => setDeleteDivisionTarget(null)}
-      />
-
-      <ConfirmDialog
-        open={deleteTeamTarget !== null}
-        title="팀 삭제"
-        message={deleteTeamTarget ? `"${deleteTeamTarget.name}" 팀을 삭제하시겠습니까?` : ''}
-        confirmLabel="네"
-        cancelLabel="아니오"
-        onConfirm={handleDeleteTeamConfirm}
-        onCancel={() => setDeleteTeamTarget(null)}
       />
     </>
   );

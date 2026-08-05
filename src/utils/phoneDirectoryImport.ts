@@ -7,7 +7,9 @@ import {
   PHONE_DIRECTORY_TEAMS,
 } from '@/data/orgPhoneDirectory202608';
 import { filterAffiliateOrg } from '@/utils/orgAffiliateFilter';
-import { applyOrgManualOverrides } from '@/utils/orgManualOverrides';
+import { applyOrgManualOverrides, ORG_MANUAL_OVERRIDE_VERSION } from '@/utils/orgManualOverrides';
+import { ensureSafetyManagementOrg } from '@/utils/orgSafetyOffice';
+import { ensureExecutiveOfficeOrg } from '@/utils/orgExecutiveOffice';
 import { normalizeExecutiveOffice, saveOrgState, type StoredOrgState } from '@/utils/orgStorage';
 
 export { PHONE_DIRECTORY_ORG_META };
@@ -23,13 +25,17 @@ export interface PhoneDirectoryOrgState {
 }
 
 export function getPhoneDirectoryOrgState(): PhoneDirectoryOrgState {
-  return applyOrgManualOverrides(
-    filterAffiliateOrg({
-      executiveOffice: normalizeExecutiveOffice(PHONE_DIRECTORY_EXECUTIVE_OFFICE),
-      divisions: [...PHONE_DIRECTORY_DIVISIONS],
-      teams: [...PHONE_DIRECTORY_TEAMS],
-      employees: [...PHONE_DIRECTORY_EMPLOYEES],
-    }),
+  return ensureExecutiveOfficeOrg(
+    ensureSafetyManagementOrg(
+      applyOrgManualOverrides(
+        filterAffiliateOrg({
+          executiveOffice: normalizeExecutiveOffice(PHONE_DIRECTORY_EXECUTIVE_OFFICE),
+          divisions: [...PHONE_DIRECTORY_DIVISIONS],
+          teams: [...PHONE_DIRECTORY_TEAMS],
+          employees: [...PHONE_DIRECTORY_EMPLOYEES],
+        }),
+      ),
+    ),
   );
 }
 
@@ -41,6 +47,7 @@ export function applyPhoneDirectoryOrg(): PhoneDirectoryOrgState {
     teams: org.teams,
     employees: org.employees,
     parseVersion: PHONE_DIRECTORY_PARSE_VERSION,
+    manualOverrideVersion: ORG_MANUAL_OVERRIDE_VERSION,
   });
   return org;
 }

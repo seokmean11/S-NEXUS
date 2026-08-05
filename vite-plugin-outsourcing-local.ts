@@ -1,8 +1,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import type { Plugin } from 'vite';
+import * as XLSX from 'xlsx';
 
-interface ResolvedCsvFile {
+interface ResolvedDataFile {
   filePath: string;
   fileName: string;
   sourcePath: string;
@@ -10,6 +11,12 @@ interface ResolvedCsvFile {
 }
 
 const PATH_FILE = 'outsourcing-data.path';
+const DATA_EXTENSIONS = ['.csv', '.xlsx', '.xls'] as const;
+
+function isDataFileName(name: string): boolean {
+  const lower = name.toLowerCase();
+  return DATA_EXTENSIONS.some((ext) => lower.endsWith(ext));
+}
 
 function readPathFile(root: string): string | null {
   const filePath = path.join(root, PATH_FILE);
@@ -53,7 +60,26 @@ function getConfiguredPath(root: string): string | null {
   return candidates[0] ?? null;
 }
 
-function resolveCsvFile(dataPath: string): ResolvedCsvFile {
+function readDataFileAsCsv(filePath: string): string {
+  const ext = path.extname(filePath).toLowerCase();
+
+  if (ext === '.csv') {
+    return fs.readFileSync(filePath, 'utf8');
+  }
+
+  if (ext === '.xlsx' || ext === '.xls') {
+    const workbook = XLSX.readFile(filePath);
+    const sheetName = workbook.SheetNames[0];
+    if (!sheetName) {
+      throw new Error(`Excel 파일에 시트가 없습니다: ${path.basename(filePath)}`);
+    }
+    return XLSX.utils.sheet_to_csv(workbook.Sheets[sheetName]);
+  }
+
+  throw new Error(`지원하지 않는 외주 데이터 파일 형식입니다: ${path.basename(filePath)}`);
+}
+
+function resolveDataFile(dataPath: string): ResolvedDataFile {
   const resolved = path.resolve(dataPath);
   if (!fs.existsSync(resolved)) {
     throw new Error(`외주 데이터 경로를 찾을 수 없습니다: ${resolved}`);
@@ -62,8 +88,8 @@ function resolveCsvFile(dataPath: string): ResolvedCsvFile {
   const stat = fs.statSync(resolved);
 
   if (stat.isFile()) {
-    if (!resolved.toLowerCase().endsWith('.csv')) {
-      throw new Error('외주 데이터 파일은 CSV 형식이어야 합니다.');
+    if (!isDataFileName(resolved)) {
+      throw new Error('외주 데이터 파일은 CSV 또는 Excel(xlsx, xls) 형식이어야 합니다.');
     }
     return {
       filePath: resolved,
@@ -74,9 +100,9 @@ function resolveCsvFile(dataPath: string): ResolvedCsvFile {
   }
 
   if (stat.isDirectory()) {
-    const csvFiles = fs
+    const dataFiles = fs
       .readdirSync(resolved)
-      .filter((name) => name.toLowerCase().endsWith('.csv'))
+      .filter((name) => isDataFileName(name))
       .map((name) => {
         const filePath = path.join(resolved, name);
         const fileStat = fs.statSync(filePath);
@@ -90,11 +116,11 @@ function resolveCsvFile(dataPath: string): ResolvedCsvFile {
       })
       .sort((a, b) => b.mtimeMs - a.mtimeMs);
 
-    if (csvFiles.length === 0) {
-      throw new Error(`폴더에 CSV 파일이 없습니다: ${resolved}`);
+    if (dataFiles.length === 0) {
+      throw new Error(`폴더에 CSV/Excel 파일이 없습니다: ${resolved}`);
     }
 
-    const latest = csvFiles[0];
+    const latest = dataFiles[0];
     return {
       filePath: latest.filePath,
       fileName: latest.fileName,
@@ -124,13 +150,13 @@ function attachRoutes(server: { middlewares: { use: Function } }, root: string) 
       sendJson(res, 200, {
         configured: false,
         message:
-          'outsourcing-data.path 또는 .env OUTSOURCING_DATA_PATH에 폴더(또는 CSV) 경로를 설정하세요.',
+          'outsourcing-data.path 또는 .env OUTSOURCING_DATA_PATH에 폴더(또는 CSV/Excel) 경로를 설정하세요.',
       });
       return;
     }
 
     try {
-      const file = resolveCsvFile(configuredPath);
+      const file = resolveDataFile(configuredPath);
       sendJson(res, 200, {
         configured: true,
         configuredPath,
@@ -162,8 +188,8 @@ function attachRoutes(server: { middlewares: { use: Function } }, root: string) 
     }
 
     try {
-      const file = resolveCsvFile(configuredPath);
-      const csv = fs.readFileSync(file.filePath, 'utf8');
+      const file = resolveDataFile(configuredPath);
+      const csv = readDataFileAsCsv(file.filePath);
       sendJson(res, 200, {
         fileName: file.fileName,
         sourcePath: file.sourcePath,

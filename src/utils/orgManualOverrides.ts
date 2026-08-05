@@ -113,31 +113,52 @@ function reassignEmployee(employee: Employee): Employee | null {
     employee.teamId === 'team-div-plan-사업관리팀' &&
     MOVE_TO_SELFSTORAGE.has(employee.name)
   ) {
-    return makeEmployee(
-      employee.name,
-      employee.role,
-      DIV_SELFSTORAGE,
-      '셀프스토리지사업팀',
-      TEAM_SELFSTORAGE,
-      '셀프스토리지사업팀',
-    );
+    return {
+      ...employee,
+      divisionId: DIV_SELFSTORAGE,
+      divisionName: '셀프스토리지사업팀',
+      teamId: TEAM_SELFSTORAGE,
+      teamName: '셀프스토리지사업팀',
+    };
   }
 
   if (
     employee.teamId === 'team-div-in-인테리어디자인팀' &&
     MOVE_TO_ESTIMATE.has(employee.name)
   ) {
-    return makeEmployee(
-      employee.name,
-      employee.role,
-      'div-in',
-      '인테리어사업본부',
-      TEAM_ESTIMATE,
-      '견적팀',
-    );
+    return {
+      ...employee,
+      divisionId: 'div-in',
+      divisionName: '인테리어사업본부',
+      teamId: TEAM_ESTIMATE,
+      teamName: '견적팀',
+    };
   }
 
   return employee;
+}
+
+function mergeEmployeeMetadata(primary: Employee, others: Employee[]): Employee {
+  const pool = [primary, ...others.filter((employee) => employee.id !== primary.id)];
+
+  const pick = <K extends keyof Employee>(key: K): Employee[K] | undefined => {
+    for (const employee of pool) {
+      const value = employee[key];
+      if (value !== undefined && value !== null && value !== '') {
+        return value;
+      }
+    }
+    return undefined;
+  };
+
+  return {
+    ...primary,
+    gradeLevel: pick('gradeLevel'),
+    gradeRank: pick('gradeRank'),
+    permissionLevel: pick('permissionLevel'),
+    position: pick('position'),
+    accessRole: pick('accessRole') ?? primary.accessRole,
+  };
 }
 
 function appendMissingEmployees(employees: Employee[]): Employee[] {
@@ -168,9 +189,54 @@ function filterExecutives(office: ExecutiveOffice): ExecutiveOffice {
   return { admins };
 }
 
+function pickCanonicalEmployee(group: Employee[]): Employee {
+  const nonExecDivision = group.filter((employee) => employee.divisionId !== 'div-exec');
+  const pool = nonExecDivision.length > 0 ? nonExecDivision : group;
+  const teamHead = pool.find(
+    (employee) => employee.accessRole === '팀장' || employee.role === '팀장',
+  );
+  if (teamHead) return teamHead;
+  return [...pool].sort((a, b) => a.teamName.localeCompare(b.teamName, 'ko'))[0];
+}
+
+/** 경영진·팀 중복 등 동일 이름 직원 레코드는 1건만 유지 */
+function deduplicateEmployeesByName(
+  employees: Employee[],
+  executiveOffice: ExecutiveOffice,
+): Employee[] {
+  const executiveNames = new Set((executiveOffice.admins ?? []).map((admin) => admin.name));
+  const withoutExecutiveDuplicates = employees.filter(
+    (employee) => !executiveNames.has(employee.name),
+  );
+
+  const byName = new Map<string, Employee[]>();
+  for (const employee of withoutExecutiveDuplicates) {
+    const group = byName.get(employee.name) ?? [];
+    group.push(employee);
+    byName.set(employee.name, group);
+  }
+
+  const deduped: Employee[] = [];
+  for (const group of byName.values()) {
+    if (group.length === 1) {
+      deduped.push(group[0]);
+      continue;
+    }
+    const canonical = pickCanonicalEmployee(group);
+    deduped.push(mergeEmployeeMetadata(canonical, group));
+  }
+
+  return deduped;
+}
+
+export function shouldApplyOrgManualOverrides(manualOverrideVersion?: number): boolean {
+  return (manualOverrideVersion ?? 0) < ORG_MANUAL_OVERRIDE_VERSION;
+}
+
 /** 내선연락망 파싱 후 수동 조직 보정 (2026.08 피드백) */
 export function applyOrgManualOverrides<T extends OrgSnapshot>(org: T): T {
   const structured = ensureStructure(org);
+  const executiveOffice = filterExecutives(structured.executiveOffice);
 
   let employees = structured.employees
     .filter((employee) => !shouldRemoveEmployee(employee))
@@ -178,6 +244,7 @@ export function applyOrgManualOverrides<T extends OrgSnapshot>(org: T): T {
     .filter((employee): employee is Employee => employee != null);
 
   employees = appendMissingEmployees(employees);
+  employees = deduplicateEmployeesByName(employees, executiveOffice);
 
   employees.sort(
     (a, b) =>
@@ -188,7 +255,7 @@ export function applyOrgManualOverrides<T extends OrgSnapshot>(org: T): T {
 
   return {
     ...structured,
-    executiveOffice: filterExecutives(structured.executiveOffice),
+    executiveOffice,
     employees: employees.map((employee) => ({
       ...employee,
       accessRole: employee.accessRole ?? inferAccessRoleFromEmployee(employee),
@@ -196,4 +263,4 @@ export function applyOrgManualOverrides<T extends OrgSnapshot>(org: T): T {
   } as T;
 }
 
-export const ORG_MANUAL_OVERRIDE_VERSION = 1;
+export const ORG_MANUAL_OVERRIDE_VERSION = 3;
