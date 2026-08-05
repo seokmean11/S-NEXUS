@@ -196,6 +196,40 @@ body {
   text-align: center;
 }
 
+.personnel-resource-chart__title-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px;
+  width: 100%;
+}
+
+.personnel-resource-chart__title-row .personnel-resource-chart__title {
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+}
+
+.personnel-resource-chart__title-meta {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 2px;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--color-primary);
+  white-space: nowrap;
+}
+
+.personnel-resource-chart__title-meta-sep {
+  margin: 0 1px;
+  color: var(--color-text-muted);
+  font-weight: 600;
+}
+
+.personnel-resource-chart--bars-compact .personnel-resource-chart__title-meta {
+  font-size: 9px;
+}
+
 .personnel-resource-chart__body {
   display: flex;
   flex-direction: column;
@@ -209,6 +243,161 @@ body {
   padding: 10px;
   font-size: 12px;
   color: var(--color-text-muted);
+}
+
+.personnel-resource-chart__body--bars {
+  align-items: stretch;
+  padding: 10px 12px 12px;
+}
+
+.personnel-resource-chart--bars .personnel-resource-chart__header {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.personnel-resource-bars__summary {
+  margin: 0;
+  font-size: 11px;
+  text-align: center;
+  color: var(--color-text-muted);
+}
+
+.personnel-resource-bars__summary strong {
+  color: var(--color-text);
+}
+
+.personnel-resource-bars__shape {
+  margin: 0;
+  font-size: 10px;
+  font-weight: 600;
+  text-align: center;
+  line-height: 1.35;
+}
+
+.personnel-resource-bars__shape--pyramid {
+  color: #047857;
+}
+
+.personnel-resource-bars__shape--inverted {
+  color: #b45309;
+}
+
+.personnel-resource-bars__shape--balanced {
+  color: var(--color-text-muted);
+}
+
+.personnel-resource-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+}
+
+.personnel-resource-bar-row {
+  display: grid;
+  grid-template-columns: minmax(56px, 30%) minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 4px 6px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: #fff;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.personnel-resource-bar-row:not(:disabled):hover,
+.personnel-resource-bar-row--active {
+  background: rgba(49, 130, 246, 0.06);
+  border-color: rgba(49, 130, 246, 0.2);
+  box-shadow: 0 1px 4px rgba(49, 130, 246, 0.1);
+}
+
+.personnel-resource-bar-row--empty {
+  cursor: default;
+  opacity: 0.72;
+}
+
+.personnel-resource-bar-row__label {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--color-text);
+  line-height: 1.25;
+  word-break: keep-all;
+}
+
+.personnel-resource-bar-row__track {
+  position: relative;
+  height: 14px;
+  border-radius: 999px;
+  background: #e8eef5;
+  overflow: hidden;
+}
+
+.personnel-resource-bar-row__fill {
+  display: block;
+  height: 100%;
+  min-width: 0;
+  border-radius: 999px;
+  transition: width 0.25s ease;
+}
+
+.personnel-resource-bar-row__stats {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 1px;
+  min-width: 44px;
+}
+
+.personnel-resource-bar-row__count {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--color-text);
+  white-space: nowrap;
+}
+
+.personnel-resource-bar-row__percent {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--color-primary);
+}
+
+.personnel-resource-chart--bars-compact .personnel-resource-chart__body--bars {
+  padding: 8px 6px;
+}
+
+.personnel-resource-chart--bars-compact .personnel-resource-bars {
+  gap: 4px;
+}
+
+.personnel-resource-chart--bars-compact .personnel-resource-bar-row {
+  grid-template-columns: minmax(44px, 34%) minmax(0, 1fr) auto;
+  gap: 5px;
+  padding: 3px 4px;
+}
+
+.personnel-resource-chart--bars-compact .personnel-resource-bar-row__label {
+  font-size: 9px;
+}
+
+.personnel-resource-chart--bars-compact .personnel-resource-bar-row__track {
+  height: 10px;
+}
+
+.personnel-resource-chart--bars-compact .personnel-resource-bar-row__count {
+  font-size: 9px;
+}
+
+.personnel-resource-chart--bars-compact .personnel-resource-bar-row__percent {
+  font-size: 8px;
+}
+
+.personnel-resource-chart--bars-compact .personnel-resource-bar-row__stats {
+  min-width: 36px;
 }
 
 .personnel-resource-donut {
@@ -278,8 +467,43 @@ body {
 }
 
 .personnel-resource-legend__item--active {
-  background: rgba(49, 130, 246, 0.06);
+  background: rgba(49, 130, 246, 0.08);
   border-color: rgba(49, 130, 246, 0.18);
+}
+
+.personnel-resource-legend__item--clickable {
+  cursor: pointer;
+}
+
+.personnel-resource-legend__item--clickable:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+.personnel-resource-donut__segment {
+  cursor: pointer;
+}
+
+.personnel-resource-status__charts-hint {
+  margin: 0 0 12px;
+  font-size: 13px;
+  color: var(--color-text-muted);
+}
+
+.personnel-resource-detail-dialog {
+  width: min(100%, 920px);
+}
+
+.personnel-resource-detail-dialog__table-wrap {
+  max-height: min(52vh, 520px);
+  overflow: auto;
+}
+
+.personnel-resource-detail-dialog__empty {
+  margin: 0;
+  padding: 24px 0;
+  text-align: center;
+  color: var(--color-text-muted);
 }
 
 .personnel-resource-legend__swatch {
@@ -322,16 +546,78 @@ body {
   color: var(--color-primary);
 }
 
+.personnel-resource-status__division-charts {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.personnel-resource-chart--compact .personnel-resource-chart__body {
+  padding: 8px 6px 6px;
+  gap: 8px;
+}
+
+.personnel-resource-donut--compact {
+  width: min(100%, 120px);
+}
+
+.personnel-resource-donut--compact .personnel-resource-donut__center strong {
+  font-size: 9px;
+}
+
+.personnel-resource-donut--compact .personnel-resource-donut__center span {
+  font-size: 9px;
+}
+
+.personnel-resource-legend--compact {
+  width: 100%;
+  gap: 2px;
+}
+
+.personnel-resource-legend--compact .personnel-resource-legend__item {
+  padding: 3px 4px;
+  grid-template-columns: 6px minmax(0, 1fr) auto;
+  gap: 4px;
+}
+
+.personnel-resource-legend--compact .personnel-resource-legend__label {
+  font-size: 9px;
+}
+
+.personnel-resource-legend--compact .personnel-resource-legend__amount,
+.personnel-resource-legend--compact .personnel-resource-legend__percent {
+  font-size: 9px;
+}
+
+.personnel-resource-legend--compact .personnel-resource-legend__swatch {
+  width: 6px;
+  height: 6px;
+}
+
+@media (max-width: 1400px) {
+  .personnel-resource-status__division-charts {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
 @media (max-width: 1100px) {
   .personnel-resource-status__metrics,
   .personnel-resource-status__charts {
     grid-template-columns: 1fr;
+  }
+
+  .personnel-resource-status__division-charts {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
 @media (max-width: 768px) {
   .personnel-resource-donut {
     width: min(100%, 180px);
+  }
+
+  .personnel-resource-status__division-charts {
+    grid-template-columns: 1fr;
   }
 }
 

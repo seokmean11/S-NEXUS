@@ -62,6 +62,13 @@ export const PERSONNEL_RANK_LABELS = [
   '사원',
 ] as const;
 
+/** 자원정보현황·상세 목록 정렬용 (Select 옵션 + 팀장) */
+const PERSONNEL_RANK_SORT_ORDER = [
+  ...PERSONNEL_RANK_LABELS.slice(0, 9),
+  '팀장',
+  ...PERSONNEL_RANK_LABELS.slice(9),
+] as const;
+
 export const PERSONNEL_POSITION_LABELS = [
   '회장',
   '부회장',
@@ -89,6 +96,53 @@ export const PERSONNEL_RANK_SELECT_OPTIONS = PERSONNEL_RANK_LABELS.map((label) =
   value: label,
   label,
 }));
+
+function getPersonnelRankSortIndex(rank: string): number {
+  const normalized = rank.replace(/\s*\(기존\)$/, '').trim();
+  const index = (PERSONNEL_RANK_SORT_ORDER as readonly string[]).indexOf(normalized);
+  return index >= 0 ? index : PERSONNEL_RANK_SORT_ORDER.length;
+}
+
+/** 직급 순서(회장→사원, 팀장 포함) 후 동일 직급은 이름순 */
+export function comparePersonnelRowsByRank(a: PersonnelRow, b: PersonnelRow): number {
+  const rankDiff = getPersonnelRankSortIndex(a.rank) - getPersonnelRankSortIndex(b.rank);
+  if (rankDiff !== 0) return rankDiff;
+  return a.name.localeCompare(b.name, 'ko');
+}
+
+export function sortPersonnelRowsByRank(rows: PersonnelRow[]): PersonnelRow[] {
+  return [...rows].sort(comparePersonnelRowsByRank);
+}
+
+const PERSONNEL_GRADE_SORT_ORDER = [
+  ...PERSONNEL_EXECUTIVE_GRADE_LABELS,
+  '1급',
+  '2급',
+  '3급',
+  '4급',
+  '5급',
+  '6급',
+  '7급',
+] as const;
+
+function getPersonnelGradeSortIndex(row: Pick<PersonnelRow, 'gradeLevel' | 'gradeRank'>): number {
+  const gradeValue = getPersonnelGradeFormValue(row);
+  if (!gradeValue) return PERSONNEL_GRADE_SORT_ORDER.length;
+  const normalized = gradeValue.replace(/\s*\(기존\)$/, '').trim();
+  const index = (PERSONNEL_GRADE_SORT_ORDER as readonly string[]).indexOf(normalized);
+  return index >= 0 ? index : PERSONNEL_GRADE_SORT_ORDER.length;
+}
+
+/** 급수 순서(회장→감사→1급→7급) 후 동일 급수는 이름순 */
+export function comparePersonnelRowsByGrade(a: PersonnelRow, b: PersonnelRow): number {
+  const gradeDiff = getPersonnelGradeSortIndex(a) - getPersonnelGradeSortIndex(b);
+  if (gradeDiff !== 0) return gradeDiff;
+  return a.name.localeCompare(b.name, 'ko');
+}
+
+export function sortPersonnelRowsByGrade(rows: PersonnelRow[]): PersonnelRow[] {
+  return [...rows].sort(comparePersonnelRowsByGrade);
+}
 
 export const PERSONNEL_POSITION_SELECT_OPTIONS = PERSONNEL_POSITION_LABELS.map((label) => ({
   value: label,

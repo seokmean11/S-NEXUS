@@ -521,7 +521,9 @@ export function PersonnelDashboard({ embedded = false }: { embedded?: boolean })
           </Button>
         </div>
 
-        {resourceStatusOpen && <PersonnelResourceStatusPanel stats={resourceStats} />}
+        {resourceStatusOpen && (
+          <PersonnelResourceStatusPanel stats={resourceStats} rows={allPersonRows} />
+        )}
 
       <Card
         title="인원검색"
