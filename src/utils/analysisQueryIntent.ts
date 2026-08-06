@@ -78,3 +78,52 @@ export function detectAnalysisDomainHints(query?: string): string[] {
 export function resolveAnalysisDomainHints(query?: string): string[] {
   return detectAnalysisDomainHints(query);
 }
+
+const DATA_REQUEST_PATTERN =
+  /분석|인사이트|보고서|현황|요약|정리|리스크|데이터|프로젝트|수주|외주|입찰|조직|인원|배분|계약|금액|업체|목록|리스트|알려|설명|해줘|해주|부탁|작성|뽑아|조회|추이|트렌드|기여|예산|낙찰|협력|공종|직급|급수|자원|전시|대시보드/i;
+
+const CASUAL_GREETING_PATTERN =
+  /^(안녕|안녕하세요|하이|헬로|hello|hi|hey|ㅎㅇ|반가|반갑|고마|감사|미안|죄송|thanks|thank\s*you|ok|okay|네|응|ㅇㅇ|좋아|그래)[!.?\s~]*$/i;
+
+const CASUAL_SMALLTALK_PATTERN =
+  /잘\s*지냈|어떻게\s*지내|지내셨|잘\s*있|뭐\s*해|뭐\s*하세요|기분\s*어때|좋은\s*(아침|하루|저녁|밤)|수고\s*하|오랜만|만나서\s*반가|바쁘|피곤|힘내/i;
+
+/** 인사·안부 등 데이터 조회가 아닌 일반 대화 */
+export function isCasualConversationQuery(query?: string): boolean {
+  if (!query?.trim()) return false;
+
+  const trimmed = query.trim();
+  if (detectAnalysisDomainHints(trimmed).length > 0) return false;
+  if (DATA_REQUEST_PATTERN.test(trimmed)) return false;
+
+  if (CASUAL_GREETING_PATTERN.test(trimmed)) return true;
+  if (CASUAL_SMALLTALK_PATTERN.test(trimmed) && trimmed.length <= 48) return true;
+
+  return false;
+}
+
+/** 사용자가 명시적으로 분석·보고서·인사이트 등을 요청했는지 */
+export function isExplicitAnalysisRequest(query?: string): boolean {
+  if (!query?.trim()) return false;
+  return /분석|인사이트|보고서|현황\s*요약|종합\s*(분석|현황)|심층\s*분석|overview|summary|insight/i.test(
+    query.trim(),
+  );
+}
+
+export function buildCasualConversationReply(query: string): string {
+  const trimmed = query.trim();
+
+  if (/잘\s*지냈|어떻게\s*지내|지내셨|잘\s*있/.test(trimmed)) {
+    return '네, 잘 지내고 있어요! 😊\n\n필요하신 정보가 있으면 편하게 말씀해 주세요.';
+  }
+
+  if (/고마|감사|thanks|thank\s*you/i.test(trimmed)) {
+    return '천만에요! 😊\n\n필요하신 정보가 있으면 언제든 말씀해 주세요.';
+  }
+
+  if (/안녕|반가|hello|hi|hey|ㅎㅇ/i.test(trimmed)) {
+    return '안녕하세요! NEXUS AI입니다.\n\n데이터 기반으로 필요한 정보를 안내해 드릴게요. 궁금하신 내용이 있으면 말씀해 주세요.';
+  }
+
+  return '네, 알겠습니다.\n\n필요하신 정보가 있으면 말씀해 주세요.';
+}

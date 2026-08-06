@@ -20,6 +20,8 @@ import { buildDivisionSummary, filterProjectsByQuery } from '@/utils/analysisQue
 import { buildOutsourcingQueryAnalysis } from '@/utils/analysisOutsourcingPayload';
 import {
   detectAnalysisQueryIntent,
+  isCasualConversationQuery,
+  isExplicitAnalysisRequest,
   resolveAnalysisDomainHints,
   type AnalysisQueryIntent,
 } from '@/utils/analysisQueryIntent';
@@ -472,6 +474,7 @@ export function buildAnalysisDataPayload(
 ) {
   const queryIntent = detectAnalysisQueryIntent(query);
   const domainHints = resolveAnalysisDomainHints(query);
+  const conversationMode = isCasualConversationQuery(query) ? 'casual' : 'information';
   const { projects: scopedProjects, scopeNote } = filterProjectsByQuery(ctx.projects, query);
 
   const includeFullProjects = queryIntent !== 'organization';
@@ -497,6 +500,7 @@ export function buildAnalysisDataPayload(
   return {
     generatedAt: new Date().toISOString().slice(0, 10),
     queryIntent,
+    conversationMode,
     domainHints,
     userQuery: query?.trim() ?? '',
     viewer: { role: meta.roleLabel, scope: meta.scopeLabel },
@@ -541,30 +545,50 @@ export function buildAnalysisDataPayload(
   };
 }
 
-function buildIntentGuidance(intent: AnalysisQueryIntent, userQuery: string, domainHints: string[]): string {
+function buildIntentGuidance(
+  intent: AnalysisQueryIntent,
+  userQuery: string,
+  domainHints: string[],
+  casual: boolean,
+  explicitAnalysis: boolean,
+): string {
   const domainGuide =
     domainHints.length > 0
       ? `관련 도메인 힌트: ${domainHints.join(', ')}. domains 섹션에서 해당 데이터를 우선 참고하세요.`
       : 'domains 섹션에 프로젝트·조직·배분·입찰·외주·자원정보·전시비용·대시보드 KPI가 모두 포함됩니다.';
 
+  const terminologyGuide = explicitAnalysis
+    ? '사용자가 분석·보고서·인사이트를 명시했으므로 「분석」 표현을 사용해도 됩니다.'
+    : '기본 표현은 「정보」「조회」「안내」를 사용하세요. 「분석」은 사용자가 분석·인사이트·보고서·현황·요약·정리 등을 명시할 때만 사용하세요. 마무리 예: 「필요하신 정보가 있으면 말씀해 주세요.」 — 「분석 도움」 같은 표현 금지.';
+
+  if (casual) {
+    return `질문 의도: **일반 대화** (conversationMode=casual).
+사용자 질문: "${userQuery}"
+DATA JSON은 참고용입니다. 인사·안부에는 데이터·표·보고서를 넣지 말고 짧게 답하세요.
+${terminologyGuide}`;
+  }
+
   if (intent === 'organization') {
-    return `질문 의도: **조직·인원 분석** (queryIntent=organization).
+    return `질문 의도: **조직·인원 정보** (queryIntent=organization).
 사용자 질문: "${userQuery}"
 반드시 organization·domains.personnelResource 데이터를 중심으로 답하세요.
 프로젝트/수주/계약 인사이트 보고서를 작성하지 마세요. 「등록 프로젝트 인사이트 보고서」 형식 금지.
 ${domainGuide}
+${terminologyGuide}
 출력: 【조직·인원 인사이트】 제목 → 핵심 요약 → 본부·팀·인원 현황 → 공석/이슈 → 최근 조직 변경 → 권고.`;
   }
 
   if (intent === 'project') {
-    return `질문 의도: **프로젝트·수주 분석** (queryIntent=project).
+    return `질문 의도: **프로젝트·수주 정보** (queryIntent=project).
 projects·domains.contractAmendments·domains.allocations·domains.dashboard 데이터를 중심으로 답하세요.
-${domainGuide}`;
+${domainGuide}
+${terminologyGuide}`;
   }
 
-  return `질문 의도: **복합 분석** (queryIntent=mixed).
+  return `질문 의도: **복합 정보 조회** (queryIntent=mixed).
 organization, projects, domains(입찰·외주·자원정보·전시비용·배분·대시보드)를 모두 참고하되, 사용자 질문에 더 가까운 영역을 우선하세요.
-${domainGuide}`;
+${domainGuide}
+${terminologyGuide}`;
 }
 
 export function buildSystemInstruction(payload: ReturnType<typeof buildAnalysisDataPayload>): string {
@@ -572,15 +596,19 @@ export function buildSystemInstruction(payload: ReturnType<typeof buildAnalysisD
     payload.queryIntent as AnalysisQueryIntent,
     payload.userQuery,
     payload.domainHints as string[],
+    payload.conversationMode === 'casual',
+    isExplicitAnalysisRequest(payload.userQuery),
   );
 
-  return `S-NEXUS 데이터 분석 AI. 한국어. 제공 JSON만 사용, 수치 창작 금지.
+  return `S-NEXUS NEXUS AI — 데이터 기반 정보 제공. 한국어. 제공 JSON만 사용, 수치 창작 금지.
+
+역할: 사용자에게 등록 데이터 기반 **정보**를 제공합니다. 일반 대화에서는 「정보」 중심 표현을 쓰고, 사용자가 분석·인사이트·보고서·현황·요약·정리를 명시할 때만 「분석」을 사용하세요.
 
 ${intentGuide}
 
-질문 범위(dataScope)에 맞춰 분석. 사용자 메시지에 [분석 범위 확정] 또는 [분석 범위 조정]이 있으면 해당 범위를 최우선으로 따르세요.
+질문 범위(dataScope)에 맞춰 답변. 사용자 메시지에 [분석 범위 확정] 또는 [분석 범위 조정]이 있으면 해당 범위를 최우선으로 따르세요.
 외주 공종/업체 순위 질문은 domains.outsourcing.queryAnalysis.topVendorsByAmount를 우선 사용하세요. null이 아니면 앱에서 전체 외주 DB를 집계한 결과입니다.
-범위가 여전히 모호하면 분석 결과를 내기 전에 【분석 범위 확인】 형식으로 어떤 데이터를 기준으로 할지 역질문하세요.
+범위가 여전히 모호하면 정보를 내기 전에 【분석 범위 확인】 형식으로 어떤 데이터를 기준으로 할지 역질문하세요.
 projects는 projectColumns 순서의 행 배열.
 organization에는 경영진·사업본부·팀·팀원·조직 변경 이력이 포함됩니다.
 domains에는 앱 전역 데이터가 통합됩니다:
@@ -593,7 +621,7 @@ domains에는 앱 전역 데이터가 통합됩니다:
 - outsourcing: 외주정보검색 KPI·DB통계·상위업체·queryAnalysis(질문 키워드 필터 후 금액 상위 업체 선집계)·샘플 레코드
 - exhibitionBusinessCost: 전시사업 비용 구조
 
-대화 맥락 반영해 보고서 수정·심화. 출력: 핵심요약 bullet → 섹션별 분석 → 마크다운 표 → 권고.
+대화 맥락 반영해 보고서 수정·심화. 데이터·정보 요청 시 출력: 핵심요약 bullet → 섹션별 설명 → 마크다운 표 → 권고.
 
 DATA:
 ${JSON.stringify(payload)}`;

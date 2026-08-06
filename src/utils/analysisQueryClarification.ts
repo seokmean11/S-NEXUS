@@ -1,4 +1,7 @@
-import { detectAnalysisDomainHints } from '@/utils/analysisQueryIntent';
+import {
+  detectAnalysisDomainHints,
+  isCasualConversationQuery,
+} from '@/utils/analysisQueryIntent';
 
 export type AnalysisDomainKey =
   | 'projects'
@@ -219,6 +222,10 @@ export function evaluateAnalysisQueryClarification(
   const trimmed = query.trim();
 
   if (options.skipClarification) {
+    return { needsClarification: false, effectiveQuery: trimmed };
+  }
+
+  if (isCasualConversationQuery(trimmed)) {
     return { needsClarification: false, effectiveQuery: trimmed };
   }
 

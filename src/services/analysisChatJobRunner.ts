@@ -19,7 +19,7 @@ import {
   buildAnalysisDataPayload,
   type AnalysisDataPayloadMeta,
 } from '@/utils/buildAnalysisDataPayload';
-import { isOrganizationAnalysisQuery } from '@/utils/analysisQueryIntent';
+import { isOrganizationAnalysisQuery, isCasualConversationQuery } from '@/utils/analysisQueryIntent';
 import { askAnalyticsChatbot } from '@/utils/analyticsChatbot';
 import { filterProjectsByQuery } from '@/utils/analysisQueryFilter';
 import { buildOrgInsightReport } from '@/utils/orgInsightReport';
@@ -52,6 +52,10 @@ export interface AnalysisJobResult {
 
 function createMessageId(): string {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+}
+
+function shouldMarkExportable(query: string): boolean {
+  return !isCasualConversationQuery(query);
 }
 
 function collectChatbotTables(response: ChatbotResponse): ExportTable[] | undefined {
@@ -109,7 +113,7 @@ function applyLocalFallback(
     if (params.job.previewMessageId) {
       return messages.map((message) =>
         message.id === params.job.previewMessageId
-          ? { ...message, text: nextText, tables: nextTables, error: false }
+          ? { ...message, text: nextText, tables: nextTables, error: false, exportable: shouldMarkExportable(params.job.effectiveQuery) }
           : message,
       );
     }
@@ -121,6 +125,7 @@ function applyLocalFallback(
         role: 'assistant' as const,
         text: nextText,
         tables: nextTables,
+        exportable: shouldMarkExportable(params.job.effectiveQuery),
       },
     ];
   }, { lastQuery: params.job.effectiveQuery });
@@ -151,6 +156,7 @@ export async function runAnalysisJob(params: RunAnalysisJobParams): Promise<Anal
       role: 'assistant',
       text: displayText,
       tables: tables.length > 0 ? tables : undefined,
+      exportable: shouldMarkExportable(params.job.effectiveQuery),
     };
 
     persistThreadMessages(

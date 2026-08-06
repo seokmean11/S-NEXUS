@@ -133,6 +133,7 @@ export function updateThreadById(
     lastQuery?: string;
     pendingClarification?: PendingAnalysisClarification | null;
     title?: string;
+    titleManuallyEdited?: boolean;
   },
 ): AnalysisChatRoleStore {
   const now = new Date().toISOString();
@@ -141,9 +142,14 @@ export function updateThreadById(
     if (thread.id !== threadId) return thread;
 
     const messages = patch.messages ?? thread.messages;
+    const titleManuallyEdited = patch.titleManuallyEdited ?? thread.titleManuallyEdited ?? false;
     const title =
       patch.title ??
-      (threadHasUserMessages(messages) ? deriveThreadTitle(messages) : thread.title);
+      (titleManuallyEdited
+        ? thread.title
+        : threadHasUserMessages(messages)
+          ? deriveThreadTitle(messages)
+          : thread.title);
 
     return {
       ...thread,
@@ -154,6 +160,7 @@ export function updateThreadById(
           ? patch.pendingClarification
           : thread.pendingClarification,
       title,
+      titleManuallyEdited,
       updatedAt: now,
       archived: thread.archived,
     };
@@ -169,6 +176,7 @@ export function updateActiveThread(
     lastQuery?: string;
     pendingClarification?: PendingAnalysisClarification | null;
     title?: string;
+    titleManuallyEdited?: boolean;
   },
 ): AnalysisChatRoleStore {
   const active = getActiveThread(store);
@@ -201,7 +209,7 @@ export function archiveActiveThread(
   const now = new Date().toISOString();
   const archivedThread: AnalysisChatThread = {
     ...active,
-    title: title ?? deriveThreadTitle(active.messages),
+    title: title ?? active.title,
     archived: true,
     updatedAt: now,
   };
@@ -249,6 +257,29 @@ export function activateAnalysisThread(
     activeThreadId: threadId,
     threads,
   };
+}
+
+export function deleteAnalysisThread(
+  store: AnalysisChatRoleStore,
+  threadId: string,
+  welcomeMessages: AnalysisChatMessage[],
+): AnalysisChatRoleStore {
+  const exists = store.threads.some((thread) => thread.id === threadId);
+  if (!exists) return store;
+
+  const remaining = removeThreadById(store.threads, threadId);
+  const wasActive = store.activeThreadId === threadId;
+
+  if (remaining.length === 0 || wasActive) {
+    const nextThread = createAnalysisChatThread(welcomeMessages, false);
+    return {
+      ...store,
+      activeThreadId: nextThread.id,
+      threads: wasActive ? [nextThread, ...remaining] : [nextThread],
+    };
+  }
+
+  return { ...store, threads: remaining };
 }
 
 export function prepareStoreForRoleChange(

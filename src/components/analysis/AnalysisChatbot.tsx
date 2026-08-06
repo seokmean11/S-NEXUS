@@ -11,7 +11,7 @@ import { MOCK_BIDS } from '@/data/mockBidData';
 
 import { MOCK_EXHIBITION_BUSINESS_COST } from '@/data/mockExhibitionBusinessCost';
 
-import type { AnalysisChatMessage } from '@/types/analysisChatSession';
+import type { AnalysisChatMessage, AnalysisChatRoleStore } from '@/types/analysisChatSession';
 
 import { DEFAULT_CLAUDE_MODEL } from '@/services/claudeAnalysis';
 
@@ -39,10 +39,13 @@ import {
 
   sortThreadsForSidebar,
 
+  deleteAnalysisThread,
+
   startNewAnalysisThread,
 
   updateActiveThread,
 
+  updateThreadById,
 } from '@/utils/analysisChatStorage';
 
 import {
@@ -61,9 +64,11 @@ import {
   saveRemainingCreditUsd,
 } from '@/utils/claudeUsage';
 
-import { getProjectStatsSummary } from '@/utils/analyticsChatbot';
-
-import { isOrganizationAnalysisQuery } from '@/utils/analysisQueryIntent';
+import {
+  buildCasualConversationReply,
+  isCasualConversationQuery,
+  isOrganizationAnalysisQuery,
+} from '@/utils/analysisQueryIntent';
 
 import { buildOrgInsightReport } from '@/utils/orgInsightReport';
 
@@ -96,6 +101,18 @@ const SUGGESTED_PROMPTS = [
   '입찰·외주·프로젝트 데이터를 종합해서 리스크 요약해줘',
 
 ];
+
+const WELCOME_WITH_API_KEY = `NEXUS AI입니다. 저는 항상 데이터 기반의 정보 제공을 위해 최선을 다하고 있어요.
+
+필요한 정보가 있으면 편하게 말씀해 주세요. 범위가 불명확하면 확인 질문을 드립니다.
+
+이어서 "네, 진행해줘", "외주만"처럼 **대화로 범위를 조정**할 수 있습니다.`;
+
+const WELCOME_WITHOUT_API_KEY = `Claude API 키를 설정하면 NEXUS AI 대화형 정보 조회를 사용할 수 있습니다.
+
+1. Anthropic Console(https://console.anthropic.com/settings/keys)에서 API 키 발급
+2. 아래 설정에 키 입력 후 저장
+3. 또는 프로젝트 루트 .env 파일에 VITE_CLAUDE_API_KEY= 입력`;
 
 
 
@@ -168,53 +185,13 @@ export function AnalysisChatbot() {
 
         role: 'assistant',
 
-        text: hasClaudeApiKey()
-
-          ? `Claude AI 분석 챗봇입니다. ${getProjectStatsSummary({
-
-              projects: visibleProjects,
-
-              contractAmendments,
-
-              divisions,
-
-              teams,
-
-              employees,
-
-              executiveOffice,
-
-              allocations,
-
-              historyEvents,
-
-            })}\n\n프로젝트·조직·배분·입찰·외주·자원정보·전시비용·대시보드 KPI가 **통합 연동**되어 있습니다.\n\n분석 대상 데이터가 불명확하면 **분석 전에 어떤 데이터를 기준으로 할지** 먼저 확인 질문을 드립니다.\n\n자연어로 요청하고, 이어서 "네, 진행해줘", "외주만", "표를 엑셀용으로 다시"처럼 **대화로 범위를 조정**할 수 있습니다.`
-
-          : `Claude API 키를 설정하면 대화형 AI 분석을 사용할 수 있습니다.\n\n1. Anthropic Console(https://console.anthropic.com/settings/keys)에서 API 키 발급\n2. 아래 설정에 키 입력 후 저장\n3. 또는 프로젝트 루트 .env 파일에 VITE_CLAUDE_API_KEY= 입력`,
+        text: hasClaudeApiKey() ? WELCOME_WITH_API_KEY : WELCOME_WITHOUT_API_KEY,
 
       },
 
     ];
 
-  }, [
-
-    visibleProjects,
-
-    contractAmendments,
-
-    divisions,
-
-    teams,
-
-    employees,
-
-    executiveOffice,
-
-    allocations,
-
-    historyEvents,
-
-  ]);
+  }, []);
 
 
 
@@ -228,7 +205,7 @@ export function AnalysisChatbot() {
         {
           id: 'welcome',
           role: 'assistant',
-          text: 'Claude AI 분석 챗봇입니다.',
+          text: 'NEXUS AI입니다.',
         },
       ]);
 
@@ -302,6 +279,12 @@ export function AnalysisChatbot() {
   const [heldCreditEditing, setHeldCreditEditing] = useState(false);
   const [heldCreditConfirmOpen, setHeldCreditConfirmOpen] = useState(false);
   const heldCreditInputRef = useRef<HTMLInputElement>(null);
+  const [threadDeleteConfirmOpen, setThreadDeleteConfirmOpen] = useState(false);
+  const [threadEditConfirmOpen, setThreadEditConfirmOpen] = useState(false);
+  const [threadActionTargetId, setThreadActionTargetId] = useState<string | null>(null);
+  const [editingThreadId, setEditingThreadId] = useState<string | null>(null);
+  const [threadTitleDraft, setThreadTitleDraft] = useState('');
+  const threadTitleInputRef = useRef<HTMLInputElement>(null);
 
   const [settingsOpen, setSettingsOpen] = useState(() => !hasClaudeApiKey());
 
@@ -320,6 +303,8 @@ export function AnalysisChatbot() {
       pendingClarification?: PendingAnalysisClarification | null;
 
       title?: string;
+
+      titleManuallyEdited?: boolean;
 
     }) => {
 
@@ -729,11 +714,33 @@ export function AnalysisChatbot() {
 
 
 
+  const persistEditingThreadTitle = useCallback(
+    (store: AnalysisChatRoleStore): AnalysisChatRoleStore => {
+      if (!editingThreadId) return store;
+      const trimmed = threadTitleDraft.trim();
+      if (!trimmed) return store;
+      return updateThreadById(store, editingThreadId, {
+        title: trimmed,
+        titleManuallyEdited: true,
+      });
+    },
+    [editingThreadId, threadTitleDraft],
+  );
+
+  const getThreadById = useCallback(
+    (threadId: string) => sessionStore.threads.find((thread) => thread.id === threadId) ?? null,
+    [sessionStore.threads],
+  );
+
   const handleNewConversation = () => {
+
+    setEditingThreadId(null);
 
     setSessionStore((prev) => {
 
-      const next = startNewAnalysisThread(prev, buildWelcomeMessages());
+      const withSavedTitle = persistEditingThreadTitle(prev);
+
+      const next = startNewAnalysisThread(withSavedTitle, buildWelcomeMessages());
 
       saveAnalysisChatRoleStore(next);
 
@@ -751,9 +758,13 @@ export function AnalysisChatbot() {
 
     if (threadId === sessionStore.activeThreadId) return;
 
+    setEditingThreadId(null);
+
     setSessionStore((prev) => {
 
-      const next = activateAnalysisThread(prev, threadId);
+      const withSavedTitle = persistEditingThreadTitle(prev);
+
+      const next = activateAnalysisThread(withSavedTitle, threadId);
 
       saveAnalysisChatRoleStore(next);
 
@@ -763,6 +774,173 @@ export function AnalysisChatbot() {
 
     setInput('');
 
+  };
+
+
+
+  const handleThreadDeleteRequest = (threadId: string) => {
+    if (loading) return;
+    setThreadActionTargetId(threadId);
+    setThreadDeleteConfirmOpen(true);
+  };
+
+  const handleThreadDeleteConfirm = () => {
+    if (!threadActionTargetId) return;
+    setThreadDeleteConfirmOpen(false);
+    setEditingThreadId(null);
+    setInput('');
+    const targetId = threadActionTargetId;
+    setThreadActionTargetId(null);
+    setSessionStore((prev) => {
+      const withSavedTitle =
+        editingThreadId && editingThreadId !== targetId
+          ? persistEditingThreadTitle(prev)
+          : prev;
+      const next = deleteAnalysisThread(withSavedTitle, targetId, buildWelcomeMessages());
+      saveAnalysisChatRoleStore(next);
+      return next;
+    });
+  };
+
+  const handleThreadEditRequest = (threadId: string) => {
+    if (loading) return;
+    setThreadActionTargetId(threadId);
+    setThreadEditConfirmOpen(true);
+  };
+
+  const handleThreadEditConfirm = () => {
+    if (!threadActionTargetId) return;
+    const thread = getThreadById(threadActionTargetId);
+    if (!thread) return;
+    setThreadEditConfirmOpen(false);
+    setThreadTitleDraft(thread.title);
+    setEditingThreadId(threadActionTargetId);
+    setThreadActionTargetId(null);
+    requestAnimationFrame(() => threadTitleInputRef.current?.focus());
+  };
+
+  const handleThreadTitleSave = () => {
+    if (!editingThreadId) return;
+    const thread = getThreadById(editingThreadId);
+    const trimmed = threadTitleDraft.trim();
+    if (!trimmed) {
+      setThreadTitleDraft(thread?.title ?? '');
+      setEditingThreadId(null);
+      return;
+    }
+
+    setSessionStore((prev) => {
+      const next = updateThreadById(prev, editingThreadId, {
+        title: trimmed,
+        titleManuallyEdited: true,
+      });
+      saveAnalysisChatRoleStore(next);
+      return next;
+    });
+    setEditingThreadId(null);
+  };
+
+  const handleThreadTitleKeyDown = (
+    event: React.KeyboardEvent<HTMLInputElement>,
+    threadId: string,
+  ) => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      handleThreadTitleSave();
+    }
+    if (event.key === 'Escape') {
+      const thread = getThreadById(threadId);
+      setThreadTitleDraft(thread?.title ?? '');
+      setEditingThreadId(null);
+    }
+  };
+
+  const renderSidebarThreadRow = (
+    thread: { id: string; title: string; updatedAt: string },
+    options: { isActive?: boolean; onSelect?: () => void },
+  ) => {
+    const isEditing = editingThreadId === thread.id;
+
+    return (
+      <div
+        className={`analysis-chat-sidebar__item analysis-chat-sidebar__current-item${
+          options.isActive ? ' analysis-chat-sidebar__item--active' : ''
+        }`}
+      >
+        {options.onSelect ? (
+          <button
+            type="button"
+            className="analysis-chat-sidebar__current-body analysis-chat-sidebar__saved-select"
+            disabled={loading || isEditing}
+            onClick={options.onSelect}
+          >
+            {isEditing ? (
+              <input
+                ref={threadTitleInputRef}
+                className="analysis-chat-sidebar__title-input"
+                value={threadTitleDraft}
+                onChange={(e) => setThreadTitleDraft(e.target.value)}
+                onBlur={handleThreadTitleSave}
+                onKeyDown={(e) => handleThreadTitleKeyDown(e, thread.id)}
+                onClick={(e) => e.stopPropagation()}
+                maxLength={60}
+                aria-label="대화 제목"
+              />
+            ) : (
+              <span className="analysis-chat-sidebar__item-title">{thread.title}</span>
+            )}
+            <span className="analysis-chat-sidebar__item-meta">
+              {formatAnalysisThreadDate(thread.updatedAt)}
+            </span>
+          </button>
+        ) : (
+          <div className="analysis-chat-sidebar__current-body">
+            {isEditing ? (
+              <input
+                ref={threadTitleInputRef}
+                className="analysis-chat-sidebar__title-input"
+                value={threadTitleDraft}
+                onChange={(e) => setThreadTitleDraft(e.target.value)}
+                onBlur={handleThreadTitleSave}
+                onKeyDown={(e) => handleThreadTitleKeyDown(e, thread.id)}
+                maxLength={60}
+                aria-label="대화 제목"
+              />
+            ) : (
+              <span className="analysis-chat-sidebar__item-title">{thread.title}</span>
+            )}
+            <span className="analysis-chat-sidebar__item-meta">
+              {formatAnalysisThreadDate(thread.updatedAt)}
+            </span>
+          </div>
+        )}
+
+        <div className="analysis-chat-sidebar__current-actions">
+          <button
+            type="button"
+            className="analysis-chat-sidebar__action-btn"
+            onClick={(e) => {
+              e.stopPropagation();
+              handleThreadEditRequest(thread.id);
+            }}
+            disabled={loading || isEditing}
+          >
+            수정
+          </button>
+          <button
+            type="button"
+            className="analysis-chat-sidebar__action-btn analysis-chat-sidebar__action-btn--danger"
+            onClick={(e) => {
+              e.stopPropagation();
+              handleThreadDeleteRequest(thread.id);
+            }}
+            disabled={loading}
+          >
+            삭제
+          </button>
+        </div>
+      </div>
+    );
   };
 
 
@@ -931,6 +1109,30 @@ export function AnalysisChatbot() {
 
     const effectiveQuery = clarification.effectiveQuery;
 
+    if (isCasualConversationQuery(effectiveQuery)) {
+
+      setMessages((prev) => [
+
+        ...prev,
+
+        {
+
+          id: createId(),
+
+          role: 'assistant',
+
+          text: buildCasualConversationReply(effectiveQuery),
+
+        },
+
+      ]);
+
+      scrollToBottom();
+
+      return;
+
+    }
+
     setLastQuery(effectiveQuery);
 
     scrollToBottom();
@@ -991,7 +1193,7 @@ export function AnalysisChatbot() {
 
         role: 'assistant',
 
-        text: 'Claude API 키가 저장되었습니다. 이제 대화형 분석을 시작할 수 있습니다.',
+        text: 'Claude API 키가 저장되었습니다. 이제 대화를 시작할 수 있습니다.',
 
       },
 
@@ -1177,17 +1379,7 @@ export function AnalysisChatbot() {
 
           <span className="analysis-chat-sidebar__section-label">현재 대화</span>
 
-          <div className="analysis-chat-sidebar__item analysis-chat-sidebar__item--active">
-
-            <span className="analysis-chat-sidebar__item-title">{activeThread.title}</span>
-
-            <span className="analysis-chat-sidebar__item-meta">
-
-              {formatAnalysisThreadDate(activeThread.updatedAt)}
-
-            </span>
-
-          </div>
+          {renderSidebarThreadRow(activeThread, { isActive: true })}
 
         </div>
 
@@ -1198,31 +1390,11 @@ export function AnalysisChatbot() {
             <span className="analysis-chat-sidebar__section-label">저장된 대화</span>
 
             {sidebarThreads.map((thread) => (
-
-              <button
-
-                key={thread.id}
-
-                type="button"
-
-                className="analysis-chat-sidebar__item"
-
-                disabled={loading}
-
-                onClick={() => handleSelectThread(thread.id)}
-
-              >
-
-                <span className="analysis-chat-sidebar__item-title">{thread.title}</span>
-
-                <span className="analysis-chat-sidebar__item-meta">
-
-                  {formatAnalysisThreadDate(thread.updatedAt)}
-
-                </span>
-
-              </button>
-
+              <div key={thread.id}>
+                {renderSidebarThreadRow(thread, {
+                  onSelect: () => handleSelectThread(thread.id),
+                })}
+              </div>
             ))}
 
           </div>
@@ -1245,7 +1417,7 @@ export function AnalysisChatbot() {
 
             <p className="analysis-chat__header-desc">
 
-              Claude 통합 분석 · 범위 확인 후 대화로 조정·심화
+              데이터 기반 정보 제공 · 범위 확인 후 대화로 조정·심화
 
             </p>
 
@@ -1435,11 +1607,51 @@ export function AnalysisChatbot() {
 
 
 
+        <ConfirmDialog
+
+          open={threadDeleteConfirmOpen}
+
+          title="대화 삭제"
+
+          message="이 대화를 삭제하시겠습니까?"
+
+          confirmLabel="네"
+
+          cancelLabel="아니오"
+
+          onConfirm={handleThreadDeleteConfirm}
+
+          onCancel={() => setThreadDeleteConfirmOpen(false)}
+
+        />
+
+
+
+        <ConfirmDialog
+
+          open={threadEditConfirmOpen}
+
+          title="대화 제목 수정"
+
+          message="대화 제목을 수정하시겠습니까?"
+
+          confirmLabel="네"
+
+          cancelLabel="아니오"
+
+          onConfirm={handleThreadEditConfirm}
+
+          onCancel={() => setThreadEditConfirmOpen(false)}
+
+        />
+
+
+
         {inFlight && inFlight.roleId === role && inFlight.threadId !== activeThread.id && (
 
           <div className="analysis-chat__background-notice no-print">
 
-            다른 대화에서 Claude 분석이 백그라운드로 진행 중입니다. 완료되면 저장된 대화에 반영됩니다.
+            다른 대화에서 정보 조회가 백그라운드로 진행 중입니다. 완료되면 저장된 대화에 반영됩니다.
 
           </div>
 
@@ -1501,13 +1713,7 @@ export function AnalysisChatbot() {
 
 
 
-                {message.role === 'assistant' &&
-
-                  !message.error &&
-
-                  !message.clarification &&
-
-                  message.id !== 'welcome' && (
+                {message.role === 'assistant' && message.exportable && (
 
                     <div className="analysis-chat__exports">
 
@@ -1535,19 +1741,15 @@ export function AnalysisChatbot() {
 
               <div className="analysis-chat__bubble analysis-chat__bubble--loading">
 
-                <strong>Claude 클라우드 분석 중</strong>
+                <strong>정보 조회 중</strong>
 
                 {loadingSec > 0 ? ` · ${loadingSec}초 경과` : ''}
 
-                {lastQuery && (
+                <p className="analysis-chat__loading-scope">
 
-                  <p className="analysis-chat__loading-scope">
+                  {summarizePayloadScope(dataPayload)}
 
-                    {summarizePayloadScope(dataPayload)}
-
-                  </p>
-
-                )}
+                </p>
 
               </div>
 
@@ -1583,7 +1785,7 @@ export function AnalysisChatbot() {
 
               onChange={(e) => setInput(e.target.value)}
 
-              placeholder="예: 외주 상위 업체 분석 / 입찰·프로젝트 종합 리스크 / 자원정보현황 인사이트"
+              placeholder="예: 외주 상위 업체 현황 / 입찰·프로젝트 종합 리스크 / 자원정보현황 인사이트"
 
               disabled={loading}
 
@@ -1599,21 +1801,11 @@ export function AnalysisChatbot() {
 
             >
 
-              {loading ? '분석 중…' : cooldownSec > 0 ? `${cooldownSec}초 후 재시도` : '전송'}
+              {loading ? '조회 중…' : cooldownSec > 0 ? `${cooldownSec}초 후 재시도` : '전송'}
 
             </Button>
 
           </div>
-
-          {lastQuery && (
-
-            <p className="analysis-chat__scope-hint">
-
-              분석 범위: {summarizePayloadScope(dataPayload)}
-
-            </p>
-
-          )}
 
         </form>
 
