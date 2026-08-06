@@ -11,6 +11,7 @@ import { BidManagementPage } from '@/pages/BidManagementPage';
 import { OutsourcingSearchPage } from '@/pages/OutsourcingSearchPage';
 import { MiscInfoLayout } from '@/pages/MiscInfoLayout';
 import { ExhibitionBusinessCostPage } from '@/pages/ExhibitionBusinessCostPage';
+import { DataFolderPage } from '@/pages/DataFolderPage';
 
 export function AppRoutes() {
   return (
@@ -21,6 +22,14 @@ export function AppRoutes() {
           element={
             <ErrorBoundary fallbackTitle="대시보드 화면 오류">
               <DashboardPage />
+            </ErrorBoundary>
+          }
+        />
+        <Route
+          path="data-folder"
+          element={
+            <ErrorBoundary fallbackTitle="데이터폴더 화면 오류">
+              <DataFolderPage />
             </ErrorBoundary>
           }
         />

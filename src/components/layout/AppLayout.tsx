@@ -19,6 +19,8 @@ const NAV_ITEMS = [
 
   { path: '/', label: '대시보드', icon: '📊' },
 
+  { path: '/data-folder', label: '데이터폴더', icon: '📁' },
+
   { path: '/analysis', label: 'NEXUS AI', icon: '🤖' },
 
   { path: '/admin', label: '프로젝트 관리', icon: '⚙️', adminOnly: true },

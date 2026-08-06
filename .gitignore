@@ -3,5 +3,6 @@ dist
 dist-ssr
 *.local
 .env
-.DS_Store
+.data
+google-service-account.json
 *.tsbuildinfo

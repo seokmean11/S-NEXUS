@@ -4,6 +4,7 @@ import type { OutsourcingRecord } from '@/types/outsourcing';
 export interface OutsourcingLocalInfo {
   configured: boolean;
   configuredPath?: string;
+  dataSource?: 'google-drive' | 'local';
   fileName?: string;
   sourcePath?: string;
   updatedAt?: string;
@@ -18,7 +19,7 @@ export interface OutsourcingLocalPayload {
   csv: string;
 }
 
-export type OutsourcingDataSource = 'local-folder' | 'manual-file' | 'bundled-sample';
+export type OutsourcingDataSource = 'local-folder' | 'manual-file' | 'bundled-sample' | 'google-drive';
 
 export interface OutsourcingLoadResult {
   records: OutsourcingRecord[];
@@ -42,7 +43,9 @@ export async function fetchLocalOutsourcingInfo(): Promise<OutsourcingLocalInfo>
 }
 
 export async function fetchLocalOutsourcingRecords(): Promise<OutsourcingLoadResult> {
-  const payload = await readJson<OutsourcingLocalPayload>('/api/outsourcing/local');
+  const payload = await readJson<OutsourcingLocalPayload & { dataSource?: 'google-drive' | 'local' }>(
+    '/api/outsourcing/local',
+  );
   const records = await parseOutsourcingCsvAsync(payload.csv);
   if (records.length === 0) {
     throw new Error('로컬 CSV에서 외주 데이터 행을 읽지 못했습니다.');
@@ -50,7 +53,7 @@ export async function fetchLocalOutsourcingRecords(): Promise<OutsourcingLoadRes
 
   return {
     records,
-    source: 'local-folder',
+    source: payload.dataSource === 'google-drive' ? 'google-drive' : 'local-folder',
     fileName: payload.fileName,
     sourcePath: payload.sourcePath,
     updatedAt: payload.updatedAt,
@@ -94,12 +97,10 @@ export async function parseOutsourcingUploadFile(file: File): Promise<Outsourcin
 
 export function getLocalOutsourcingSetupHint(): string {
   return [
-    '1. AppSheet에서 CSV 내보내기(AppSheet.ViewData.*.csv) 후 PC 폴더에 저장',
-    '2. 프로젝트 루트 outsourcing-data.path 파일에 폴더 경로 1줄 입력',
-    '   예: C:\\Users\\seosm\\Desktop\\S-NEXUS(DB)\\appsheet(외주DB)',
-    '   (또는 .env OUTSOURCING_DATA_PATH 사용 가능)',
+    '1. Google Drive NEXUS 폴더 연동(권장): 좌측 「데이터폴더」에서 CSV/Excel 업로드',
+    '2. 또는 AppSheet CSV를 PC 폴더에 저장 → outsourcing-data.path / OUTSOURCING_DATA_PATH',
     '3. 폴더 지정 시 수정한 날짜 기준 최신 .csv / .xlsx 자동 선택',
-    '4. npm run dev 개발 서버 재시작 → 외주정보검색에서 「폴더 새로고침」',
+    '4. npm run dev 재시작 → 외주정보검색에서 「폴더 새로고침」',
   ].join('\n');
 }
 
@@ -107,6 +108,8 @@ export function formatOutsourcingSourceLabel(
   result: Pick<OutsourcingLoadResult, 'source' | 'fileName'>,
 ): string {
   switch (result.source) {
+    case 'google-drive':
+      return `Google Drive NEXUS · ${result.fileName}`;
     case 'local-folder':
       return `로컬 폴더 · ${result.fileName}`;
     case 'manual-file':

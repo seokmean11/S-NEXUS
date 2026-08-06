@@ -46,7 +46,7 @@ function readEnvPath(root: string): string | null {
   return null;
 }
 
-function getConfiguredPath(root: string): string | null {
+function getLocalConfiguredPath(root: string): string | null {
   const candidates = [
     process.env.OUTSOURCING_DATA_PATH?.trim(),
     readEnvPath(root),
@@ -58,6 +58,32 @@ function getConfiguredPath(root: string): string | null {
   }
 
   return candidates[0] ?? null;
+}
+
+async function resolveOutsourcingDataPath(
+  root: string,
+): Promise<{ path: string; source: 'google-drive' | 'local' } | null> {
+  try {
+    const { getNexusDriveConfig, syncNexusDriveCache, resolveNexusOutsourcingCacheDir } =
+      await import('./server/nexusGoogleDrive');
+    const driveConfig = getNexusDriveConfig(root);
+    if (driveConfig.enabled) {
+      await syncNexusDriveCache(root, { subfolderKey: 'outsourcing' });
+      const cacheDir = resolveNexusOutsourcingCacheDir(root);
+      if (cacheDir) {
+        return { path: cacheDir, source: 'google-drive' };
+      }
+    }
+  } catch {
+    // Google Drive 미설정·오류 시 로컬 경로로 폴백
+  }
+
+  const localPath = getLocalConfiguredPath(root);
+  if (localPath) {
+    return { path: localPath, source: 'local' };
+  }
+
+  return null;
 }
 
 function readDataFileAsCsv(filePath: string): string {
@@ -139,27 +165,28 @@ function sendJson(res: import('http').ServerResponse, status: number, payload: u
 }
 
 function attachRoutes(server: { middlewares: { use: Function } }, root: string) {
-  server.middlewares.use('/api/outsourcing/local/info', (req, res) => {
+  server.middlewares.use('/api/outsourcing/local/info', async (req, res) => {
     if (req.method !== 'GET') {
       sendJson(res, 405, { error: 'Method Not Allowed' });
       return;
     }
 
-    const configuredPath = getConfiguredPath(root);
-    if (!configuredPath) {
+    const resolved = await resolveOutsourcingDataPath(root);
+    if (!resolved) {
       sendJson(res, 200, {
         configured: false,
         message:
-          'outsourcing-data.path 또는 .env OUTSOURCING_DATA_PATH에 폴더(또는 CSV/Excel) 경로를 설정하세요.',
+          'Google Drive NEXUS 폴더 또는 outsourcing-data.path / OUTSOURCING_DATA_PATH를 설정하세요.',
       });
       return;
     }
 
     try {
-      const file = resolveDataFile(configuredPath);
+      const file = resolveDataFile(resolved.path);
       sendJson(res, 200, {
         configured: true,
-        configuredPath,
+        configuredPath: resolved.path,
+        dataSource: resolved.source,
         fileName: file.fileName,
         sourcePath: file.sourcePath,
         updatedAt: file.updatedAt,
@@ -167,33 +194,36 @@ function attachRoutes(server: { middlewares: { use: Function } }, root: string) 
     } catch (error) {
       sendJson(res, 500, {
         configured: true,
-        configuredPath,
+        configuredPath: resolved.path,
+        dataSource: resolved.source,
         error: error instanceof Error ? error.message : String(error),
       });
     }
   });
 
-  server.middlewares.use('/api/outsourcing/local', (req, res) => {
+  server.middlewares.use('/api/outsourcing/local', async (req, res) => {
     if (req.method !== 'GET') {
       sendJson(res, 405, { error: 'Method Not Allowed' });
       return;
     }
 
-    const configuredPath = getConfiguredPath(root);
-    if (!configuredPath) {
+    const resolved = await resolveOutsourcingDataPath(root);
+    if (!resolved) {
       sendJson(res, 404, {
-        error: '외주 데이터 경로가 설정되지 않았습니다. outsourcing-data.path를 확인하세요.',
+        error:
+          '외주 데이터 경로가 설정되지 않았습니다. 데이터폴더(Google Drive) 또는 outsourcing-data.path를 확인하세요.',
       });
       return;
     }
 
     try {
-      const file = resolveDataFile(configuredPath);
+      const file = resolveDataFile(resolved.path);
       const csv = readDataFileAsCsv(file.filePath);
       sendJson(res, 200, {
         fileName: file.fileName,
         sourcePath: file.sourcePath,
         updatedAt: file.updatedAt,
+        dataSource: resolved.source,
         csv,
       });
     } catch (error) {
@@ -205,15 +235,18 @@ function attachRoutes(server: { middlewares: { use: Function } }, root: string) 
 }
 
 export function outsourcingLocalPlugin(): Plugin {
-  const root = process.cwd();
+  let projectRoot = process.cwd();
 
   return {
     name: 'outsourcing-local-data',
+    configResolved(config) {
+      projectRoot = config.root;
+    },
     configureServer(server) {
-      attachRoutes(server, root);
+      attachRoutes(server, projectRoot);
     },
     configurePreviewServer(server) {
-      attachRoutes(server, root);
+      attachRoutes(server, projectRoot);
     },
   };
 }

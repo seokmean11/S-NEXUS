@@ -4058,6 +4058,126 @@ body {
   }
 }
 
+/* Data Folder (Google Drive NEXUS) */
+.data-folder-page {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.data-folder-page__toolbar {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.data-folder-page__notice {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #ecfdf5;
+  color: #065f46;
+  border: 1px solid #a7f3d0;
+}
+
+.data-folder-page__error,
+.data-folder-page__error-text {
+  color: #b91c1c;
+}
+
+.data-folder-page__error {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+}
+
+.data-folder-page__meta {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+  margin: 0;
+}
+
+.data-folder-page__meta div {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.data-folder-page__meta dt {
+  font-size: 12px;
+  color: var(--text-muted, #64748b);
+}
+
+.data-folder-page__meta dd {
+  margin: 0;
+  font-weight: 600;
+  word-break: break-all;
+}
+
+.data-folder-page__setup-list {
+  margin: 0;
+  padding-left: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.data-folder-page__dropzone {
+  border: 2px dashed #cbd5e1;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.data-folder-page__dropzone--active {
+  border-color: #2563eb;
+  background: #eff6ff;
+}
+
+.data-folder-page__dropzone--disabled {
+  opacity: 0.7;
+}
+
+.data-folder-page__file-input {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 12px;
+  padding: 10px 16px;
+  border-radius: 8px;
+  background: #0f172a;
+  color: #fff;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.data-folder-page__file-input input {
+  display: none;
+}
+
+.data-folder-page__hint {
+  margin: 8px 0 0;
+  color: var(--text-muted, #64748b);
+  font-size: 13px;
+}
+
+.data-folder-page__table-wrap {
+  overflow: auto;
+}
+
+.data-folder-page__table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.data-folder-page__table th,
+.data-folder-page__table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid #e2e8f0;
+  text-align: left;
+}
+
 /* Outsourcing Search */
 .outsourcing-search-page {
   display: flex;
