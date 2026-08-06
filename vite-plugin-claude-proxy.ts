@@ -36,6 +36,7 @@ export function claudeProxyPlugin(): Plugin {
                   'anthropic-version': ANTHROPIC_VERSION,
                 },
                 body: Buffer.concat(chunks).toString('utf8'),
+                signal: AbortSignal.timeout(120_000),
               });
 
               const text = await response.text();

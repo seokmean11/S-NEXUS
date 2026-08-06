@@ -12,11 +12,13 @@ export async function sendBidAnalysisMessage(params: {
 }): Promise<string> {
   const { apiKey, query, payload } = params;
 
-  return sendClaudeMessage({
-    apiKey,
-    system: buildBidSystemInstruction(payload),
-    turns: [{ role: 'user', text: query }],
-  });
+  return (
+    await sendClaudeMessage({
+      apiKey,
+      system: buildBidSystemInstruction(payload),
+      turns: [{ role: 'user', text: query }],
+    })
+  ).text;
 }
 
 export { isClaudeQuotaError };

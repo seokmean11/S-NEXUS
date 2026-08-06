@@ -3,9 +3,21 @@ export interface ClaudeChatTurn {
   text: string;
 }
 
+export interface ClaudeTokenUsage {
+  inputTokens: number;
+  outputTokens: number;
+  model: string;
+}
+
+export interface ClaudeMessageResult {
+  text: string;
+  usage: ClaudeTokenUsage;
+}
+
 export const DEFAULT_CLAUDE_MODEL = 'claude-sonnet-4-6';
 
 const RPM_RETRY_DELAYS_MS = [3000, 8000] as const;
+const DEFAULT_REQUEST_TIMEOUT_MS = 60_000;
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -27,6 +39,7 @@ function isRpmRateLimitError(error: unknown): boolean {
 
 interface ClaudeMessageResponse {
   content?: Array<{ type: string; text?: string }>;
+  usage?: { input_tokens?: number; output_tokens?: number };
   error?: { type?: string; message?: string };
 }
 
@@ -35,26 +48,41 @@ async function callClaudeMessages(params: {
   system: string;
   turns: ClaudeChatTurn[];
   maxTokens?: number;
-}): Promise<string> {
-  const { apiKey, system, turns, maxTokens = 4096 } = params;
+  timeoutMs?: number;
+}): Promise<ClaudeMessageResult> {
+  const { apiKey, system, turns, maxTokens = 4096, timeoutMs = DEFAULT_REQUEST_TIMEOUT_MS } = params;
   const messages = turns.map((turn) => ({
     role: turn.role,
     content: turn.text,
   }));
 
-  const response = await fetch('/api/claude/messages', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': apiKey,
-    },
-    body: JSON.stringify({
-      model: getClaudeModelName(),
-      max_tokens: maxTokens,
-      system,
-      messages,
-    }),
-  });
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
+
+  let response: Response;
+  try {
+    response = await fetch('/api/claude/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+      },
+      signal: controller.signal,
+      body: JSON.stringify({
+        model: getClaudeModelName(),
+        max_tokens: maxTokens,
+        system,
+        messages,
+      }),
+    });
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') {
+      throw new Error(`408: Claude 요청 시간 초과 (${Math.round(timeoutMs / 1000)}초)`);
+    }
+    throw error;
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
 
   const payload = (await response.json()) as ClaudeMessageResponse;
 
@@ -73,7 +101,19 @@ async function callClaudeMessages(params: {
     throw new Error('Claude가 빈 응답을 반환했습니다.');
   }
 
-  return text;
+  return {
+    text,
+    usage: {
+      inputTokens: payload.usage?.input_tokens ?? 0,
+      outputTokens: payload.usage?.output_tokens ?? 0,
+      model: getClaudeModelName(),
+    },
+  };
+}
+
+export function isClaudeTimeoutError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return /408|timeout|time.?out|aborted|시간 초과/i.test(message);
 }
 
 export async function sendClaudeMessage(params: {
@@ -81,7 +121,8 @@ export async function sendClaudeMessage(params: {
   system: string;
   turns: ClaudeChatTurn[];
   maxTokens?: number;
-}): Promise<string> {
+  timeoutMs?: number;
+}): Promise<ClaudeMessageResult> {
   const { turns } = params;
   if (turns.length === 0) {
     throw new Error('대화 내용이 없습니다.');
@@ -139,6 +180,10 @@ export function formatClaudeError(error: unknown): string {
 
   if (/429|rate.?limit/i.test(message)) {
     return `요청이 너무 많습니다. 1~2분 후 한 번만 다시 시도해 주세요.\n(모델: ${model})\n(상세: ${detail})`;
+  }
+
+  if (/408|timeout|time.?out|시간 초과/i.test(message)) {
+    return `Claude 응답이 ${Math.round(DEFAULT_REQUEST_TIMEOUT_MS / 1000)}초 안에 오지 않아 중단했습니다.\n데이터 범위를 줄이거나 잠시 후 다시 시도해 주세요.\n(모델: ${model})\n(상세: ${detail})`;
   }
 
   if (/failed to fetch|network|502|503/i.test(message)) {

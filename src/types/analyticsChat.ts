@@ -1,7 +1,21 @@
 import type { ExportTable } from '@/utils/reportExport';
-import type { Division, Employee, ExecutiveOffice, Project, Team, TrackAllocation } from '@/types';
+import type {
+  ContributionCard,
+  Division,
+  Employee,
+  ExecutiveOffice,
+  Project,
+  ProjectTeamAllocation,
+  RiskScenario,
+  Team,
+  TrackAllocation,
+} from '@/types';
+import type { Bid } from '@/types/bid';
 import type { ContractAmendment } from '@/types/contractChange';
+import type { ExhibitionBusinessCostSummary } from '@/types/exhibitionBusinessCost';
 import type { HistoryEvent } from '@/types/history';
+import type { OutsourcingRecord } from '@/types/outsourcing';
+import type { PersonnelResourceStats } from '@/utils/personnelResourceStats';
 
 export interface AnalyticsChatContext {
   projects: Project[];
@@ -12,6 +26,24 @@ export interface AnalyticsChatContext {
   executiveOffice?: ExecutiveOffice;
   allocations: TrackAllocation[];
   historyEvents: HistoryEvent[];
+}
+
+/** 분석 챗봇용 통합 데이터 컨텍스트 (앱 전역 도메인) */
+export interface AnalysisIntegratedContext extends AnalyticsChatContext {
+  projectTeamAllocations: ProjectTeamAllocation[];
+  riskScenario: RiskScenario;
+  contributionCards: ContributionCard[];
+  bids: Bid[];
+  outsourcingRecords: OutsourcingRecord[];
+  outsourcingMeta: {
+    source: string;
+    fileName: string;
+    updatedAt?: string;
+    localConfigured: boolean;
+    localPath?: string;
+  };
+  exhibitionBusinessCost: ExhibitionBusinessCostSummary;
+  personnelResourceStats: PersonnelResourceStats;
 }
 
 export interface ChatExportAction {

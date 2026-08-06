@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 
 import { RoleSwitcher } from '@/components/layout/RoleSwitcher';
+import { GnbBrandMark } from '@/components/layout/GnbBrandMark';
 
 import { Button } from '@/components/ui/Button';
 
@@ -18,7 +19,7 @@ const NAV_ITEMS = [
 
   { path: '/', label: '대시보드', icon: '📊' },
 
-  { path: '/analysis', label: '분석', icon: '🤖' },
+  { path: '/analysis', label: 'NEXUS AI', icon: '🤖' },
 
   { path: '/admin', label: '프로젝트 관리', icon: '⚙️', adminOnly: true },
 
@@ -31,7 +32,7 @@ const NAV_ITEMS = [
 
 
 const PURCHASE_SUB_ITEMS = [
-  { path: '/purchase/bidding', label: '입찰관리' },
+  { path: '/purchase/bidding', label: '입찰도우미' },
   { path: '/outsourcing', label: '외주정보검색' },
 ] as const;
 
@@ -193,13 +194,12 @@ export function AppLayout() {
 
         <div className="gnb__brand">
 
-          <span className="gnb__logo">S</span>
+          <GnbBrandMark />
 
-          <div>
-
-            <h1 className="gnb__title">S-NEXUS</h1>
-
-          </div>
+          <h1 className="gnb__title">
+            <span className="gnb__title-primary">S-</span>
+            <span className="gnb__title-secondary">NEXUS</span>
+          </h1>
 
         </div>
 

@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
 import { AppProvider } from '@/context/AppContext';
 import { BidManagementProvider } from '@/context/BidManagementContext';
+import { AnalysisChatRuntimeProvider } from '@/context/AnalysisChatRuntimeContext';
 import { OutsourcingSearchProvider } from '@/context/OutsourcingSearchContext';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { AppRoutes } from '@/App';
@@ -15,7 +16,9 @@ createRoot(document.getElementById('root')!).render(
         <BrowserRouter>
           <BidManagementProvider>
             <OutsourcingSearchProvider>
-              <AppRoutes />
+              <AnalysisChatRuntimeProvider>
+                <AppRoutes />
+              </AnalysisChatRuntimeProvider>
             </OutsourcingSearchProvider>
           </BidManagementProvider>
         </BrowserRouter>

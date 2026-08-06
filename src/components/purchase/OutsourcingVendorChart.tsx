@@ -6,15 +6,19 @@ import { Button } from '@/components/ui/Button';
 
 import { Card } from '@/components/ui/Card';
 
+import { Select } from '@/components/ui/Input';
+
 import type { VendorChartItem } from '@/types/outsourcing';
 
 import { formatOutsourcingAmount } from '@/utils/outsourcingAnalysis';
 
 import { buildLinearChartScale } from '@/utils/chartScale';
 
-import type { ExportTable } from '@/utils/reportExport';
-
-import { downloadCsv } from '@/utils/reportExport';
+import {
+  exportOutsourcingVendorChart,
+  OUTSOURCING_VENDOR_EXPORT_FORMAT_OPTIONS,
+  type OutsourcingVendorExportFormat,
+} from '@/utils/outsourcingVendorExport';
 
 
 
@@ -48,11 +52,17 @@ export function OutsourcingVendorChart({ items }: OutsourcingVendorChartProps) {
 
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
 
+  const [exportFormat, setExportFormat] = useState<OutsourcingVendorExportFormat>('excel');
+
+  const [exporting, setExporting] = useState(false);
+
   const [tooltipStyle, setTooltipStyle] = useState<React.CSSProperties>({});
 
   const barRefs = useRef<Array<HTMLDivElement | null>>([]);
 
   const tooltipRef = useRef<HTMLDivElement | null>(null);
+
+  const exportRef = useRef<HTMLDivElement | null>(null);
 
 
 
@@ -206,27 +216,37 @@ export function OutsourcingVendorChart({ items }: OutsourcingVendorChartProps) {
 
 
 
-  const handleExport = () => {
+  const handleExport = async () => {
 
-    const table: ExportTable = {
+    if (!exportRef.current || items.length === 0) return;
 
-      headers: ['업체명', '외주합계', '점유율(%)'],
+    setExporting(true);
 
-      rows: items.map((item) => [
+    setSelectedIndex(null);
 
-        item.vendorLabel,
+    try {
 
-        String(Math.round(item.amount)),
+      await exportOutsourcingVendorChart({
 
-        item.sharePercent.toFixed(1),
+        format: exportFormat,
 
-      ]),
+        items,
 
-    };
+        chartElement: exportRef.current,
 
-    const today = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+      });
 
-    downloadCsv(`업체별외주액_${today}.csv`, table);
+    } catch (error) {
+
+      console.error(error);
+
+      window.alert('내보내기에 실패했습니다.');
+
+    } finally {
+
+      setExporting(false);
+
+    }
 
   };
 
@@ -365,22 +385,57 @@ export function OutsourcingVendorChart({ items }: OutsourcingVendorChartProps) {
 
   return (
 
-    <Card
-      title="점유율 차트"
-      className="outsourcing-chart-card"
-      subtitle="막대 클릭 시 상세 정보가 고정 표시됩니다 · Y축 금액 구간에 맞춰 막대 높이가 표시됩니다"
+    <div className="outsourcing-chart-card-section">
 
-      headerAction={
+      <div className="outsourcing-chart-card-section__toolbar no-print">
 
-        <Button variant="outline" size="sm" onClick={handleExport} disabled={items.length === 0}>
+        <Select
 
-          CSV_내보내기
+          label="내보내기 형식"
+
+          value={exportFormat}
+
+          onChange={(event) => setExportFormat(event.target.value as OutsourcingVendorExportFormat)}
+
+          options={OUTSOURCING_VENDOR_EXPORT_FORMAT_OPTIONS.map((option) => ({
+
+            value: option.value,
+
+            label: option.label,
+
+          }))}
+
+        />
+
+        <Button
+
+          variant="outline"
+
+          size="sm"
+
+          onClick={handleExport}
+
+          disabled={exporting || items.length === 0}
+
+        >
+
+          {exporting ? '내보내는 중…' : '점유율 내보내기'}
 
         </Button>
 
-      }
+      </div>
 
-    >
+      <div ref={exportRef}>
+
+        <Card
+
+          title="점유율 차트"
+
+          className="outsourcing-chart-card"
+
+          subtitle="막대 클릭 시 상세 정보가 고정 표시됩니다 · Y축 금액 구간에 맞춰 막대 높이가 표시됩니다"
+
+        >
 
       {items.length === 0 ? (
 
@@ -590,7 +645,11 @@ export function OutsourcingVendorChart({ items }: OutsourcingVendorChartProps) {
 
       {tooltip && createPortal(tooltip, document.body)}
 
-    </Card>
+        </Card>
+
+      </div>
+
+    </div>
 
   );
 
