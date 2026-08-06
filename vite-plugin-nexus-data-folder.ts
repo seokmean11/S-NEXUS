@@ -7,7 +7,14 @@ import {
   listNexusDriveFiles,
   syncNexusDriveCache,
   uploadToNexusDriveFolder,
+  formatDriveUploadError,
+  type NexusDriveSubfolderKey,
 } from './server/nexusGoogleDrive';
+
+function parseSubfolderKey(value: unknown): NexusDriveSubfolderKey {
+  if (value === 'outsourcing') return 'outsourcing';
+  return 'outsourcing';
+}
 
 function sendJson(res: ServerResponse, status: number, payload: unknown): void {
   res.statusCode = status;
@@ -44,10 +51,12 @@ function attachRoutes(server: { middlewares: { use: Function } }, root: string):
         sendJson(res, 200, { configured: false, files: [] });
         return;
       }
+      const url = new URL(req.url ?? '', 'http://localhost');
+      const subfolderKey = parseSubfolderKey(url.searchParams.get('slot'));
       const { getNexusDriveConfig } = await import('./server/nexusGoogleDrive');
       const config = getNexusDriveConfig(root);
-      const files = await listNexusDriveFiles(config, { subfolderKey: 'outsourcing' });
-      sendJson(res, 200, { configured: true, files });
+      const files = await listNexusDriveFiles(config, { subfolderKey });
+      sendJson(res, 200, { configured: true, files, slot: subfolderKey });
     } catch (error) {
       sendJson(res, 500, {
         error: error instanceof Error ? error.message : String(error),
@@ -63,10 +72,11 @@ function attachRoutes(server: { middlewares: { use: Function } }, root: string):
     try {
       const body =
         req.headers['content-type']?.includes('application/json') ?
-          await readJsonBody<{ force?: boolean }>(req)
+          await readJsonBody<{ force?: boolean; slot?: string }>(req)
         : { force: true };
-      const meta = await syncNexusDriveCache(root, { force: body.force ?? true });
-      sendJson(res, 200, { ok: true, meta });
+      const subfolderKey = parseSubfolderKey(body.slot);
+      const meta = await syncNexusDriveCache(root, { force: body.force ?? true, subfolderKey });
+      sendJson(res, 200, { ok: true, meta, slot: subfolderKey });
     } catch (error) {
       sendJson(res, 500, {
         error: error instanceof Error ? error.message : String(error),
@@ -81,7 +91,7 @@ function attachRoutes(server: { middlewares: { use: Function } }, root: string):
     }
 
     const form = formidable({ multiples: false, maxFileSize: 120 * 1024 * 1024 });
-    form.parse(req, async (err, _fields, files) => {
+    form.parse(req, async (err, fields, files) => {
       if (err) {
         sendJson(res, 400, { error: err.message });
         return;
@@ -94,6 +104,10 @@ function attachRoutes(server: { middlewares: { use: Function } }, root: string):
         return;
       }
 
+      const slotField = fields.slot;
+      const slotRaw = Array.isArray(slotField) ? slotField[0] : slotField;
+      const subfolderKey = parseSubfolderKey(slotRaw);
+
       try {
         const buffer = fs.readFileSync(file.filepath);
         const created = await uploadToNexusDriveFolder(
@@ -101,11 +115,12 @@ function attachRoutes(server: { middlewares: { use: Function } }, root: string):
           file.originalFilename ?? 'upload.bin',
           buffer,
           file.mimetype ?? 'application/octet-stream',
+          { subfolderKey },
         );
-        sendJson(res, 200, { ok: true, file: created });
+        sendJson(res, 200, { ok: true, file: created, slot: subfolderKey });
       } catch (error) {
         sendJson(res, 500, {
-          error: error instanceof Error ? error.message : String(error),
+          error: formatDriveUploadError(error),
         });
       } finally {
         fs.unlink(file.filepath, () => undefined);

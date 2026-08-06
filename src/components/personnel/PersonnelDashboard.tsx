@@ -3,6 +3,7 @@ import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { Input, Select } from '@/components/ui/Input';
+import { PersonnelMenuPermissionsEditor } from '@/components/personnel/PersonnelMenuPermissionsEditor';
 import { PersonnelMultiSelectFilter } from '@/components/personnel/PersonnelMultiSelectFilter';
 import { PersonnelResourceStatusPanel } from '@/components/personnel/PersonnelResourceStatusPanel';
 import { useApp } from '@/context/AppContext';
@@ -25,14 +26,12 @@ import {
   PERSONNEL_TEAM_NONE_VALUE,
   appendLegacySelectOption,
   buildPersonnelGradeUpdates,
-  buildPersonnelPermissionUpdates,
   buildPersonnelPositionUpdates,
   derivePersonnelRankFromGrade,
   resolvePersonnelRankForSave,
   PERSONNEL_GRADE_SELECT_OPTIONS,
   PERSONNEL_RANK_SELECT_OPTIONS,
   PERSONNEL_POSITION_SELECT_OPTIONS,
-  PERSONNEL_PERMISSION_LEVEL_OPTIONS,
   prunePersonnelFilters,
   parseDivisionHeadRowId,
   parseTeamHeadRowId,
@@ -47,12 +46,15 @@ import {
 } from '@/utils/personnelExport';
 import { summarizePersonnelResourceStats } from '@/utils/personnelResourceStats';
 
+import type { PersonnelMenuPermissions } from '@/types/menuPermissions';
+import { normalizeMenuPermissions } from '@/utils/menuPermissions';
+
 const EMPTY_PERSON_FORM = {
   name: '',
   grade: '',
   rank: '',
   position: '',
-  permissionLevel: '',
+  menuPermissions: {} as PersonnelMenuPermissions,
   divisionId: '',
   teamId: '',
 };
@@ -64,6 +66,7 @@ const CLEAR_DIVISION_HEAD_FIELDS = {
   headGradeRank: undefined,
   headPosition: undefined,
   headPermissionLevel: undefined,
+  headMenuPermissions: undefined,
 } as const;
 
 const CLEAR_TEAM_HEAD_FIELDS = { ...CLEAR_DIVISION_HEAD_FIELDS };
@@ -251,7 +254,7 @@ export function PersonnelDashboard({ embedded = false }: { embedded?: boolean })
       grade: getPersonnelGradeFormValue(row),
       rank: row.rank,
       position: getPersonnelPositionFormValue(row.position),
-      permissionLevel: row.permissionLevel ? String(row.permissionLevel) : '',
+      menuPermissions: row.menuPermissions ?? {},
       divisionId: resolvedDivisionId,
       teamId: getPersonnelTeamFormValue(row),
     });
@@ -259,8 +262,8 @@ export function PersonnelDashboard({ embedded = false }: { embedded?: boolean })
 
   const buildHeadFieldUpdates = (
     gradeResult: ReturnType<typeof buildPersonnelGradeUpdates>,
-    permissionResult: ReturnType<typeof buildPersonnelPermissionUpdates>,
     positionResult: ReturnType<typeof buildPersonnelPositionUpdates>,
+    menuPermissions: PersonnelMenuPermissions,
   ) => ({
     ...(gradeResult.ok && gradeResult.updates
       ? {
@@ -268,9 +271,7 @@ export function PersonnelDashboard({ embedded = false }: { embedded?: boolean })
           headGradeRank: gradeResult.updates.gradeRank,
         }
       : {}),
-    ...(permissionResult.ok && permissionResult.updates
-      ? { headPermissionLevel: permissionResult.updates.permissionLevel }
-      : {}),
+    headMenuPermissions: normalizeMenuPermissions(menuPermissions),
     ...(positionResult.ok && positionResult.updates
       ? { headPosition: positionResult.updates.position }
       : {}),
@@ -344,25 +345,18 @@ export function PersonnelDashboard({ embedded = false }: { embedded?: boolean })
       return;
     }
 
-    const permissionResult = buildPersonnelPermissionUpdates(
-      personForm.permissionLevel,
-      editingRow,
-    );
-    if (!permissionResult.ok) {
-      showError(permissionResult.message);
-      return;
-    }
-
     const positionResult = buildPersonnelPositionUpdates(personForm.position, editingRow);
     if (!positionResult.ok) {
       showError(positionResult.message);
       return;
     }
 
+    const menuPermissions = normalizeMenuPermissions(personForm.menuPermissions);
+
     const sharedUpdates = {
       ...(gradeResult.updates ?? {}),
-      ...(permissionResult.updates ?? {}),
       ...(positionResult.updates ?? {}),
+      menuPermissions,
     };
 
     if (editingRow.kind === 'executive') {
@@ -394,7 +388,7 @@ export function PersonnelDashboard({ embedded = false }: { embedded?: boolean })
       const headUpdates = {
         headName: name,
         headRank: rank,
-        ...buildHeadFieldUpdates(gradeResult, permissionResult, positionResult),
+        ...buildHeadFieldUpdates(gradeResult, positionResult, personForm.menuPermissions),
       };
 
       if (oldDivisionId !== affiliation.divisionId) {
@@ -419,7 +413,7 @@ export function PersonnelDashboard({ embedded = false }: { embedded?: boolean })
       const headUpdates = {
         headName: name,
         headRank: rank,
-        ...buildHeadFieldUpdates(gradeResult, permissionResult, positionResult),
+        ...buildHeadFieldUpdates(gradeResult, positionResult, personForm.menuPermissions),
       };
 
       if (oldTeamId !== affiliation.teamId) {
@@ -445,9 +439,7 @@ export function PersonnelDashboard({ embedded = false }: { embedded?: boolean })
     updateEmployee(editingRow.id, {
       name,
       role: rank,
-      ...(gradeResult.updates ?? {}),
-      ...(permissionResult.updates ?? {}),
-      ...(positionResult.updates ?? {}),
+      ...sharedUpdates,
       divisionId: affiliation.divisionId,
       teamId:
         affiliation.teamId === PERSONNEL_TEAM_NONE_VALUE ? '' : affiliation.teamId,
@@ -614,7 +606,7 @@ export function PersonnelDashboard({ embedded = false }: { embedded?: boolean })
                     <td>{formatPersonnelGradeCell(row)}</td>
                     <td>{row.rank}</td>
                     <td>{formatPersonnelPositionCell(row)}</td>
-                    <td>{formatPersonnelPermissionCell(row)}</td>
+                    <td className="personnel-table__permissions">{formatPersonnelPermissionCell(row)}</td>
                     <td>{row.divisionName}</td>
                     <td>{row.teamName}</td>
                     <td className="personnel-table__actions">
@@ -726,14 +718,15 @@ export function PersonnelDashboard({ embedded = false }: { embedded?: boolean })
                     />
                   </>
                 )}
-                <Select
-                  label="권한"
-                  value={personForm.permissionLevel}
-                  onChange={(e) =>
-                    setPersonForm((prev) => ({ ...prev, permissionLevel: e.target.value }))
-                  }
-                  options={[{ value: '', label: '선택' }, ...PERSONNEL_PERMISSION_LEVEL_OPTIONS]}
-                />
+                <div className="personnel-edit-dialog__menu-perms">
+                  <p className="personnel-edit-dialog__field-label">메뉴 권한</p>
+                  <PersonnelMenuPermissionsEditor
+                    value={personForm.menuPermissions}
+                    onChange={(menuPermissions) =>
+                      setPersonForm((prev) => ({ ...prev, menuPermissions }))
+                    }
+                  />
+                </div>
               </div>
             </div>
 

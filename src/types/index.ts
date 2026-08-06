@@ -8,6 +8,9 @@ export type Role =
 /** S-NEXUS 웹 사용 권한 */
 export type WebAccessRole = '직원' | '팀장' | '본부장' | '경영진' | '개발자';
 
+export type { MenuPermissionMode, PersonnelMenuPermissionKey, PersonnelMenuPermissions } from '@/types/menuPermissions';
+import type { PersonnelMenuPermissions } from '@/types/menuPermissions';
+
 export interface RoleConfig {
   id: Role;
   label: string;
@@ -87,6 +90,8 @@ export interface ExecutiveAdmin {
   divisionId?: string;
   /** 소속 팀 */
   teamId?: string;
+  /** 메뉴별 읽기/수정 권한 */
+  menuPermissions?: PersonnelMenuPermissions;
 }
 
 export type PersonnelGradeLevel = 1 | 2 | 3 | 4 | 5 | 6 | 7;
@@ -107,6 +112,8 @@ export interface Division {
   headPosition?: string;
   headGradeRank?: string;
   headGradeLevel?: PersonnelGradeLevel;
+  /** 본부장 메뉴별 읽기/수정 권한 */
+  headMenuPermissions?: PersonnelMenuPermissions;
 }
 
 export interface Team {
@@ -119,6 +126,8 @@ export interface Team {
   headPosition?: string;
   headGradeRank?: string;
   headGradeLevel?: PersonnelGradeLevel;
+  /** 팀장 메뉴별 읽기/수정 권한 */
+  headMenuPermissions?: PersonnelMenuPermissions;
 }
 
 export interface Employee {
@@ -140,6 +149,8 @@ export interface Employee {
   position?: string;
   /** S-NEXUS 웹 사용 권한 */
   accessRole?: WebAccessRole;
+  /** 메뉴별 읽기/수정 권한 */
+  menuPermissions?: PersonnelMenuPermissions;
 }
 
 export interface AllocationEntry {

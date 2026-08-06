@@ -3,9 +3,11 @@ import type {
   Employee,
   ExecutiveAdmin,
   PersonnelGradeLevel,
+  PersonnelMenuPermissions,
   PersonnelPermissionLevel,
   Team,
 } from '@/types';
+import { formatPersonnelMenuPermissionsCell } from '@/utils/menuPermissions';
 import {
   EXECUTIVE_OFFICE_DIVISION_ID,
   EXECUTIVE_OFFICE_DIVISION_NAME,
@@ -26,6 +28,7 @@ export interface PersonnelRow {
   rank: string;
   position?: string;
   permissionLevel?: PersonnelPermissionLevel;
+  menuPermissions?: PersonnelMenuPermissions;
   divisionName: string;
   teamName: string;
   divisionId?: string;
@@ -362,8 +365,7 @@ export function formatPersonnelPositionCell(row: PersonnelRow): string {
 }
 
 export function formatPersonnelPermissionCell(row: PersonnelRow): string {
-  if (row.permissionLevel) return `${row.permissionLevel}급`;
-  return '-';
+  return formatPersonnelMenuPermissionsCell(row.menuPermissions);
 }
 
 /** @deprecated LEGACY_EXECUTIVE_DIVISION_FILTER — div-exec 로 통합 */
@@ -788,6 +790,7 @@ export function buildPersonnelRows(
       rank: admin.rank,
       position: admin.position,
       permissionLevel: admin.permissionLevel,
+      menuPermissions: admin.menuPermissions,
       divisionId,
       teamId,
       divisionName: divisionNameById.get(divisionId) ?? EXECUTIVE_OFFICE_DIVISION_NAME,
@@ -804,6 +807,7 @@ export function buildPersonnelRows(
     rank: employee.role,
     position: employee.position,
     permissionLevel: employee.permissionLevel,
+    menuPermissions: employee.menuPermissions,
     divisionName: employee.divisionName,
     teamName: employee.teamId ? employee.teamName : '없음',
     divisionId: employee.divisionId,
@@ -822,6 +826,7 @@ export function buildPersonnelRows(
       rank: division.headRank ?? '본부장',
       position: division.headPosition,
       permissionLevel: division.headPermissionLevel,
+      menuPermissions: division.headMenuPermissions,
       divisionName: division.name,
       teamName: '없음',
       divisionId: division.id,
@@ -839,6 +844,7 @@ export function buildPersonnelRows(
       rank: team.headRank ?? '팀장',
       position: team.headPosition,
       permissionLevel: team.headPermissionLevel,
+      menuPermissions: team.headMenuPermissions,
       divisionName: divisionNameById.get(team.divisionId) ?? '-',
       teamName: team.name,
       divisionId: team.divisionId,

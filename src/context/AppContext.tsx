@@ -34,6 +34,7 @@ import type {
   WebAccessRole,
   PersonnelPermissionLevel,
   PersonnelGradeLevel,
+  PersonnelMenuPermissions,
 } from '@/types';
 import type { HistoryEvent } from '@/types/history';
 import type {
@@ -498,6 +499,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         gradeRank?: string;
         divisionId?: string;
         teamId?: string;
+        menuPermissions?: PersonnelMenuPermissions;
       },
     ) => {
       const before = executiveOffice.admins?.find((a) => a.id === id);
@@ -509,6 +511,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
             ...updates,
             permissionLevel:
               'permissionLevel' in updates ? updates.permissionLevel : a.permissionLevel,
+            menuPermissions: 'menuPermissions' in updates ? updates.menuPermissions : a.menuPermissions,
             position: 'position' in updates ? updates.position : a.position,
             gradeLevel: 'gradeLevel' in updates ? updates.gradeLevel : a.gradeLevel,
             gradeRank: 'gradeRank' in updates ? updates.gradeRank : a.gradeRank,
@@ -616,6 +619,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         headPosition?: string;
         headGradeLevel?: PersonnelGradeLevel;
         headGradeRank?: string;
+        headMenuPermissions?: PersonnelMenuPermissions;
       },
     ) => {
       const before = divisions.find((d) => d.id === id);
@@ -629,6 +633,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
               'headPermissionLevel' in updates
                 ? updates.headPermissionLevel
                 : d.headPermissionLevel,
+            headMenuPermissions:
+              'headMenuPermissions' in updates ? updates.headMenuPermissions : d.headMenuPermissions,
             headPosition: 'headPosition' in updates ? updates.headPosition : d.headPosition,
             headGradeLevel: 'headGradeLevel' in updates ? updates.headGradeLevel : d.headGradeLevel,
             headGradeRank: 'headGradeRank' in updates ? updates.headGradeRank : d.headGradeRank,
@@ -723,6 +729,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         headPosition?: string;
         headGradeLevel?: PersonnelGradeLevel;
         headGradeRank?: string;
+        headMenuPermissions?: PersonnelMenuPermissions;
       },
     ) => {
       const before = teams.find((t) => t.id === id);
@@ -737,6 +744,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
             'headPermissionLevel' in updates
               ? updates.headPermissionLevel
               : current.headPermissionLevel,
+          headMenuPermissions:
+            'headMenuPermissions' in updates ? updates.headMenuPermissions : current.headMenuPermissions,
           headPosition: 'headPosition' in updates ? updates.headPosition : current.headPosition,
           headGradeLevel:
             'headGradeLevel' in updates ? updates.headGradeLevel : current.headGradeLevel,
@@ -868,6 +877,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           | 'gradeRank'
           | 'permissionLevel'
           | 'position'
+          | 'menuPermissions'
         >
       >,
     ) => {
@@ -888,6 +898,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
               gradeRank: 'gradeRank' in updates ? updates.gradeRank : e.gradeRank,
               permissionLevel:
                 'permissionLevel' in updates ? updates.permissionLevel : e.permissionLevel,
+              menuPermissions: 'menuPermissions' in updates ? updates.menuPermissions : e.menuPermissions,
               position: 'position' in updates ? updates.position : e.position,
               accessRole: updates.accessRole ?? e.accessRole,
               teamId: '',
@@ -911,6 +922,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
             gradeRank: 'gradeRank' in updates ? updates.gradeRank : e.gradeRank,
             permissionLevel:
               'permissionLevel' in updates ? updates.permissionLevel : e.permissionLevel,
+            menuPermissions: 'menuPermissions' in updates ? updates.menuPermissions : e.menuPermissions,
             position: 'position' in updates ? updates.position : e.position,
             accessRole: updates.accessRole ?? e.accessRole,
             teamId: nextTeamId,

@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { google, type drive_v3 } from 'googleapis';
 
@@ -41,15 +42,12 @@ export interface NexusDriveStatus {
   folderId?: string;
   cacheDir?: string;
   lastSync?: NexusDriveSyncMeta;
+  uploadConfigured?: boolean;
+  uploadMethod?: 'oauth' | 'unavailable';
   error?: string;
 }
 
-function isDataFileName(name: string): boolean {
-  const lower = name.toLowerCase();
-  return DATA_EXTENSIONS.some((ext) => lower.endsWith(ext));
-}
-
-function readEnvPath(root: string): Partial<NexusDriveConfig> {
+function readEnvValues(root: string): Record<string, string> {
   for (const name of ['.env.local', '.env']) {
     const envPath = path.join(root, name);
     if (!fs.existsSync(envPath)) continue;
@@ -62,13 +60,43 @@ function readEnvPath(root: string): Partial<NexusDriveConfig> {
       if (eq <= 0) continue;
       values[trimmed.slice(0, eq).trim()] = trimmed.slice(eq + 1).trim();
     }
-    return {
-      folderId: values.GOOGLE_DRIVE_NEXUS_FOLDER_ID || null,
-      keyPath: values.GOOGLE_SERVICE_ACCOUNT_KEY_PATH || null,
-      cacheDir: values.NEXUS_DRIVE_CACHE_DIR || '.data/nexus-drive',
-    };
+    return values;
   }
   return {};
+}
+
+function getOAuthCredentials(projectRoot: string): {
+  clientId: string | null;
+  clientSecret: string | null;
+  refreshToken: string | null;
+} {
+  const fromEnv = readEnvValues(projectRoot);
+  return {
+    clientId: process.env.GOOGLE_OAUTH_CLIENT_ID?.trim() || fromEnv.GOOGLE_OAUTH_CLIENT_ID || null,
+    clientSecret:
+      process.env.GOOGLE_OAUTH_CLIENT_SECRET?.trim() || fromEnv.GOOGLE_OAUTH_CLIENT_SECRET || null,
+    refreshToken:
+      process.env.GOOGLE_OAUTH_REFRESH_TOKEN?.trim() || fromEnv.GOOGLE_OAUTH_REFRESH_TOKEN || null,
+  };
+}
+
+export function isNexusDriveUploadConfigured(projectRoot: string): boolean {
+  const oauth = getOAuthCredentials(projectRoot);
+  return Boolean(oauth.clientId && oauth.clientSecret && oauth.refreshToken);
+}
+
+function isDataFileName(name: string): boolean {
+  const lower = name.toLowerCase();
+  return DATA_EXTENSIONS.some((ext) => lower.endsWith(ext));
+}
+
+function readEnvPath(root: string): Partial<NexusDriveConfig> {
+  const values = readEnvValues(root);
+  return {
+    folderId: values.GOOGLE_DRIVE_NEXUS_FOLDER_ID || null,
+    keyPath: values.GOOGLE_SERVICE_ACCOUNT_KEY_PATH || null,
+    cacheDir: values.NEXUS_DRIVE_CACHE_DIR || '.data/nexus-drive',
+  };
 }
 
 export function getNexusDriveConfig(projectRoot: string): NexusDriveConfig {
@@ -123,6 +151,26 @@ async function createDriveClient(keyPath: string): Promise<drive_v3.Drive> {
   return google.drive({ version: 'v3', auth });
 }
 
+async function createOAuthDriveClient(projectRoot: string): Promise<drive_v3.Drive> {
+  const oauth = getOAuthCredentials(projectRoot);
+  if (!oauth.clientId || !oauth.clientSecret || !oauth.refreshToken) {
+    throw new Error(
+      'Google Drive 업로드 OAuth가 설정되지 않았습니다. GOOGLE_OAUTH_CLIENT_ID / SECRET / REFRESH_TOKEN을 .env에 추가하고 npm run google-drive-oauth를 실행하세요.',
+    );
+  }
+  const auth = new google.auth.OAuth2(oauth.clientId, oauth.clientSecret);
+  auth.setCredentials({ refresh_token: oauth.refreshToken });
+  return google.drive({ version: 'v3', auth });
+}
+
+export function formatDriveUploadError(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  if (message.includes('storage quota') || message.includes('Service Accounts do not have storage')) {
+    return '개인 Google Drive는 서비스 계정으로 파일을 올릴 수 없습니다. OAuth 업로드 설정(GOOGLE_OAUTH_*)을 추가한 뒤 npm run google-drive-oauth를 실행하세요.';
+  }
+  return message;
+}
+
 async function findSubfolderId(
   drive: drive_v3.Drive,
   parentFolderId: string,
@@ -137,15 +185,15 @@ async function findSubfolderId(
   return folder?.id ?? null;
 }
 
-export async function resolveSubfolderId(
+async function resolveSubfolderIdWithDrive(
+  drive: drive_v3.Drive,
   config: NexusDriveConfig,
   subfolderKey: NexusDriveSubfolderKey,
 ): Promise<string> {
-  if (!config.folderId || !config.keyPath) {
+  if (!config.folderId) {
     throw new Error('Google Drive NEXUS 루트 폴더가 설정되지 않았습니다.');
   }
   const folderName = NEXUS_DRIVE_SUBFOLDERS[subfolderKey];
-  const drive = await createDriveClient(config.keyPath);
   const subfolderId = await findSubfolderId(drive, config.folderId, folderName);
   if (!subfolderId) {
     throw new Error(
@@ -153,6 +201,17 @@ export async function resolveSubfolderId(
     );
   }
   return subfolderId;
+}
+
+export async function resolveSubfolderId(
+  config: NexusDriveConfig,
+  subfolderKey: NexusDriveSubfolderKey,
+): Promise<string> {
+  if (!config.folderId || !config.keyPath) {
+    throw new Error('Google Drive NEXUS 루트 폴더가 설정되지 않았습니다.');
+  }
+  const drive = await createDriveClient(config.keyPath);
+  return resolveSubfolderIdWithDrive(drive, config, subfolderKey);
 }
 
 function getSubfolderCacheDir(config: NexusDriveConfig, subfolderKey: NexusDriveSubfolderKey): string {
@@ -281,10 +340,13 @@ export async function uploadToNexusDriveFolder(
   if (!config.enabled || !config.folderId || !config.keyPath) {
     throw new Error('Google Drive NEXUS 폴더 연동이 설정되지 않았습니다.');
   }
+  if (!isNexusDriveUploadConfigured(projectRoot)) {
+    throw new Error(formatDriveUploadError('Service Accounts do not have storage quota'));
+  }
 
   const subfolderKey = options?.subfolderKey ?? 'outsourcing';
-  const subfolderId = await resolveSubfolderId(config, subfolderKey);
-  const drive = await createDriveClient(config.keyPath);
+  const drive = await createOAuthDriveClient(projectRoot);
+  const subfolderId = await resolveSubfolderIdWithDrive(drive, config, subfolderKey);
   const response = await drive.files.create({
     requestBody: {
       name: fileName,
@@ -292,7 +354,7 @@ export async function uploadToNexusDriveFolder(
     },
     media: {
       mimeType,
-      body: buffer,
+      body: Readable.from(buffer),
     },
     fields: 'id,name,mimeType,modifiedTime,size',
   });
@@ -336,6 +398,8 @@ export function getNexusDriveStatus(projectRoot: string): NexusDriveStatus {
     folderId: config.folderId,
     cacheDir: config.cacheDir,
     lastSync: loadSyncMeta(getSubfolderCacheDir(config, 'outsourcing')) ?? undefined,
+    uploadConfigured: isNexusDriveUploadConfigured(projectRoot),
+    uploadMethod: isNexusDriveUploadConfigured(projectRoot) ? 'oauth' : 'unavailable',
   };
 }
 

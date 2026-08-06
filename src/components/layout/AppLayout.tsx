@@ -19,8 +19,6 @@ const NAV_ITEMS = [
 
   { path: '/', label: '대시보드', icon: '📊' },
 
-  { path: '/data-folder', label: '데이터폴더', icon: '📁' },
-
   { path: '/analysis', label: 'NEXUS AI', icon: '🤖' },
 
   { path: '/admin', label: '프로젝트 관리', icon: '⚙️', adminOnly: true },
@@ -347,6 +345,16 @@ export function AppLayout() {
                 </div>
               )}
             </div>
+
+            <NavLink
+              to="/data-folder"
+              className={({ isActive }) =>
+                `lnb__link lnb__link--data-folder ${isActive ? 'lnb__link--active' : ''}`
+              }
+            >
+              <span className="lnb__icon">📁</span>
+              데이터폴더
+            </NavLink>
 
           </nav>
 

@@ -19,6 +19,15 @@ export default defineConfig(({ mode }) => {
   if (env.NEXUS_DRIVE_CACHE_DIR) {
     process.env.NEXUS_DRIVE_CACHE_DIR = env.NEXUS_DRIVE_CACHE_DIR;
   }
+  if (env.GOOGLE_OAUTH_CLIENT_ID) {
+    process.env.GOOGLE_OAUTH_CLIENT_ID = env.GOOGLE_OAUTH_CLIENT_ID;
+  }
+  if (env.GOOGLE_OAUTH_CLIENT_SECRET) {
+    process.env.GOOGLE_OAUTH_CLIENT_SECRET = env.GOOGLE_OAUTH_CLIENT_SECRET;
+  }
+  if (env.GOOGLE_OAUTH_REFRESH_TOKEN) {
+    process.env.GOOGLE_OAUTH_REFRESH_TOKEN = env.GOOGLE_OAUTH_REFRESH_TOKEN;
+  }
 
   return {
     plugins: [react(), claudeProxyPlugin(), nexusDataFolderPlugin(), outsourcingLocalPlugin()],

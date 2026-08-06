@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "google-drive-oauth": "node scripts/google-drive-oauth-setup.mjs"
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
