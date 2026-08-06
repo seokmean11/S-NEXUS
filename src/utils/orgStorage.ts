@@ -1,3 +1,4 @@
+import type { PersonnelAuthMap } from '@/types/auth';
 import type { Division, Employee, ExecutiveOffice, Project, ProjectTeamAllocation, Team, TrackAllocation } from '@/types';
 import type { ContractAmendment } from '@/types/contractChange';
 import type { LegacyExecutiveOffice } from '@/types/history';
@@ -14,6 +15,8 @@ export interface StoredOrgState {
   divisions: Division[];
   teams: Team[];
   employees: Employee[];
+  /** 개인별 로그인 PIN (personId → pin) */
+  personnelAuth?: PersonnelAuthMap;
   /** 내선전화표 파서 버전 — 팀 분류 로직 변경 시 증가 */
   parseVersion?: number;
   /** 수동 조직 보정 버전 — 보정 로직 변경 시 증가, 적용 후에는 재실행하지 않음 */

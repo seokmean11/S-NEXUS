@@ -4,6 +4,7 @@ import { fileURLToPath, URL } from 'node:url';
 import { claudeProxyPlugin } from './vite-plugin-claude-proxy';
 import { outsourcingLocalPlugin } from './vite-plugin-outsourcing-local';
 import { nexusDataFolderPlugin } from './vite-plugin-nexus-data-folder';
+import { nexusOrgPlugin } from './vite-plugin-nexus-org';
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
@@ -30,7 +31,7 @@ export default defineConfig(({ mode }) => {
   }
 
   return {
-    plugins: [react(), claudeProxyPlugin(), nexusDataFolderPlugin(), outsourcingLocalPlugin()],
+    plugins: [react(), claudeProxyPlugin(), nexusDataFolderPlugin(), nexusOrgPlugin(), outsourcingLocalPlugin()],
     resolve: {
       alias: {
         '@': fileURLToPath(new URL('./src', import.meta.url)),

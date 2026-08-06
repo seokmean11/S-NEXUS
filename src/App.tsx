@@ -1,4 +1,5 @@
 import { Navigate, Route, Routes } from 'react-router-dom';
+import { RequireAuth } from '@/components/auth/RequireAuth';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { DashboardPage } from '@/pages/DashboardPage';
@@ -12,11 +13,14 @@ import { OutsourcingSearchPage } from '@/pages/OutsourcingSearchPage';
 import { MiscInfoLayout } from '@/pages/MiscInfoLayout';
 import { ExhibitionBusinessCostPage } from '@/pages/ExhibitionBusinessCostPage';
 import { DataFolderPage } from '@/pages/DataFolderPage';
+import { LoginPage } from '@/pages/LoginPage';
 
 export function AppRoutes() {
   return (
     <Routes>
-      <Route element={<AppLayout />}>
+      <Route path="/login" element={<LoginPage />} />
+      <Route element={<RequireAuth />}>
+        <Route element={<AppLayout />}>
         <Route
           index
           element={
@@ -78,6 +82,7 @@ export function AppRoutes() {
         </Route>
         <Route path="reports" element={<Navigate to="/" replace />} />
         <Route path="*" element={<Navigate to="/" replace />} />
+        </Route>
       </Route>
     </Routes>
   );

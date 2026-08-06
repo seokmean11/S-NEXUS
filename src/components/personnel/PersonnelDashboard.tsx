@@ -7,6 +7,7 @@ import { PersonnelMenuPermissionsEditor } from '@/components/personnel/Personnel
 import { PersonnelMultiSelectFilter } from '@/components/personnel/PersonnelMultiSelectFilter';
 import { PersonnelResourceStatusPanel } from '@/components/personnel/PersonnelResourceStatusPanel';
 import { useApp } from '@/context/AppContext';
+import { useAuth } from '@/context/AuthContext';
 import {
   buildPersonnelRows,
   EMPTY_PERSONNEL_FILTERS,
@@ -84,6 +85,8 @@ export function PersonnelDashboard({ embedded = false }: { embedded?: boolean })
     updateDivision,
     updateTeam,
   } = useApp();
+  const { canEditMenu } = useAuth();
+  const canEditOrg = canEditMenu('org');
 
   const [filters, setFilters] = useState<PersonnelFilters>(EMPTY_PERSONNEL_FILTERS);
   const [activeFilterKey, setActiveFilterKey] = useState<PersonnelFilterKey | null>(null);
@@ -611,12 +614,17 @@ export function PersonnelDashboard({ embedded = false }: { embedded?: boolean })
                     <td>{row.teamName}</td>
                     <td className="personnel-table__actions">
                       <div className="personnel-table__action-group">
-                        <Button variant="outline" size="sm" onClick={() => openEditPerson(row)}>
-                          수정
-                        </Button>
-                        <Button variant="danger" size="sm" onClick={() => setDeletePersonTarget(row)}>
-                          삭제
-                        </Button>
+                        {canEditOrg && (
+                          <>
+                            <Button variant="outline" size="sm" onClick={() => openEditPerson(row)}>
+                              수정
+                            </Button>
+                            <Button variant="danger" size="sm" onClick={() => setDeletePersonTarget(row)}>
+                              삭제
+                            </Button>
+                          </>
+                        )}
+                        {!canEditOrg && <span className="personnel-table__readonly">읽기전용</span>}
                       </div>
                     </td>
                   </tr>

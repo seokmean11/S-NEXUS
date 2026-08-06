@@ -85,6 +85,11 @@ import { applyOrgManualOverrides, ORG_MANUAL_OVERRIDE_VERSION, shouldApplyOrgMan
 import { ensureSafetyManagementOrg } from '@/utils/orgSafetyOffice';
 import { ensureExecutiveOfficeOrg } from '@/utils/orgExecutiveOffice';
 import { inferAccessRoleFromEmployee } from '@/utils/webAccessRole';
+import { resolvePersonOrgIds, resolvePersonAccessRole } from '@/utils/authPersonnel';
+import { webAccessRoleToSystemRole } from '@/utils/webAccessRole';
+import { fetchNexusOrgState, saveNexusOrgState } from '@/services/nexusOrgApi';
+import type { PersonnelAuthMap, PersonnelAuthRecord } from '@/types/auth';
+import type { PersonnelRow } from '@/utils/personnelSearch';
 
 type OrgMutationResult = { ok: true } | { ok: false; reason: string };
 
@@ -107,7 +112,7 @@ function normalizeLoadedOrgState(saved: NonNullable<ReturnType<typeof loadOrgSta
 
 function persistOrgStateIfNeeded(
   saved: NonNullable<ReturnType<typeof loadOrgState>>,
-  org: ReturnType<typeof normalizeLoadedOrgState>,
+  org: ReturnType<typeof normalizeLoadedOrgState> & { personnelAuth?: PersonnelAuthMap },
 ) {
   const shouldPersistOverrideVersion = shouldApplyOrgManualOverrides(saved.manualOverrideVersion);
   const shouldRestoreParseVersion = saved.parseVersion == null;
@@ -121,6 +126,7 @@ function persistOrgStateIfNeeded(
     divisions: org.divisions,
     teams: org.teams,
     employees: org.employees,
+    personnelAuth: org.personnelAuth,
     parseVersion: saved.parseVersion ?? PHONE_DIRECTORY_PARSE_VERSION,
     manualOverrideVersion: shouldPersistOverrideVersion
       ? ORG_MANUAL_OVERRIDE_VERSION
@@ -134,17 +140,18 @@ function createInitialOrgState() {
     const saved = loadOrgState();
     if (saved && !shouldSeedPhoneDirectoryOrg(saved)) {
       const normalized = normalizeLoadedOrgState(saved);
-      persistOrgStateIfNeeded(saved, normalized);
-      return normalized;
+      const withAuth = { ...normalized, personnelAuth: saved.personnelAuth ?? {} };
+      persistOrgStateIfNeeded(saved, withAuth);
+      return withAuth;
     }
     if (saved && shouldSeedPhoneDirectoryOrg(saved)) {
-      return getPhoneDirectoryOrgState();
+      return { ...getPhoneDirectoryOrgState(), personnelAuth: saved.personnelAuth ?? {} };
     }
   } catch {
     // fall through to phone directory seed
   }
 
-  return getPhoneDirectoryOrgState();
+  return { ...getPhoneDirectoryOrgState(), personnelAuth: {} as PersonnelAuthMap };
 }
 
 function createInitialAppState(divisions: Division[]) {
@@ -178,6 +185,11 @@ interface AppContextValue {
   role: Role;
   roleConfig: RoleConfig;
   permissions: ReturnType<typeof getPermissions>;
+  orgReady: boolean;
+  personnelAuth: PersonnelAuthMap;
+  authPerson: PersonnelRow | null;
+  setAuthPerson: (person: PersonnelRow | null) => void;
+  updatePersonnelAuth: (personId: string, record: PersonnelAuthRecord) => void;
   executiveOffice: ExecutiveOffice;
   divisions: Division[];
   teams: Team[];
@@ -317,7 +329,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [initialOrg.divisions],
   );
 
-  const [role, setRole] = useState<Role>('dev_admin');
+  const [role, setRole] = useState<Role>('team_member');
+  const [authPerson, setAuthPerson] = useState<PersonnelRow | null>(null);
+  const [personnelAuth, setPersonnelAuth] = useState<PersonnelAuthMap>(
+    initialOrg.personnelAuth ?? {},
+  );
+  const [orgReady, setOrgReady] = useState(false);
   const [executiveOffice, setExecutiveOffice] = useState<ExecutiveOffice>(
     initialOrg.executiveOffice,
   );
@@ -372,15 +389,53 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
-    saveOrgState({
+    let cancelled = false;
+
+    (async () => {
+      const serverState = await fetchNexusOrgState();
+      if (cancelled) return;
+
+      if (serverState) {
+        const normalized = normalizeLoadedOrgState(serverState);
+        setExecutiveOffice(normalized.executiveOffice);
+        setDivisions(normalized.divisions);
+        setTeams(normalized.teams);
+        setEmployees(normalized.employees);
+        setPersonnelAuth(serverState.personnelAuth ?? {});
+      }
+
+      setOrgReady(true);
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!orgReady) return;
+
+    const payload = {
       executiveOffice,
       divisions,
       teams,
       employees,
+      personnelAuth,
       parseVersion: orgStorageMeta.parseVersion,
       manualOverrideVersion: orgStorageMeta.manualOverrideVersion,
-    });
-  }, [executiveOffice, divisions, teams, employees, orgStorageMeta]);
+    };
+
+    saveOrgState(payload);
+    void saveNexusOrgState(payload);
+  }, [
+    executiveOffice,
+    divisions,
+    teams,
+    employees,
+    personnelAuth,
+    orgStorageMeta,
+    orgReady,
+  ]);
 
   useEffect(() => {
     saveAppState({
@@ -397,18 +452,43 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setProjectTeamAllocations((prev) => syncProjectTeamAllocationNames(prev, teams));
   }, [divisions, teams]);
 
-  const roleConfig = useMemo(() => {
-    const base = ROLE_CONFIGS.find((r) => r.id === role)!;
-    const employee = employees.find((e) => e.id === base.userId);
-    if (!employee) return base;
+  const updatePersonnelAuth = useCallback((personId: string, record: PersonnelAuthRecord) => {
+    setPersonnelAuth((prev) => ({
+      ...prev,
+      [personId]: record,
+    }));
+  }, []);
 
-    return {
-      ...base,
-      userName: employee.name,
-      divisionId: employee.divisionId,
-      teamId: employee.teamId,
-    };
-  }, [role, employees]);
+  const clearPersonnelAuth = useCallback((personId: string) => {
+    setPersonnelAuth((prev) => {
+      if (!prev[personId]) return prev;
+      const next = { ...prev };
+      delete next[personId];
+      return next;
+    });
+  }, []);
+
+  const roleConfig = useMemo(() => {
+    if (authPerson) {
+      const accessRole = resolvePersonAccessRole(
+        authPerson,
+        employees,
+        executiveOffice.admins ?? [],
+      );
+      const base = ROLE_CONFIGS.find((r) => r.id === webAccessRoleToSystemRole(accessRole))!;
+      const orgIds = resolvePersonOrgIds(authPerson);
+      return {
+        ...base,
+        userId: orgIds.userId,
+        userName: authPerson.name,
+        divisionId: orgIds.divisionId,
+        teamId: orgIds.teamId,
+      };
+    }
+
+    const base = ROLE_CONFIGS.find((r) => r.id === role)!;
+    return base;
+  }, [authPerson, role, employees, executiveOffice.admins]);
 
   const permissions = useMemo(() => getPermissions(role), [role]);
 
@@ -471,6 +551,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setExecutiveOffice((prev) => ({
         admins: (prev.admins ?? []).filter((a) => a.id !== id),
       }));
+      clearPersonnelAuth(id);
       if (target) {
         recordHistory({
           category: 'executive',
@@ -483,7 +564,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         });
       }
     },
-    [executiveOffice.admins, recordHistory],
+    [executiveOffice.admins, recordHistory, clearPersonnelAuth],
   );
 
   const updateExecutiveAdmin = useCallback(
@@ -994,6 +1075,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       );
 
       setEmployees((prev) => prev.filter((e) => e.id !== id));
+      clearPersonnelAuth(id);
 
       if (target) {
         recordHistory({
@@ -1008,7 +1090,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
       return { ok: true };
     },
-    [employees, recordHistory],
+    [employees, recordHistory, clearPersonnelAuth],
   );
 
   const applyProjectUpdate = useCallback(
@@ -1486,6 +1568,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
     role,
     roleConfig,
     permissions,
+    orgReady,
+    personnelAuth,
+    authPerson,
+    setAuthPerson,
+    updatePersonnelAuth,
     executiveOffice,
     divisions,
     teams,

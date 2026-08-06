@@ -2,6 +2,7 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
 import { AppProvider } from '@/context/AppContext';
+import { AuthProvider } from '@/context/AuthContext';
 import { BidManagementProvider } from '@/context/BidManagementContext';
 import { AnalysisChatRuntimeProvider } from '@/context/AnalysisChatRuntimeContext';
 import { OutsourcingSearchProvider } from '@/context/OutsourcingSearchContext';
@@ -14,13 +15,15 @@ createRoot(document.getElementById('root')!).render(
     <ErrorBoundary fallbackTitle="애플리케이션 오류">
       <AppProvider>
         <BrowserRouter>
-          <BidManagementProvider>
-            <OutsourcingSearchProvider>
-              <AnalysisChatRuntimeProvider>
-                <AppRoutes />
-              </AnalysisChatRuntimeProvider>
-            </OutsourcingSearchProvider>
-          </BidManagementProvider>
+          <AuthProvider>
+            <BidManagementProvider>
+              <OutsourcingSearchProvider>
+                <AnalysisChatRuntimeProvider>
+                  <AppRoutes />
+                </AnalysisChatRuntimeProvider>
+              </OutsourcingSearchProvider>
+            </BidManagementProvider>
+          </AuthProvider>
         </BrowserRouter>
       </AppProvider>
     </ErrorBoundary>

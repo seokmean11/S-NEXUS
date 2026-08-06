@@ -10,6 +10,12 @@ import { Button } from '@/components/ui/Button';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 
 import { useApp } from '@/context/AppContext';
+import { useAuth } from '@/context/AuthContext';
+import {
+  canAccessMenuPermission,
+  shouldShowPurchaseNav,
+  shouldShowPurchaseSubItem,
+} from '@/utils/menuAccess';
 
 import type { PermissionFlags, RoleConfig } from '@/types';
 
@@ -49,18 +55,10 @@ function isMiscInfoSectionPath(pathname: string): boolean {
 }
 
 
-
-function canAccessPurchase(permissions: PermissionFlags): boolean {
-
-  return permissions.canCreateProject || permissions.canViewAll;
-
-}
-
-
-
 export function AppLayout() {
 
   const { permissions, roleConfig, divisions, teams, role, syncPPM } = useApp();
+  const { isDeveloper, menuPermissions, session, logout, canAccessPath } = useAuth();
 
   const location = useLocation();
 
@@ -75,7 +73,10 @@ export function AppLayout() {
   const [purchaseOpen, setPurchaseOpen] = useState(() => isPurchaseSectionPath(location.pathname));
   const [miscInfoOpen, setMiscInfoOpen] = useState(() => isMiscInfoSectionPath(location.pathname));
 
-  const showPurchaseNav = canAccessPurchase(permissions);
+  const showPurchaseNav =
+    isDeveloper || permissions.canCreateProject || permissions.canViewAll
+      ? true
+      : shouldShowPurchaseNav(menuPermissions, false);
   const purchaseActive = isPurchaseSectionPath(location.pathname);
   const miscInfoActive = isMiscInfoSectionPath(location.pathname);
 
@@ -93,10 +94,9 @@ export function AppLayout() {
 
     const path = location.pathname;
 
-    const adminRoute = path === '/admin' || path === '/org';
-
+    const adminRoute = path === '/admin';
+    const orgRoute = path === '/org';
     const allocationRoute = path === '/allocation';
-
     const purchaseRoute = path.startsWith('/purchase');
     const outsourcingRoute = path.startsWith('/outsourcing');
 
@@ -110,6 +110,11 @@ export function AppLayout() {
 
     }
 
+    if (orgRoute && !canAccessPath('/org')) {
+      navigate('/', { replace: true });
+      return;
+    }
+
     if (allocationRoute && !permissions.canAccessAllocationForm) {
 
       navigate('/', { replace: true });
@@ -118,7 +123,7 @@ export function AppLayout() {
 
     }
 
-    if ((purchaseRoute || outsourcingRoute) && !canAccessPurchase(permissions)) {
+    if ((purchaseRoute || outsourcingRoute) && !canAccessPath(path)) {
 
       navigate('/', { replace: true });
 
@@ -134,7 +139,7 @@ export function AppLayout() {
 
     permissions.canAccessAllocationForm,
 
-    permissions.canViewAll,
+    canAccessPath,
 
     navigate,
 
@@ -144,6 +149,10 @@ export function AppLayout() {
 
   const visibleNav = NAV_ITEMS.filter((item) => {
 
+    if (item.path === '/org') {
+      return isDeveloper || canAccessMenuPermission(menuPermissions, 'org', false);
+    }
+
     if ('adminOnly' in item && item.adminOnly) return permissions.canCreateProject;
 
     if ('managerOnly' in item && item.managerOnly) return permissions.canAccessAllocationForm;
@@ -151,6 +160,12 @@ export function AppLayout() {
     return true;
 
   });
+
+  const visiblePurchaseSubItems = PURCHASE_SUB_ITEMS.filter((item) =>
+    isDeveloper || permissions.canCreateProject || permissions.canViewAll
+      ? true
+      : shouldShowPurchaseSubItem(item.path, menuPermissions, false),
+  );
 
 
 
@@ -217,7 +232,16 @@ export function AppLayout() {
 
           )}
 
-          <RoleSwitcher />
+          {isDeveloper && <RoleSwitcher />}
+
+          {session && (
+            <div className="gnb__user">
+              <span className="gnb__user-name">{session.name}</span>
+              <Button variant="ghost" size="sm" onClick={logout}>
+                로그아웃
+              </Button>
+            </div>
+          )}
 
         </div>
 
@@ -259,7 +283,7 @@ export function AppLayout() {
 
 
 
-            {showPurchaseNav && (
+            {showPurchaseNav && visiblePurchaseSubItems.length > 0 && (
 
               <div className={`lnb__group ${purchaseActive ? 'lnb__group--active' : ''}`}>
 
@@ -287,7 +311,7 @@ export function AppLayout() {
 
                   <div className="lnb__subnav">
 
-                    {PURCHASE_SUB_ITEMS.map((item) => (
+                    {visiblePurchaseSubItems.map((item) => (
 
                       <NavLink
 
