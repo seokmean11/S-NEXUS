@@ -95,6 +95,12 @@ import { webAccessRoleToSystemRole } from '@/utils/webAccessRole';
 import { fetchNexusOrgState, saveNexusOrgState } from '@/services/nexusOrgApi';
 import type { PersonnelAuthMap, PersonnelAuthRecord } from '@/types/auth';
 import type { PersonnelRow } from '@/utils/personnelSearch';
+import {
+  applyPersonnelAuthToEmployees,
+  applyPersonnelAuthToExecutives,
+  backfillPersonnelAuthMenuPermissions,
+  withPersonnelAuthMenuPermissions,
+} from '@/utils/personnelAuthMenu';
 
 type OrgMutationResult = { ok: true } | { ok: false; reason: string };
 
@@ -145,13 +151,35 @@ function persistOrgStateIfNeeded(
   });
 }
 
+function finalizeOrgAuthState(
+  org: ReturnType<typeof normalizeLoadedOrgState> & { personnelAuth?: PersonnelAuthMap },
+): ReturnType<typeof normalizeLoadedOrgState> & { personnelAuth: PersonnelAuthMap } {
+  const personnelAuth = backfillPersonnelAuthMenuPermissions(
+    org.employees,
+    org.executiveOffice.admins ?? [],
+    org.personnelAuth ?? {},
+  );
+
+  return {
+    ...org,
+    personnelAuth,
+    employees: applyPersonnelAuthToEmployees(org.employees, personnelAuth),
+    executiveOffice: {
+      admins: applyPersonnelAuthToExecutives(org.executiveOffice.admins ?? [], personnelAuth),
+    },
+  };
+}
+
 function createInitialOrgState() {
   try {
     repairStoredData();
     const saved = loadOrgState();
     if (saved && !shouldSeedPhoneDirectoryOrg(saved)) {
       const normalized = normalizeLoadedOrgState(saved);
-      const withAuth = { ...normalized, personnelAuth: saved.personnelAuth ?? {} };
+      const withAuth = finalizeOrgAuthState({
+        ...normalized,
+        personnelAuth: saved.personnelAuth ?? {},
+      });
       persistOrgStateIfNeeded(saved, withAuth);
       return withAuth;
     }
@@ -408,11 +436,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
       if (serverState) {
         const normalized = normalizeLoadedOrgState(serverState);
-        setExecutiveOffice(normalized.executiveOffice);
-        setDivisions(normalized.divisions);
-        setTeams(normalized.teams);
-        setEmployees(normalized.employees);
-        setPersonnelAuth(serverState.personnelAuth ?? {});
+        const withAuth = finalizeOrgAuthState({
+          ...normalized,
+          personnelAuth: serverState.personnelAuth ?? {},
+        });
+        setExecutiveOffice(withAuth.executiveOffice);
+        setDivisions(withAuth.divisions);
+        setTeams(withAuth.teams);
+        setEmployees(withAuth.employees);
+        setPersonnelAuth(withAuth.personnelAuth);
       }
 
       setOrgReady(true);
@@ -466,7 +498,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const updatePersonnelAuth = useCallback((personId: string, record: PersonnelAuthRecord) => {
     setPersonnelAuth((prev) => ({
       ...prev,
-      [personId]: record,
+      [personId]: {
+        ...withPersonnelAuthMenuPermissions(prev[personId], prev[personId]?.menuPermissions),
+        ...record,
+      },
     }));
   }, []);
 
@@ -624,6 +659,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
           before: { name: before.name, rank: before.rank },
           after: { name: after.name, rank: after.rank },
         });
+      }
+
+      if ('menuPermissions' in updates) {
+        setPersonnelAuth((prev) => ({
+          ...prev,
+          [id]: withPersonnelAuthMenuPermissions(prev[id], updates.menuPermissions),
+        }));
       }
     },
     [executiveOffice.admins, recordHistory],
@@ -1081,6 +1123,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
           before: { name: before.name, role: before.role },
           after: { name: nextUpdates.name ?? before.name, role: nextUpdates.role ?? before.role },
         });
+      }
+
+      if ('menuPermissions' in nextUpdates && !lockedSuperAdmin) {
+        setPersonnelAuth((prev) => ({
+          ...prev,
+          [id]: withPersonnelAuthMenuPermissions(prev[id], nextUpdates.menuPermissions),
+        }));
       }
     },
     [employees, teams, divisions, projectTeamAllocations, recordHistory],

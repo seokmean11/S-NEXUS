@@ -30,6 +30,7 @@ import {
   pathnameMenuReadOnly,
   pathnameToMenuPermissionKey,
 } from '@/utils/menuAccess';
+import { resolvePersonMenuPermissions } from '@/utils/personnelAuthMenu';
 import { webAccessRoleToSystemRole } from '@/utils/webAccessRole';
 import type { PersonnelRow } from '@/utils/personnelSearch';
 
@@ -89,7 +90,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return isDeveloperPerson(authPerson, employees, executiveOffice.admins ?? []);
   }, [authPerson, employees, executiveOffice.admins]);
 
-  const menuPermissions = authPerson?.menuPermissions;
+  const menuPermissions = useMemo(() => {
+    if (!authPerson) return undefined;
+    return resolvePersonMenuPermissions(
+      authPerson.id,
+      authPerson.menuPermissions,
+      personnelAuth,
+    );
+  }, [authPerson, personnelAuth]);
 
   useEffect(() => {
     setAuthPerson(authPerson);
@@ -208,13 +216,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return '새 비밀번호가 일치하지 않습니다.';
       }
 
-      updatePersonnelAuth(personId, { pin: newPin, pinChanged: true });
+      updatePersonnelAuth(personId, {
+        pin: newPin,
+        pinChanged: true,
+        menuPermissions: personnelAuth[personId]?.menuPermissions,
+      });
       setMustChangePassword(false);
       setPendingPersonId(null);
       navigate('/', { replace: true });
       return null;
     },
-    [pendingPersonId, session?.personId, updatePersonnelAuth, navigate],
+    [pendingPersonId, session?.personId, personnelAuth, updatePersonnelAuth, navigate],
   );
 
   const canAccessPath = useCallback(
