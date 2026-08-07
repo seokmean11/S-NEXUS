@@ -9,6 +9,10 @@ import type {
 } from '@/types';
 import { formatPersonnelMenuPermissionsCell } from '@/utils/menuPermissions';
 import {
+  isPlatformSuperAdminPerson,
+  PLATFORM_SUPER_ADMIN_PERMISSION_LABEL,
+} from '@/utils/platformSuperAdmin';
+import {
   EXECUTIVE_OFFICE_DIVISION_ID,
   EXECUTIVE_OFFICE_DIVISION_NAME,
   EXECUTIVE_OFFICE_TEAM_ID,
@@ -365,6 +369,7 @@ export function formatPersonnelPositionCell(row: PersonnelRow): string {
 }
 
 export function formatPersonnelPermissionCell(row: PersonnelRow): string {
+  if (isPlatformSuperAdminPerson(row)) return PLATFORM_SUPER_ADMIN_PERMISSION_LABEL;
   return formatPersonnelMenuPermissionsCell(row.menuPermissions);
 }
 

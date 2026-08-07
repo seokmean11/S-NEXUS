@@ -58,7 +58,7 @@ function isMiscInfoSectionPath(pathname: string): boolean {
 export function AppLayout() {
 
   const { permissions, roleConfig, divisions, teams, role, syncPPM } = useApp();
-  const { isDeveloper, menuPermissions, session, logout, canAccessPath } = useAuth();
+  const { isDeveloper, menuPermissions, session, authPerson, logout, canAccessPath } = useAuth();
 
   const location = useLocation();
 
@@ -102,7 +102,7 @@ export function AppLayout() {
 
 
 
-    if (adminRoute && !permissions.canCreateProject) {
+    if (adminRoute && !isDeveloper && !permissions.canCreateProject) {
 
       navigate('/', { replace: true });
 
@@ -115,7 +115,7 @@ export function AppLayout() {
       return;
     }
 
-    if (allocationRoute && !permissions.canAccessAllocationForm) {
+    if (allocationRoute && !isDeveloper && !permissions.canAccessAllocationForm) {
 
       navigate('/', { replace: true });
 
@@ -139,6 +139,8 @@ export function AppLayout() {
 
     permissions.canAccessAllocationForm,
 
+    isDeveloper,
+
     canAccessPath,
 
     navigate,
@@ -153,9 +155,13 @@ export function AppLayout() {
       return isDeveloper || canAccessMenuPermission(menuPermissions, 'org', false);
     }
 
-    if ('adminOnly' in item && item.adminOnly) return permissions.canCreateProject;
+    if ('adminOnly' in item && item.adminOnly) {
+      return isDeveloper || permissions.canCreateProject;
+    }
 
-    if ('managerOnly' in item && item.managerOnly) return permissions.canAccessAllocationForm;
+    if ('managerOnly' in item && item.managerOnly) {
+      return isDeveloper || permissions.canAccessAllocationForm;
+    }
 
     return true;
 
@@ -234,9 +240,14 @@ export function AppLayout() {
 
           {isDeveloper && <RoleSwitcher />}
 
-          {session && (
+          {session && authPerson && (
             <div className="gnb__user">
-              <span className="gnb__user-name">{session.name}</span>
+              <div className="gnb__user-meta">
+                <span className="gnb__user-name">{authPerson.name}</span>
+                {authPerson.rank.trim() ? (
+                  <span className="gnb__user-rank">{authPerson.rank}</span>
+                ) : null}
+              </div>
               <Button variant="ghost" size="sm" onClick={logout}>
                 로그아웃
               </Button>

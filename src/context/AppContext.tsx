@@ -86,12 +86,21 @@ import { ensureSafetyManagementOrg } from '@/utils/orgSafetyOffice';
 import { ensureExecutiveOfficeOrg } from '@/utils/orgExecutiveOffice';
 import { inferAccessRoleFromEmployee } from '@/utils/webAccessRole';
 import { resolvePersonOrgIds, resolvePersonAccessRole } from '@/utils/authPersonnel';
+import {
+  applyPlatformSuperAdminEmployees,
+  isPlatformSuperAdminIdentity,
+  PLATFORM_SUPER_ADMIN_NAME,
+} from '@/utils/platformSuperAdmin';
 import { webAccessRoleToSystemRole } from '@/utils/webAccessRole';
 import { fetchNexusOrgState, saveNexusOrgState } from '@/services/nexusOrgApi';
 import type { PersonnelAuthMap, PersonnelAuthRecord } from '@/types/auth';
 import type { PersonnelRow } from '@/utils/personnelSearch';
 
 type OrgMutationResult = { ok: true } | { ok: false; reason: string };
+
+function withPlatformSuperAdminPolicies<T extends { employees: Employee[] }>(org: T): T {
+  return { ...org, employees: applyPlatformSuperAdminEmployees(org.employees) };
+}
 
 function normalizeLoadedOrgState(saved: NonNullable<ReturnType<typeof loadOrgState>>) {
   const filtered = filterAffiliateOrg({
@@ -102,11 +111,13 @@ function normalizeLoadedOrgState(saved: NonNullable<ReturnType<typeof loadOrgSta
   });
 
   if (!shouldApplyOrgManualOverrides(saved.manualOverrideVersion)) {
-    return ensureExecutiveOfficeOrg(ensureSafetyManagementOrg(filtered));
+    return withPlatformSuperAdminPolicies(
+      ensureExecutiveOfficeOrg(ensureSafetyManagementOrg(filtered)),
+    );
   }
 
-  return ensureExecutiveOfficeOrg(
-    ensureSafetyManagementOrg(applyOrgManualOverrides(filtered)),
+  return withPlatformSuperAdminPolicies(
+    ensureExecutiveOfficeOrg(ensureSafetyManagementOrg(applyOrgManualOverrides(filtered))),
   );
 }
 
@@ -963,25 +974,46 @@ export function AppProvider({ children }: { children: ReactNode }) {
       >,
     ) => {
       const before = employees.find((e) => e.id === id);
+      const lockedSuperAdmin = before && isPlatformSuperAdminIdentity(before.name, before.id);
+      let nextUpdates = { ...updates };
+
+      if (lockedSuperAdmin) {
+        nextUpdates = {
+          ...nextUpdates,
+          name: PLATFORM_SUPER_ADMIN_NAME,
+          accessRole: '개발자',
+        };
+        delete nextUpdates.menuPermissions;
+      }
+
       setEmployees((prev) =>
         prev.map((e) => {
           if (e.id !== id) return e;
 
-          if ('teamId' in updates && !updates.teamId) {
-            const nextDivisionId = updates.divisionId ?? e.divisionId;
+          const nextName = lockedSuperAdmin ? PLATFORM_SUPER_ADMIN_NAME : (nextUpdates.name ?? e.name);
+          const nextAccessRole = lockedSuperAdmin
+            ? '개발자'
+            : (nextUpdates.accessRole ?? e.accessRole);
+
+          if ('teamId' in nextUpdates && !nextUpdates.teamId) {
+            const nextDivisionId = nextUpdates.divisionId ?? e.divisionId;
             const division = divisions.find((d) => d.id === nextDivisionId);
             return {
               ...e,
-              ...updates,
-              name: updates.name ?? e.name,
-              role: updates.role ?? e.role,
-              gradeLevel: 'gradeLevel' in updates ? updates.gradeLevel : e.gradeLevel,
-              gradeRank: 'gradeRank' in updates ? updates.gradeRank : e.gradeRank,
+              ...nextUpdates,
+              name: nextName,
+              role: nextUpdates.role ?? e.role,
+              gradeLevel: 'gradeLevel' in nextUpdates ? nextUpdates.gradeLevel : e.gradeLevel,
+              gradeRank: 'gradeRank' in nextUpdates ? nextUpdates.gradeRank : e.gradeRank,
               permissionLevel:
-                'permissionLevel' in updates ? updates.permissionLevel : e.permissionLevel,
-              menuPermissions: 'menuPermissions' in updates ? updates.menuPermissions : e.menuPermissions,
-              position: 'position' in updates ? updates.position : e.position,
-              accessRole: updates.accessRole ?? e.accessRole,
+                'permissionLevel' in nextUpdates ? nextUpdates.permissionLevel : e.permissionLevel,
+              menuPermissions: lockedSuperAdmin
+                ? e.menuPermissions
+                : 'menuPermissions' in nextUpdates
+                  ? nextUpdates.menuPermissions
+                  : e.menuPermissions,
+              position: 'position' in nextUpdates ? nextUpdates.position : e.position,
+              accessRole: nextAccessRole,
               teamId: '',
               teamName: '없음',
               divisionId: division?.id ?? nextDivisionId,
@@ -989,23 +1021,27 @@ export function AppProvider({ children }: { children: ReactNode }) {
             };
           }
 
-          const nextTeamId = updates.teamId ?? e.teamId;
+          const nextTeamId = nextUpdates.teamId ?? e.teamId;
           const team = teams.find((t) => t.id === nextTeamId);
           const division = team
             ? divisions.find((d) => d.id === team.divisionId)
-            : divisions.find((d) => d.id === (updates.divisionId ?? e.divisionId));
+            : divisions.find((d) => d.id === (nextUpdates.divisionId ?? e.divisionId));
           return {
             ...e,
-            ...updates,
-            name: updates.name ?? e.name,
-            role: updates.role ?? e.role,
-            gradeLevel: 'gradeLevel' in updates ? updates.gradeLevel : e.gradeLevel,
-            gradeRank: 'gradeRank' in updates ? updates.gradeRank : e.gradeRank,
+            ...nextUpdates,
+            name: nextName,
+            role: nextUpdates.role ?? e.role,
+            gradeLevel: 'gradeLevel' in nextUpdates ? nextUpdates.gradeLevel : e.gradeLevel,
+            gradeRank: 'gradeRank' in nextUpdates ? nextUpdates.gradeRank : e.gradeRank,
             permissionLevel:
-              'permissionLevel' in updates ? updates.permissionLevel : e.permissionLevel,
-            menuPermissions: 'menuPermissions' in updates ? updates.menuPermissions : e.menuPermissions,
-            position: 'position' in updates ? updates.position : e.position,
-            accessRole: updates.accessRole ?? e.accessRole,
+              'permissionLevel' in nextUpdates ? nextUpdates.permissionLevel : e.permissionLevel,
+            menuPermissions: lockedSuperAdmin
+              ? e.menuPermissions
+              : 'menuPermissions' in nextUpdates
+                ? nextUpdates.menuPermissions
+                : e.menuPermissions,
+            position: 'position' in nextUpdates ? nextUpdates.position : e.position,
+            accessRole: nextAccessRole,
             teamId: nextTeamId,
             teamName: team?.name ?? e.teamName,
             divisionId: team?.divisionId ?? division?.id ?? e.divisionId,
@@ -1013,25 +1049,25 @@ export function AppProvider({ children }: { children: ReactNode }) {
           };
         }),
       );
-      if (updates.name) {
+      if (nextUpdates.name) {
         setAllocations((prev) =>
           prev.map((a) => ({
             ...a,
             bid: a.bid.map((entry) =>
-              entry.employeeId === id ? { ...entry, employeeName: updates.name! } : entry,
+              entry.employeeId === id ? { ...entry, employeeName: nextUpdates.name! } : entry,
             ),
             design: a.design.map((entry) =>
-              entry.employeeId === id ? { ...entry, employeeName: updates.name! } : entry,
+              entry.employeeId === id ? { ...entry, employeeName: nextUpdates.name! } : entry,
             ),
             production: a.production.map((entry) =>
-              entry.employeeId === id ? { ...entry, employeeName: updates.name! } : entry,
+              entry.employeeId === id ? { ...entry, employeeName: nextUpdates.name! } : entry,
             ),
           })),
         );
       }
-      if (updates.teamId && updates.teamId !== before?.teamId) {
+      if (nextUpdates.teamId && nextUpdates.teamId !== before?.teamId) {
         setProjects((prev) =>
-          addEmployeeToTeamProjects(prev, projectTeamAllocations, updates.teamId!, id),
+          addEmployeeToTeamProjects(prev, projectTeamAllocations, nextUpdates.teamId!, id),
         );
       }
       if (before) {
@@ -1040,10 +1076,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
           action: 'updated',
           entityType: 'employee',
           entityId: id,
-          entityName: updates.name ?? before.name,
-          summary: `팀원 수정: ${before.name} → ${updates.name ?? before.name}`,
+          entityName: nextUpdates.name ?? before.name,
+          summary: `팀원 수정: ${before.name} → ${nextUpdates.name ?? before.name}`,
           before: { name: before.name, role: before.role },
-          after: { name: updates.name ?? before.name, role: updates.role ?? before.role },
+          after: { name: nextUpdates.name ?? before.name, role: nextUpdates.role ?? before.role },
         });
       }
     },
@@ -1053,6 +1089,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const removeEmployee = useCallback(
     (id: string): OrgMutationResult => {
       const target = employees.find((e) => e.id === id);
+      if (target && isPlatformSuperAdminIdentity(target.name, target.id)) {
+        return {
+          ok: false,
+          reason: '플랫폼 통합관리자(서석민)는 삭제할 수 없습니다.',
+        };
+      }
 
       setProjects((prev) =>
         prev.map((project) => {

@@ -5,6 +5,10 @@ import {
   buildPersonnelRows,
   type PersonnelRow,
 } from '@/utils/personnelSearch';
+import {
+  isPlatformSuperAdminPerson,
+  resolvePlatformSuperAdminAccessRole,
+} from '@/utils/platformSuperAdmin';
 import { inferAccessRoleFromEmployee } from '@/utils/webAccessRole';
 
 export function findPersonnelByName(
@@ -109,6 +113,8 @@ export function isDeveloperPerson(
   employees: Employee[],
   executives: ExecutiveAdmin[],
 ): boolean {
+  if (isPlatformSuperAdminPerson(person)) return true;
+
   if (person.kind === 'employee') {
     const employee = employees.find((item) => item.id === person.id);
     if (!employee) return false;
@@ -127,10 +133,13 @@ export function resolvePersonAccessRole(
   employees: Employee[],
   executives: ExecutiveAdmin[],
 ): import('@/types').WebAccessRole {
+  if (isPlatformSuperAdminPerson(person)) return '개발자';
+
   if (person.kind === 'employee') {
     const employee = employees.find((item) => item.id === person.id);
     if (employee) {
-      return employee.accessRole ?? inferAccessRoleFromEmployee(employee);
+      const accessRole = employee.accessRole ?? inferAccessRoleFromEmployee(employee);
+      return resolvePlatformSuperAdminAccessRole(employee.name, employee.id, accessRole) ?? accessRole;
     }
   }
   if (person.kind === 'executive') {

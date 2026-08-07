@@ -1,5 +1,6 @@
 import type { Employee, ExecutiveOffice } from '@/types';
 import type { OrgSnapshot } from '@/utils/orgAffiliateFilter';
+import { isPlatformSuperAdminIdentity } from '@/utils/platformSuperAdmin';
 import { inferAccessRoleFromEmployee } from '@/utils/webAccessRole';
 
 const DIV_SELFSTORAGE = 'div-selfstorage';
@@ -13,7 +14,7 @@ function slugify(value: string): string {
 }
 
 function inferAccessRole(rank: string, name: string): Employee['accessRole'] {
-  if (name === '서석민') return '개발자';
+  if (isPlatformSuperAdminIdentity(name)) return '개발자';
   if (/본부장|사업실장/.test(rank)) return '본부장';
   if (/회장|부회장|부사장|전무|상무|상무보|감사|사장|대표/.test(rank)) return '경영진';
   if (/^팀장$|^실장$/.test(rank)) return '팀장';

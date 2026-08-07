@@ -49,6 +49,7 @@ import { summarizePersonnelResourceStats } from '@/utils/personnelResourceStats'
 
 import type { PersonnelMenuPermissions } from '@/types/menuPermissions';
 import { normalizeMenuPermissions } from '@/utils/menuPermissions';
+import { isPlatformSuperAdminPerson } from '@/utils/platformSuperAdmin';
 
 const EMPTY_PERSON_FORM = {
   name: '',
@@ -454,6 +455,12 @@ export function PersonnelDashboard({ embedded = false }: { embedded?: boolean })
   const handleDeletePersonConfirm = () => {
     if (!deletePersonTarget) return;
 
+    if (isPlatformSuperAdminPerson(deletePersonTarget)) {
+      showError('플랫폼 통합관리자(서석민)는 삭제할 수 없습니다.');
+      setDeletePersonTarget(null);
+      return;
+    }
+
     if (deletePersonTarget.kind === 'executive') {
       removeExecutiveAdmin(deletePersonTarget.id);
       showMessage('경영진이 삭제되었습니다.');
@@ -619,9 +626,11 @@ export function PersonnelDashboard({ embedded = false }: { embedded?: boolean })
                             <Button variant="outline" size="sm" onClick={() => openEditPerson(row)}>
                               수정
                             </Button>
-                            <Button variant="danger" size="sm" onClick={() => setDeletePersonTarget(row)}>
-                              삭제
-                            </Button>
+                            {!isPlatformSuperAdminPerson(row) && (
+                              <Button variant="danger" size="sm" onClick={() => setDeletePersonTarget(row)}>
+                                삭제
+                              </Button>
+                            )}
                           </>
                         )}
                         {!canEditOrg && <span className="personnel-table__readonly">읽기전용</span>}
@@ -728,12 +737,18 @@ export function PersonnelDashboard({ embedded = false }: { embedded?: boolean })
                 )}
                 <div className="personnel-edit-dialog__menu-perms">
                   <p className="personnel-edit-dialog__field-label">메뉴 권한</p>
-                  <PersonnelMenuPermissionsEditor
-                    value={personForm.menuPermissions}
-                    onChange={(menuPermissions) =>
-                      setPersonForm((prev) => ({ ...prev, menuPermissions }))
-                    }
-                  />
+                  {isPlatformSuperAdminPerson(editingRow) ? (
+                    <p className="personnel-edit-dialog__locked-role">
+                      개발자 (통합관리) — 모든 메뉴·조직·권한 관리 가능. 변경할 수 없습니다.
+                    </p>
+                  ) : (
+                    <PersonnelMenuPermissionsEditor
+                      value={personForm.menuPermissions}
+                      onChange={(menuPermissions) =>
+                        setPersonForm((prev) => ({ ...prev, menuPermissions }))
+                      }
+                    />
+                  )}
                 </div>
               </div>
             </div>

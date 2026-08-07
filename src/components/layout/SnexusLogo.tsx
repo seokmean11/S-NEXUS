@@ -5,13 +5,15 @@ export function SnexusLogo({ className }: { className?: string }) {
   return (
     <div className={`login-page__logo-wrap${className ? ` ${className}` : ''}`}>
       <img
-        src="/s-nexus-logo-clear@2x.png"
-        srcSet="/s-nexus-logo-clear.png 1x, /s-nexus-logo-clear@2x.png 2x, /s-nexus-logo-clear@3x.png 3x"
+        src="/s-nexus-logo-clear.png"
+        srcSet="/s-nexus-logo-clear.png 408w, /s-nexus-logo-clear@2x.png 816w, /s-nexus-logo-clear@3x.png 1224w"
+        sizes="408px"
         alt="S-NEXUS"
         className="login-page__logo-img"
         width={408}
         height={117}
         decoding="sync"
+        fetchPriority="high"
         draggable={false}
       />
     </div>
