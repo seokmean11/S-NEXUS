@@ -12,9 +12,12 @@ import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
 import {
-  canAccessMenuPermission,
+  canShowSidebarNavItem,
+  shouldShowDataFolderNav,
+  shouldShowMiscInfoNav,
   shouldShowPurchaseNav,
   shouldShowPurchaseSubItem,
+  isRestrictedPathForRegularUser,
 } from '@/utils/menuAccess';
 
 import type { PermissionFlags, RoleConfig } from '@/types';
@@ -129,6 +132,10 @@ export function AppLayout() {
 
     }
 
+    if (isRestrictedPathForRegularUser(path) && !isDeveloper) {
+      navigate('/', { replace: true });
+    }
+
   }, [
 
     role,
@@ -149,23 +156,15 @@ export function AppLayout() {
 
 
 
-  const visibleNav = NAV_ITEMS.filter((item) => {
+  const visibleNav = NAV_ITEMS.filter((item) =>
+    canShowSidebarNavItem(item.path, menuPermissions, isDeveloper, {
+      canCreateProject: permissions.canCreateProject,
+      canAccessAllocationForm: permissions.canAccessAllocationForm,
+    }),
+  );
 
-    if (item.path === '/org') {
-      return isDeveloper || canAccessMenuPermission(menuPermissions, 'org', false);
-    }
-
-    if ('adminOnly' in item && item.adminOnly) {
-      return isDeveloper || permissions.canCreateProject;
-    }
-
-    if ('managerOnly' in item && item.managerOnly) {
-      return isDeveloper || permissions.canAccessAllocationForm;
-    }
-
-    return true;
-
-  });
+  const showMiscInfoNav = shouldShowMiscInfoNav(isDeveloper);
+  const showDataFolderNav = shouldShowDataFolderNav(isDeveloper);
 
   const visiblePurchaseSubItems = PURCHASE_SUB_ITEMS.filter((item) =>
     isDeveloper || permissions.canCreateProject || permissions.canViewAll
@@ -352,6 +351,7 @@ export function AppLayout() {
 
             )}
 
+            {showMiscInfoNav && (
             <div className={`lnb__group ${miscInfoActive ? 'lnb__group--active' : ''}`}>
               <button
                 type="button"
@@ -380,7 +380,9 @@ export function AppLayout() {
                 </div>
               )}
             </div>
+            )}
 
+            {showDataFolderNav && (
             <NavLink
               to="/data-folder"
               className={({ isActive }) =>
@@ -390,6 +392,7 @@ export function AppLayout() {
               <span className="lnb__icon">📁</span>
               데이터폴더
             </NavLink>
+            )}
 
           </nav>
 

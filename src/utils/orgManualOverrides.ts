@@ -159,6 +159,7 @@ function mergeEmployeeMetadata(primary: Employee, others: Employee[]): Employee 
     permissionLevel: pick('permissionLevel'),
     position: pick('position'),
     accessRole: pick('accessRole') ?? primary.accessRole,
+    menuPermissions: pick('menuPermissions') ?? primary.menuPermissions,
   };
 }
 
