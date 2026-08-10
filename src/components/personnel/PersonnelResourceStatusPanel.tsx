@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import type { PersonnelRow } from '@/utils/personnelSearch';
 import { formatPersonnelGradeCell } from '@/utils/personnelSearch';
 import type { PersonnelResourceShareItem, PersonnelResourceStats } from '@/utils/personnelResourceStats';
+import { exportPersonnelResourceStatusPdf } from '@/utils/personnelResourceStatusExport';
 import {
   getPersonnelDivisionGradeChartColor,
   getPersonnelResourceChartColor,
@@ -37,8 +38,8 @@ type DistributionShapeHint = 'pyramid' | 'inverted' | 'balanced';
 function getRankDistributionShapeHint(items: PersonnelResourceShareItem[]): DistributionShapeHint {
   const countByLabel = new Map(items.map((item) => [item.label, item.count]));
   const counts = PERSONNEL_RANK_BUCKETS.map((label) => countByLabel.get(label) ?? 0);
-  const top = counts[0] + counts[1];
-  const bottom = counts[3] + counts[4];
+  const top = counts[0] + counts[1] + counts[2];
+  const bottom = counts[4] + counts[5];
   if (bottom > top * 1.15) return 'pyramid';
   if (top > bottom * 1.15) return 'inverted';
   return 'balanced';
@@ -313,6 +314,8 @@ function PersonnelResourceDetailDialog({
 
 export function PersonnelResourceStatusPanel({ stats, rows }: PersonnelResourceStatusPanelProps) {
   const [detailSelection, setDetailSelection] = useState<ResourceDetailSelection | null>(null);
+  const [exporting, setExporting] = useState(false);
+  const exportRef = useRef<HTMLDivElement>(null);
 
   const detailMembers = useMemo(() => {
     if (!detailSelection) return [];
@@ -343,9 +346,37 @@ export function PersonnelResourceStatusPanel({ stats, rows }: PersonnelResourceS
     { label: '사업본부 구분', value: formatStatValue(stats.divisionShares.length), unit: '개' },
   ];
 
+  const handleExportPdf = async () => {
+    if (!exportRef.current || exporting) return;
+
+    setExporting(true);
+    try {
+      await exportPersonnelResourceStatusPdf(exportRef.current);
+    } catch {
+      window.alert('PDF 내보내기에 실패했습니다.');
+    } finally {
+      setExporting(false);
+    }
+  };
+
   return (
     <>
-      <Card title="자원정보현황" className="personnel-resource-status-card">
+      <div ref={exportRef} className="personnel-resource-status-export-root">
+      <Card
+        title="자원정보현황"
+        className="personnel-resource-status-card"
+        headerAction={
+          <Button
+            variant="outline"
+            size="sm"
+            className="personnel-resource-status-export-hide no-print"
+            onClick={() => void handleExportPdf()}
+            disabled={exporting}
+          >
+            {exporting ? '내보내는 중…' : '내보내기'}
+          </Button>
+        }
+      >
         <div className="personnel-resource-status__metrics">
           {statItems.map((item) => (
             <div key={item.label} className="personnel-resource-metric">
@@ -417,6 +448,7 @@ export function PersonnelResourceStatusPanel({ stats, rows }: PersonnelResourceS
           </div>
         </div>
       </Card>
+      </div>
 
       {detailSelection && (
         <PersonnelResourceDetailDialog

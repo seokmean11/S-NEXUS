@@ -1,30 +1,19 @@
-import { NavLink, Outlet } from 'react-router-dom';
-
-const PURCHASE_SUB_ITEMS = [{ path: '/purchase/bidding', label: '입찰관리' }] as const;
+import { Outlet } from 'react-router-dom';
 
 export function PurchaseLayout() {
   return (
     <div className="purchase-page">
-      <div className="page-header no-print">
-        <h2>구매관리</h2>
-        <p>입찰·발주 업무를 통합 관리하고 AI로 분석합니다.</p>
+      <div className="page-header no-print purchase-page__header">
+        <h2>입찰도우미</h2>
+        <p>
+          입찰 참여업체 견적서 검토양식 자동작성 및 검토이슈 제공. 외주발주 입찰 정보 입력 시
+          비교검토 양식 생성과 검토이슈 분석으로 실무자의 검토·분석 시간을 단축합니다.
+        </p>
       </div>
 
-      <nav className="purchase-subnav no-print" aria-label="구매관리 하위 메뉴">
-        {PURCHASE_SUB_ITEMS.map((item) => (
-          <NavLink
-            key={item.path}
-            to={item.path}
-            className={({ isActive }) =>
-              `purchase-subnav__link ${isActive ? 'purchase-subnav__link--active' : ''}`
-            }
-          >
-            {item.label}
-          </NavLink>
-        ))}
-      </nav>
-
-      <Outlet />
+      <div className="purchase-page__body">
+        <Outlet />
+      </div>
     </div>
   );
 }

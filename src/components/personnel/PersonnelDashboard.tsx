@@ -100,6 +100,24 @@ export function PersonnelDashboard({ embedded = false }: { embedded?: boolean })
   const [exporting, setExporting] = useState(false);
   const [resourceStatusOpen, setResourceStatusOpen] = useState(false);
   const editorDialogRef = useRef<HTMLDivElement>(null);
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const resourcePanelRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!embedded || !resourceStatusOpen) return;
+
+    const body = bodyRef.current;
+    const panel = resourcePanelRef.current;
+    if (!body || !panel) return;
+
+    requestAnimationFrame(() => {
+      const scrollTop =
+        panel.getBoundingClientRect().top -
+        body.getBoundingClientRect().top +
+        body.scrollTop;
+      body.scrollTo({ top: Math.max(0, scrollTop - 8), behavior: 'smooth' });
+    });
+  }, [embedded, resourceStatusOpen]);
 
   const divisionNameById = useMemo(
     () => new Map(divisions.map((division) => [division.id, division.name])),
@@ -510,23 +528,16 @@ export function PersonnelDashboard({ embedded = false }: { embedded?: boolean })
     handleSavePersonEdit();
   };
 
-  return (
-    <>
-      <div className="personnel-dashboard-stack">
-        <div className="personnel-resource-toolbar no-print">
-          <Button
-            variant={resourceStatusOpen ? 'primary' : 'outline'}
-            size="sm"
-            onClick={() => setResourceStatusOpen((open) => !open)}
-          >
-            {resourceStatusOpen ? '자원정보현황 닫기' : '자원정보현황'}
-          </Button>
-        </div>
+  const resourceStatusPanel = resourceStatusOpen ? (
+    <div
+      ref={embedded ? resourcePanelRef : undefined}
+      className={embedded ? 'org-page__resource-status' : undefined}
+    >
+      <PersonnelResourceStatusPanel stats={resourceStats} rows={allPersonRows} />
+    </div>
+  ) : null;
 
-        {resourceStatusOpen && (
-          <PersonnelResourceStatusPanel stats={resourceStats} rows={allPersonRows} />
-        )}
-
+  const personnelSearchCard = (
       <Card
         title="인원검색"
         subtitle="사업본부 · 팀 · 이름·직급 검색으로 조직 인원을 통합 조회합니다"
@@ -643,7 +654,43 @@ export function PersonnelDashboard({ embedded = false }: { embedded?: boolean })
           </table>
         </div>
       </Card>
-      </div>
+  );
+
+  return (
+    <>
+      {embedded ? (
+        <>
+          <div className="org-page__toolbar personnel-resource-toolbar no-print">
+            <Button
+              variant={resourceStatusOpen ? 'primary' : 'outline'}
+              size="sm"
+              onClick={() => setResourceStatusOpen((open) => !open)}
+            >
+              {resourceStatusOpen ? '자원정보현황 닫기' : '자원정보현황'}
+            </Button>
+          </div>
+
+          <div className="org-page__body" ref={bodyRef}>
+            {resourceStatusPanel}
+            {personnelSearchCard}
+          </div>
+        </>
+      ) : (
+        <div className="personnel-dashboard-stack">
+          <div className="personnel-resource-toolbar no-print">
+            <Button
+              variant={resourceStatusOpen ? 'primary' : 'outline'}
+              size="sm"
+              onClick={() => setResourceStatusOpen((open) => !open)}
+            >
+              {resourceStatusOpen ? '자원정보현황 닫기' : '자원정보현황'}
+            </Button>
+          </div>
+
+          {resourceStatusPanel}
+          {personnelSearchCard}
+        </div>
+      )}
 
       {editorOpen && editingRow && (
         <div className="personnel-edit-backdrop no-print" onClick={closeEditor}>

@@ -25,7 +25,14 @@ export interface PersonnelResourceStats {
   divisionCompositions: PersonnelDivisionComposition[];
 }
 
-export const PERSONNEL_RANK_BUCKETS = ['임원', '수석', '책임', '선임', '사원'] as const;
+export const PERSONNEL_RANK_BUCKETS = [
+  '임원',
+  '1급 수석',
+  '2급 수석',
+  '책임',
+  '선임',
+  '사원',
+] as const;
 
 export const PERSONNEL_DIVISION_GRADE_BUCKETS = [
   '임원',
@@ -92,7 +99,8 @@ function hasResourceNumericGradeLevel(row: PersonnelRow): boolean {
 function mapResourceGradeLevelToRankBucket(
   gradeLevel: PersonnelGradeLevel,
 ): (typeof PERSONNEL_RANK_BUCKETS)[number] {
-  if (gradeLevel <= 2) return '수석';
+  if (gradeLevel === 1) return '1급 수석';
+  if (gradeLevel === 2) return '2급 수석';
   if (gradeLevel === 3) return '책임';
   if (gradeLevel <= 5) return '선임';
   return '사원';

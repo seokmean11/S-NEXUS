@@ -1,4 +1,4 @@
-import { useCallback, useDeferredValue, useMemo, useRef } from 'react';
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef } from 'react';
 
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 
@@ -104,6 +104,26 @@ export function OutsourcingSearchPage() {
 
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const dbStatsPanelRef = useRef<HTMLDivElement>(null);
+
+  const hasLoadedData = records.length > 0 && loadResult != null;
+
+  useEffect(() => {
+    if (!dbStatsOpen) return;
+
+    const body = bodyRef.current;
+    const panel = dbStatsPanelRef.current;
+    if (!body || !panel) return;
+
+    requestAnimationFrame(() => {
+      const scrollTop =
+        panel.getBoundingClientRect().top -
+        body.getBoundingClientRect().top +
+        body.scrollTop;
+      body.scrollTo({ top: Math.max(0, scrollTop - 8), behavior: 'smooth' });
+    });
+  }, [dbStatsOpen]);
 
 
 
@@ -168,19 +188,74 @@ export function OutsourcingSearchPage() {
 
       <div className="outsourcing-search-page">
 
-        <div className="page-header no-print">
+        <div className="page-header no-print outsourcing-search-page__header">
 
           <h2>외주정보검색</h2>
 
           <p>
-
-            PC 로컬 폴더의 AppSheet CSV 내보내기 파일을 읽어 검색·KPI·차트를 분석합니다. Google
-
-            스프레드시트/API는 사용하지 않으며 기존 AppSheet 업무에는 영향이 없습니다.
-
+            외주계약 이력 통합 검색 및 금액·단가 KPI·업체별 현황 분석 제공. 기간·조직·업체 등
+            다중 조건 필터와 상세 내역 조회로 외주 정보 확인과 업무 검토 시간을 단축합니다.
           </p>
 
         </div>
+
+        {hasLoadedData && (
+          <div className="outsourcing-search-page__toolbar no-print">
+            <div className="outsourcing-search-page__meta-group">
+              <span className="outsourcing-search-page__meta">
+                전체 {records.length.toLocaleString('ko-KR')}건 ·{' '}
+                {formatOutsourcingSourceLabel(loadResult!)}
+                {loading ? ' · 갱신 중…' : ''}
+              </span>
+
+              {loadResult!.updatedAt && (
+                <span className="outsourcing-search-page__meta-sub">
+                  갱신 {formatUpdatedAt(loadResult!.updatedAt)}
+                </span>
+              )}
+
+              {localInfo?.configuredPath && loadResult!.source === 'local-folder' && (
+                <span className="outsourcing-search-page__meta-sub">{localInfo.configuredPath}</span>
+              )}
+            </div>
+
+            <div className="outsourcing-search-page__toolbar-actions">
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".csv,text/csv"
+                className="outsourcing-file-input"
+                onChange={(event) => {
+                  const file = event.target.files?.[0];
+                  event.target.value = '';
+                  if (file) void handleFilePick(file);
+                }}
+              />
+
+              <Button variant="ghost" size="sm" onClick={() => setSetupOpen((open) => !open)}>
+                {setupOpen ? '로컬 설정 닫기' : '로컬 폴더 설정'}
+              </Button>
+
+              <Button variant="outline" size="sm" onClick={() => fileInputRef.current?.click()}>
+                CSV 파일 선택
+              </Button>
+
+              <Button variant="ghost" size="sm" onClick={() => void loadFromLocalFolder()}>
+                폴더 새로고침
+              </Button>
+
+              <Button
+                variant={dbStatsOpen ? 'primary' : 'outline'}
+                size="sm"
+                onClick={() => setDbStatsOpen((open) => !open)}
+              >
+                {dbStatsOpen ? 'DB정보량 닫기' : 'DB정보량보기'}
+              </Button>
+            </div>
+          </div>
+        )}
+
+        <div className="outsourcing-search-page__body" ref={bodyRef}>
 
         {showStaleDataAlert && (
           <div className="outsourcing-stale-data-alert no-print" role="alert">
@@ -200,104 +275,8 @@ export function OutsourcingSearchPage() {
 
 
 
-        {records.length > 0 && loadResult && (
-
+        {hasLoadedData && (
           <>
-
-            <div className="outsourcing-search-page__toolbar no-print">
-
-              <div className="outsourcing-search-page__meta-group">
-
-                <span className="outsourcing-search-page__meta">
-
-                  전체 {records.length.toLocaleString('ko-KR')}건 ·{' '}
-
-                  {formatOutsourcingSourceLabel(loadResult)}
-
-                  {loading ? ' · 갱신 중…' : ''}
-
-                </span>
-
-                {loadResult.updatedAt && (
-
-                  <span className="outsourcing-search-page__meta-sub">
-
-                    갱신 {formatUpdatedAt(loadResult.updatedAt)}
-
-                  </span>
-
-                )}
-
-                {localInfo?.configuredPath && loadResult.source === 'local-folder' && (
-
-                  <span className="outsourcing-search-page__meta-sub">{localInfo.configuredPath}</span>
-
-                )}
-
-              </div>
-
-              <div className="outsourcing-search-page__toolbar-actions">
-
-                <input
-
-                  ref={fileInputRef}
-
-                  type="file"
-
-                  accept=".csv,text/csv"
-
-                  className="outsourcing-file-input"
-
-                  onChange={(event) => {
-
-                    const file = event.target.files?.[0];
-
-                    event.target.value = '';
-
-                    if (file) void handleFilePick(file);
-
-                  }}
-
-                />
-
-                <Button variant="ghost" size="sm" onClick={() => setSetupOpen((open) => !open)}>
-
-                  {setupOpen ? '로컬 설정 닫기' : '로컬 폴더 설정'}
-
-                </Button>
-
-                <Button variant="outline" size="sm" onClick={() => fileInputRef.current?.click()}>
-
-                  CSV 파일 선택
-
-                </Button>
-
-                <Button variant="ghost" size="sm" onClick={() => void loadFromLocalFolder()}>
-
-                  폴더 새로고침
-
-                </Button>
-
-                <Button
-
-                  variant={dbStatsOpen ? 'primary' : 'outline'}
-
-                  size="sm"
-
-                  onClick={() => setDbStatsOpen((open) => !open)}
-
-                >
-
-                  {dbStatsOpen ? 'DB정보량 닫기' : 'DB정보량보기'}
-
-                </Button>
-
-              </div>
-
-            </div>
-
-
-
             {notice && (
 
               <Card title="데이터 안내" className="outsourcing-notice-card">
@@ -343,17 +322,15 @@ export function OutsourcingSearchPage() {
 
 
             {dbStatsOpen && (
-
-              <OutsourcingDbStatsPanel
-
-                stats={dbStats}
-
-                loadResult={loadResult}
-
-                updatedAtLabel={loadResult.updatedAt ? formatUpdatedAt(loadResult.updatedAt) : undefined}
-
-              />
-
+              <div ref={dbStatsPanelRef} className="outsourcing-search-page__db-stats">
+                <OutsourcingDbStatsPanel
+                  stats={dbStats}
+                  loadResult={loadResult!}
+                  updatedAtLabel={
+                    loadResult!.updatedAt ? formatUpdatedAt(loadResult!.updatedAt) : undefined
+                  }
+                />
+              </div>
             )}
 
 
@@ -419,6 +396,8 @@ export function OutsourcingSearchPage() {
           </Card>
 
         )}
+
+        </div>
 
       </div>
 

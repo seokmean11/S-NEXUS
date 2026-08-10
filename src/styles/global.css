@@ -161,6 +161,31 @@ body {
   margin-bottom: 0;
 }
 
+.personnel-resource-status-export-wrapper {
+  background: #fff !important;
+}
+
+.personnel-resource-status-export-capture {
+  background: #fff !important;
+  overflow: visible !important;
+  max-height: none !important;
+  height: auto !important;
+  box-sizing: border-box;
+}
+
+.personnel-resource-status-export-capture .card,
+.personnel-resource-status-export-capture .card__body,
+.personnel-resource-status-export-capture .personnel-resource-status__division-charts,
+.personnel-resource-status-export-capture .personnel-resource-status__charts {
+  overflow: visible !important;
+  max-height: none !important;
+  height: auto !important;
+}
+
+.personnel-resource-status-export-capture .personnel-resource-status-export-hide {
+  display: none !important;
+}
+
 .personnel-resource-status__metrics {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -852,6 +877,35 @@ body {
   border-color: var(--color-primary);
   color: var(--color-primary);
   font-weight: 600;
+}
+
+.purchase-page {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.main-content:has(.purchase-page) {
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.purchase-page__header {
+  flex-shrink: 0;
+  margin-bottom: 0;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-bg);
+}
+
+.purchase-page__body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-top: 16px;
 }
 
 .misc-info-subnav {
@@ -2741,6 +2795,51 @@ body {
 /* Org Chart */
 .org-page {
   max-width: 960px;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.main-content:has(.org-page) {
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.org-page__header {
+  flex-shrink: 0;
+  margin-bottom: 0;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-bg);
+}
+
+.org-page__toolbar {
+  flex-shrink: 0;
+  padding: 12px 0 16px;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-bg);
+}
+
+.org-page__body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-top: 16px;
+}
+
+.org-page__body > * {
+  margin-bottom: 16px;
+}
+
+.org-page__body > *:last-child {
+  margin-bottom: 0;
+}
+
+.org-page__resource-status {
+  flex-shrink: 0;
 }
 
 .org-tree {
@@ -4458,17 +4557,56 @@ body {
 
 /* Outsourcing Search */
 .outsourcing-search-page {
+  flex: 1;
+  min-height: 0;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+}
+
+.main-content:has(.outsourcing-search-page) {
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.outsourcing-search-page__header {
+  flex-shrink: 0;
+  margin-bottom: 0;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-bg);
 }
 
 .outsourcing-search-page__toolbar {
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
   flex-wrap: wrap;
+  padding: 12px 0 16px;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-bg);
+}
+
+.outsourcing-search-page__body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-top: 16px;
+}
+
+.outsourcing-search-page__body > * {
+  margin-bottom: 16px;
+}
+
+.outsourcing-search-page__body > *:last-child {
+  margin-bottom: 0;
+}
+
+.outsourcing-search-page__db-stats {
+  flex-shrink: 0;
 }
 
 .outsourcing-search-page__toolbar-actions {
@@ -5567,19 +5705,19 @@ body {
     padding: 16px 12px;
   }
 
-  .outsourcing-search-page {
-    gap: 12px;
-  }
-
-  .outsourcing-search-page .page-header {
+  .outsourcing-search-page__body > * {
     margin-bottom: 12px;
   }
 
-  .outsourcing-search-page .page-header h2 {
+  .outsourcing-search-page__header {
+    margin-bottom: 0;
+  }
+
+  .outsourcing-search-page__header h2 {
     font-size: 20px;
   }
 
-  .outsourcing-search-page .page-header p {
+  .outsourcing-search-page__header p {
     font-size: 13px;
     line-height: 1.55;
   }
