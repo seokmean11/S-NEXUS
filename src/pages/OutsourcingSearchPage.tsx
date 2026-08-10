@@ -28,6 +28,7 @@ import type { OutsourcingDateRange, OutsourcingFilters } from '@/types/outsourci
 
 import {
 
+  countActiveOutsourcingFilters,
   filterOutsourcingRecords,
 
 } from '@/utils/outsourcingAnalysis';
@@ -121,21 +122,39 @@ export function OutsourcingSearchPage() {
 
   const dbStats = useMemo(() => summarizeOutsourcingDbStats(records), [records]);
 
+  const activeFilterCount = useMemo(
+    () => countActiveOutsourcingFilters(filters, dateRange),
+    [filters, dateRange],
+  );
+
+  const prevActiveFilterCountRef = useRef(activeFilterCount);
+  const filtersLoosened = activeFilterCount < prevActiveFilterCountRef.current;
+  prevActiveFilterCountRef.current = activeFilterCount;
+
+  const useImmediateFilters = activeFilterCount === 0 || filtersLoosened;
+
   const deferredFilters = useDeferredValue(filters);
   const deferredDateRange = useDeferredValue(dateRange);
 
+  const filtersForResults = useImmediateFilters ? filters : deferredFilters;
+  const dateRangeForResults = useImmediateFilters ? dateRange : deferredDateRange;
+
   const filteredRecords = useMemo(
-    () => filterOutsourcingRecords(records, deferredFilters, { dateRange: deferredDateRange }),
-    [records, deferredFilters, deferredDateRange],
+    () => filterOutsourcingRecords(records, filtersForResults, { dateRange: dateRangeForResults }),
+    [records, filtersForResults, dateRangeForResults],
   );
 
   const isResultsPending =
-    deferredFilters !== filters || deferredDateRange !== dateRange;
+    !useImmediateFilters &&
+    (deferredFilters !== filters || deferredDateRange !== dateRange);
+
+  const filtersForFaceted = useImmediateFilters ? filters : deferredFilters;
+  const dateRangeForFaceted = useImmediateFilters ? dateRange : deferredDateRange;
 
   const facetedOptions = useDeferredFacetedFilterOptions(
     records,
-    deferredFilters,
-    deferredDateRange,
+    filtersForFaceted,
+    dateRangeForFaceted,
   );
 
   const showStaleDataAlert = useMemo(

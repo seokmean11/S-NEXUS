@@ -20,26 +20,27 @@ function OutsourcingSearchResultsComponent({
   isPending,
 }: OutsourcingSearchResultsProps) {
   const deferredRecords = useDeferredValue(records);
-  const showPending = isPending || deferredRecords !== records;
+  const displayRecords = isPending ? deferredRecords : records;
+  const showPending = isPending && deferredRecords !== records;
 
   const kpiSummary = useMemo(
-    () => summarizeOutsourcingKpi(deferredRecords),
-    [deferredRecords],
+    () => summarizeOutsourcingKpi(displayRecords),
+    [displayRecords],
   );
 
   const vendorChartItems = useMemo(
-    () => buildVendorChartData(deferredRecords),
-    [deferredRecords],
+    () => buildVendorChartData(displayRecords),
+    [displayRecords],
   );
 
   return (
     <>
       <div className="outsourcing-search-page__results">
-        <OutsourcingKpiPanel summary={kpiSummary} rowCount={deferredRecords.length} />
+        <OutsourcingKpiPanel summary={kpiSummary} rowCount={displayRecords.length} />
         <OutsourcingVendorChart items={vendorChartItems} />
       </div>
 
-      <OutsourcingDetailPanel records={deferredRecords} isPending={loading || showPending} />
+      <OutsourcingDetailPanel records={displayRecords} isPending={loading || showPending} />
     </>
   );
 }

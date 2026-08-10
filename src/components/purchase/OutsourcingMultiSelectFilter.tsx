@@ -61,15 +61,22 @@ function OutsourcingMultiSelectFilterComponent({
   draftSelectedRef.current = draftSelected;
 
   useEffect(() => {
-    if (isFocusedRef.current) return;
+    if (isFocusedRef.current) {
+      const parentCleared =
+        !field.keyword.trim() &&
+        field.selected.length === 0 &&
+        (draftKeywordRef.current.trim().length > 0 || draftSelectedRef.current.length > 0);
+      if (parentCleared) {
+        setDraftKeyword('');
+        setDraftSelected([]);
+        draftKeywordRef.current = '';
+        draftSelectedRef.current = [];
+      }
+      return;
+    }
     setDraftKeyword(field.keyword);
-  }, [field.keyword]);
-
-  useEffect(() => {
-    if (field.selected.length > 0 || field.keyword.trim().length > 0) return;
-    setDraftSelected([]);
-    setDraftKeyword('');
-  }, [field.selected, field.keyword]);
+    setDraftSelected(field.selected);
+  }, [field.keyword, field.selected]);
 
   const scheduleCommit = useCallback(() => {
     startTransition(() => {
@@ -122,6 +129,9 @@ function OutsourcingMultiSelectFilterComponent({
   const handleKeywordChange = (keyword: string) => {
     setDraftKeyword(keyword);
     draftKeywordRef.current = keyword;
+    if (!keyword.trim() && fieldRef.current.keyword.trim()) {
+      scheduleCommit();
+    }
   };
 
   const flushField = () => {
@@ -148,6 +158,8 @@ function OutsourcingMultiSelectFilterComponent({
   };
 
   const handleClearAll = () => {
+    setDraftKeyword('');
+    draftKeywordRef.current = '';
     commitSelected([]);
   };
 
