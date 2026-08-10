@@ -18,7 +18,8 @@ import { resolveOutsourcingPopoverRect } from '@/utils/outsourcingMobileLayout';
 
 const POPOVER_MAX_HEIGHT = 280;
 const POPOVER_GAP = 6;
-const KEYWORD_RESULT_COMMIT_MS = 120;
+/** 팝over DOM 렌더 상한 — 대용량 옵션에서 키워드 타이핑 지연 방지 */
+const POPOVER_VISIBLE_OPTION_LIMIT = 200;
 
 function areSelectedEqual(a: string[], b: string[]): boolean {
   if (a.length !== b.length) return false;
@@ -88,24 +89,10 @@ function OutsourcingMultiSelectFilterComponent({
   }, [onChange]);
 
   useEffect(() => {
-    if (draftSelected.length > 0) return undefined;
-    if (draftKeyword === field.keyword) return undefined;
-
-    const timer = window.setTimeout(() => {
-      scheduleCommit();
-    }, KEYWORD_RESULT_COMMIT_MS);
-
-    return () => window.clearTimeout(timer);
-  }, [draftKeyword, draftSelected.length, field.keyword, scheduleCommit]);
-
-  useEffect(() => {
     if (activeFilterKey === null || activeFilterKey === filterKey) return;
     if (draftSelected.length > 0) return;
-    if (!draftKeyword.trim() && !field.keyword.trim()) return;
+    if (draftKeyword === field.keyword) return;
 
-    setDraftKeyword('');
-    setOpen(false);
-    draftKeywordRef.current = '';
     scheduleCommit();
   }, [
     activeFilterKey,
@@ -123,6 +110,12 @@ function OutsourcingMultiSelectFilterComponent({
     if (!keyword) return options;
     return options.filter((option) => option.toLowerCase().includes(keyword));
   }, [draftKeyword, options]);
+
+  const visibleOptions = useMemo(
+    () => filteredOptions.slice(0, POPOVER_VISIBLE_OPTION_LIMIT),
+    [filteredOptions],
+  );
+  const hiddenOptionCount = Math.max(0, filteredOptions.length - visibleOptions.length);
 
   const hasSelection = draftSelected.length > 0;
 
@@ -248,16 +241,23 @@ function OutsourcingMultiSelectFilterComponent({
         {filteredOptions.length === 0 ? (
           <p className="outsourcing-filter-popover__empty">선택 가능한 값이 없습니다.</p>
         ) : (
-          filteredOptions.map((option) => (
-            <label key={option} className="outsourcing-filter-popover__option">
-              <input
-                type="checkbox"
-                checked={selectedSet.has(option)}
-                onChange={() => toggleValue(option)}
-              />
-              <span>{option}</span>
-            </label>
-          ))
+          <>
+            {visibleOptions.map((option) => (
+              <label key={option} className="outsourcing-filter-popover__option">
+                <input
+                  type="checkbox"
+                  checked={selectedSet.has(option)}
+                  onChange={() => toggleValue(option)}
+                />
+                <span>{option}</span>
+              </label>
+            ))}
+            {hiddenOptionCount > 0 && (
+              <p className="outsourcing-filter-popover__empty">
+                외 {hiddenOptionCount.toLocaleString('ko-KR')}건 — 키워드로 더 좁혀 주세요.
+              </p>
+            )}
+          </>
         )}
       </div>
     </div>
@@ -327,6 +327,11 @@ function OutsourcingMultiSelectFilterComponent({
             }}
             onBlur={() => {
               isFocusedRef.current = false;
+              flushField();
+            }}
+            onKeyDown={(event) => {
+              if (event.key !== 'Enter') return;
+              event.preventDefault();
               flushField();
             }}
             onClick={(event) => event.stopPropagation()}
