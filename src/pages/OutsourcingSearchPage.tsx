@@ -4,13 +4,9 @@ import { ErrorBoundary } from '@/components/ErrorBoundary';
 
 import { OutsourcingDbStatsPanel } from '@/components/purchase/OutsourcingDbStatsPanel';
 
-import { OutsourcingDetailPanel } from '@/components/purchase/OutsourcingDetailPanel';
-
 import { OutsourcingFilterPanel } from '@/components/purchase/OutsourcingFilterPanel';
 
-import { OutsourcingKpiPanel } from '@/components/purchase/OutsourcingKpiPanel';
-
-import { OutsourcingVendorChart } from '@/components/purchase/OutsourcingVendorChart';
+import { OutsourcingSearchResults } from '@/components/purchase/OutsourcingSearchResults';
 
 import { Button } from '@/components/ui/Button';
 
@@ -18,7 +14,7 @@ import { Card } from '@/components/ui/Card';
 
 import { useOutsourcingSearch } from '@/context/OutsourcingSearchContext';
 
-import { useDebouncedValue } from '@/hooks/useDebouncedValue';
+import { useDeferredFacetedFilterOptions } from '@/hooks/useDeferredFacetedFilterOptions';
 
 import {
 
@@ -32,11 +28,7 @@ import type { OutsourcingDateRange, OutsourcingFilters } from '@/types/outsourci
 
 import {
 
-  buildVendorChartData,
-
   filterOutsourcingRecords,
-
-  summarizeOutsourcingKpi,
 
 } from '@/utils/outsourcingAnalysis';
 
@@ -129,27 +121,21 @@ export function OutsourcingSearchPage() {
 
   const dbStats = useMemo(() => summarizeOutsourcingDbStats(records), [records]);
 
-  const debouncedDateRange = useDebouncedValue(dateRange, 180);
   const deferredFilters = useDeferredValue(filters);
+  const deferredDateRange = useDeferredValue(dateRange);
 
   const filteredRecords = useMemo(
-    () =>
-      filterOutsourcingRecords(records, deferredFilters, { dateRange: debouncedDateRange }),
-    [records, deferredFilters, debouncedDateRange],
+    () => filterOutsourcingRecords(records, deferredFilters, { dateRange: deferredDateRange }),
+    [records, deferredFilters, deferredDateRange],
   );
 
-  const deferredFilteredRecords = useDeferredValue(filteredRecords);
+  const isResultsPending =
+    deferredFilters !== filters || deferredDateRange !== dateRange;
 
-  const isDetailPending =
-    deferredFilteredRecords !== filteredRecords ||
-    deferredFilters !== filters ||
-    debouncedDateRange !== dateRange;
-
-  const kpiSummary = useMemo(() => summarizeOutsourcingKpi(deferredFilteredRecords), [deferredFilteredRecords]);
-
-  const vendorChartItems = useMemo(
-    () => buildVendorChartData(deferredFilteredRecords),
-    [deferredFilteredRecords],
+  const facetedOptions = useDeferredFacetedFilterOptions(
+    records,
+    deferredFilters,
+    deferredDateRange,
   );
 
   const showStaleDataAlert = useMemo(
@@ -343,11 +329,11 @@ export function OutsourcingSearchPage() {
 
               dateRange={dateRange}
 
-              facetedDateRange={debouncedDateRange}
+              facetedOptions={facetedOptions}
 
-              filteredCount={deferredFilteredRecords.length}
+              filteredCount={filteredRecords.length}
 
-              isFiltering={isDetailPending}
+              isFiltering={isResultsPending}
 
               onFiltersChange={handleFiltersChange}
 
@@ -357,22 +343,10 @@ export function OutsourcingSearchPage() {
 
 
 
-            <div className="outsourcing-search-page__results">
-
-              <OutsourcingKpiPanel summary={kpiSummary} rowCount={deferredFilteredRecords.length} />
-
-              <OutsourcingVendorChart items={vendorChartItems} />
-
-            </div>
-
-
-
-            <OutsourcingDetailPanel
-
-              records={deferredFilteredRecords}
-
-              isPending={isDetailPending || loading}
-
+            <OutsourcingSearchResults
+              records={filteredRecords}
+              loading={loading}
+              isPending={isResultsPending}
             />
 
           </>

@@ -9,15 +9,19 @@ import type {
   OutsourcingFilterKey,
   OutsourcingFilters,
 } from '@/types/outsourcing';
-import { EMPTY_OUTSOURCING_DATE_RANGE, EMPTY_OUTSOURCING_FILTERS, OUTSOURCING_FILTER_ORDER } from '@/types/outsourcing';
+import {
+  createEmptyOutsourcingFilters,
+  EMPTY_OUTSOURCING_DATE_RANGE,
+  OUTSOURCING_FILTER_ORDER,
+} from '@/types/outsourcing';
 import type { OutsourcingRecord } from '@/types/outsourcing';
-import { countActiveOutsourcingFilters, buildFacetedOptionsDependencyKey } from '@/utils/outsourcingAnalysis';
+import { countActiveOutsourcingFilters } from '@/utils/outsourcingAnalysis';
 
 interface OutsourcingFilterPanelProps {
   allRecords: OutsourcingRecord[];
   filters: OutsourcingFilters;
   dateRange: OutsourcingDateRange;
-  facetedDateRange: OutsourcingDateRange;
+  facetedOptions: Record<OutsourcingFilterKey, string[]>;
   filteredCount: number;
   isFiltering?: boolean;
   onFiltersChange: (
@@ -30,7 +34,7 @@ function OutsourcingFilterPanelComponent({
   allRecords,
   filters,
   dateRange,
-  facetedDateRange,
+  facetedOptions,
   filteredCount,
   isFiltering = false,
   onFiltersChange,
@@ -52,7 +56,7 @@ function OutsourcingFilterPanelComponent({
 
   const handleResetAll = () => {
     setActiveFilterKey(null);
-    onFiltersChange(EMPTY_OUTSOURCING_FILTERS);
+    onFiltersChange(createEmptyOutsourcingFilters());
     onDateRangeChange({ ...EMPTY_OUTSOURCING_DATE_RANGE });
   };
 
@@ -89,11 +93,8 @@ function OutsourcingFilterPanelComponent({
           <OutsourcingMultiSelectFilter
             key={key}
             filterKey={key}
-            allRecords={allRecords}
-            filters={filters}
-            dateRange={facetedDateRange}
+            options={facetedOptions[key]}
             field={filters[key]}
-            facetedDependencyKey={buildFacetedOptionsDependencyKey(filters, key, facetedDateRange)}
             activeFilterKey={activeFilterKey}
             onActivate={() => setActiveFilterKey(key)}
             onChange={(field) => setField(key, field)}

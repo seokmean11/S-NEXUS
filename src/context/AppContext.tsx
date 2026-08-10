@@ -293,7 +293,7 @@ interface AppContextValue {
     name: string,
     role: string,
     accessRole?: WebAccessRole,
-  ) => void;
+  ) => string | undefined;
   updateEmployee: (
     id: string,
     updates: Partial<
@@ -310,6 +310,7 @@ interface AppContextValue {
         | 'gradeRank'
         | 'permissionLevel'
         | 'position'
+        | 'menuPermissions'
       >
     >,
   ) => void;
@@ -962,9 +963,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
   );
 
   const addEmployee = useCallback(
-    (teamId: string, name: string, roleTitle: string, accessRole?: WebAccessRole) => {
+    (teamId: string, name: string, roleTitle: string, accessRole?: WebAccessRole): string | undefined => {
       const team = teams.find((t) => t.id === teamId);
-      if (!team) return;
+      if (!team) return undefined;
       const division = divisions.find((d) => d.id === team.divisionId);
       const employee: Employee = {
         id: generateOrgId('emp'),
@@ -990,6 +991,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         after: { role: roleTitle, teamName: team.name, divisionName: division?.name },
         metadata: { teamId, divisionId: team.divisionId },
       });
+      return employee.id;
     },
     [teams, divisions, projectTeamAllocations, recordHistory],
   );

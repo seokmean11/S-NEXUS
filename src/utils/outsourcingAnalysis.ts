@@ -18,6 +18,7 @@ import {
   isOutsourcingDateRangeActive,
   isOutsourcingDateRangeInvalid,
   isOutsourcingDateRangeReady,
+  getOutsourcingDateFilterCommitKey,
 } from '@/utils/outsourcingDate';
 
 interface FieldPredicate {
@@ -87,12 +88,13 @@ function matchesFieldPredicate(value: string, predicate: FieldPredicate): boolea
 
   const hasSelected = predicate.selectedSet.size > 0;
   const hasKeyword = predicate.keyword.length > 0;
-  const selectedMatch = hasSelected && predicate.selectedSet.has(value);
-  const keywordMatch = hasKeyword && value.toLowerCase().includes(predicate.keyword);
+  const selectedMatch = predicate.selectedSet.has(value);
+  const keywordMatch = value.toLowerCase().includes(predicate.keyword);
 
-  if (hasSelected && hasKeyword) return selectedMatch && keywordMatch;
+  // 선택 항목이 있으면 선택값만 결과 필터에 사용 (키워드는 목록 검색용)
   if (hasSelected) return selectedMatch;
-  return keywordMatch;
+  if (hasKeyword) return keywordMatch;
+  return true;
 }
 
 function recordMatchesRuntime(
@@ -311,11 +313,32 @@ export function buildFacetedOptionsDependencyKey(
   return parts.join(';;');
 }
 
+/** 콤보 목록 재계산용 — 선택 항목이 있는 필드는 키워드 변경을 무시 */
+export function buildFacetedOptionsRebuildKey(
+  filters: OutsourcingFilters,
+  dateRange?: OutsourcingDateRange,
+): string {
+  const parts = OUTSOURCING_FILTER_ORDER.map((key) => {
+    const field = filters[key];
+    if (field.selected.length > 0) {
+      return `${key}|sel:${field.selected.join('\u0001')}`;
+    }
+    return `${key}|kw:${field.keyword}`;
+  });
+
+  if (dateRange) {
+    parts.push(`date:${getOutsourcingDateFilterCommitKey(dateRange)}`);
+  }
+
+  return parts.join(';;');
+}
+
 export function buildFacetedFilterOptionsForKey(
   allRecords: OutsourcingRecord[],
   filters: OutsourcingFilters,
   key: OutsourcingFilterKey,
   dateRange?: OutsourcingDateRange,
+  options?: { skipFieldKeyword?: boolean },
 ): string[] {
   const runtime = buildFilterRuntime(filters, dateRange, key);
   const values = new Set<string>();
@@ -327,10 +350,12 @@ export function buildFacetedFilterOptionsForKey(
     if (value) values.add(value);
   }
 
-  const keyword = filters[key].keyword.trim().toLowerCase();
   let sorted = sortFilterOptions(key, [...values]);
-  if (keyword) {
-    sorted = sorted.filter((value) => value.toLowerCase().includes(keyword));
+  if (!options?.skipFieldKeyword) {
+    const keyword = filters[key].keyword.trim().toLowerCase();
+    if (keyword) {
+      sorted = sorted.filter((value) => value.toLowerCase().includes(keyword));
+    }
   }
   return sorted;
 }
@@ -339,12 +364,40 @@ export function buildAllFacetedFilterOptions(
   allRecords: OutsourcingRecord[],
   filters: OutsourcingFilters,
   dateRange?: OutsourcingDateRange,
+  options?: { skipFieldKeyword?: boolean },
 ): Record<OutsourcingFilterKey, string[]> {
-  const options = {} as Record<OutsourcingFilterKey, string[]>;
+  const valueSets = Object.fromEntries(
+    OUTSOURCING_FILTER_ORDER.map((key) => [key, new Set<string>()]),
+  ) as Record<OutsourcingFilterKey, Set<string>>;
+
+  const runtimes = Object.fromEntries(
+    OUTSOURCING_FILTER_ORDER.map((key) => [
+      key,
+      buildFilterRuntime(filters, dateRange, key),
+    ]),
+  ) as Record<OutsourcingFilterKey, FilterRuntime>;
+
+  for (let index = 0; index < allRecords.length; index += 1) {
+    const record = allRecords[index];
+    for (const key of OUTSOURCING_FILTER_ORDER) {
+      if (!recordMatchesRuntime(record, runtimes[key], key)) continue;
+      const value = getRecordFieldValue(record, key);
+      if (value) valueSets[key].add(value);
+    }
+  }
+
+  const result = {} as Record<OutsourcingFilterKey, string[]>;
   OUTSOURCING_FILTER_ORDER.forEach((key) => {
-    options[key] = buildFacetedFilterOptionsForKey(allRecords, filters, key, dateRange);
+    let sorted = sortFilterOptions(key, [...valueSets[key]]);
+    if (!options?.skipFieldKeyword) {
+      const keyword = filters[key].keyword.trim().toLowerCase();
+      if (keyword) {
+        sorted = sorted.filter((value) => value.toLowerCase().includes(keyword));
+      }
+    }
+    result[key] = sorted;
   });
-  return options;
+  return result;
 }
 
 export function getFacetedFilterOptions(

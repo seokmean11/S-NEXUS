@@ -61,6 +61,13 @@ const EMPTY_PERSON_FORM = {
   teamId: '',
 };
 
+const EMPTY_PERSONNEL_PROFILE = {
+  gradeLevel: undefined,
+  gradeRank: undefined,
+  position: undefined,
+  permissionLevel: undefined,
+} as const;
+
 const CLEAR_DIVISION_HEAD_FIELDS = {
   headName: '',
   headRank: '',
@@ -83,6 +90,7 @@ export function PersonnelDashboard({ embedded = false }: { embedded?: boolean })
     removeExecutiveAdmin,
     updateEmployee,
     removeEmployee,
+    addEmployee,
     updateDivision,
     updateTeam,
   } = useApp();
@@ -94,6 +102,8 @@ export function PersonnelDashboard({ embedded = false }: { embedded?: boolean })
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const [editingRow, setEditingRow] = useState<PersonnelRow | null>(null);
+  const [isAddingPerson, setIsAddingPerson] = useState(false);
+  const [addConfirmOpen, setAddConfirmOpen] = useState(false);
   const [personForm, setPersonForm] = useState(EMPTY_PERSON_FORM);
   const [deletePersonTarget, setDeletePersonTarget] = useState<PersonnelRow | null>(null);
   const [exportFormat, setExportFormat] = useState<PersonnelExportFormat>('excel');
@@ -157,11 +167,22 @@ export function PersonnelDashboard({ embedded = false }: { embedded?: boolean })
   const editorTeamSelectOptions = useMemo(
     () =>
       getPersonnelEditorTeamSelectOptions(teams, personForm.divisionId, {
-        includeNone: Boolean(editingRow),
+        includeNone: Boolean(editingRow) && !isAddingPerson,
         currentTeamId: personForm.teamId,
       }),
-    [teams, personForm.divisionId, personForm.teamId, editingRow],
+    [teams, personForm.divisionId, personForm.teamId, editingRow, isAddingPerson],
   );
+
+  const canSavePersonForm = useMemo(() => {
+    if (!isAddingPerson) return true;
+
+    if (!personForm.name.trim()) return false;
+    if (!personForm.divisionId) return false;
+    if (!personForm.teamId || personForm.teamId === PERSONNEL_TEAM_NONE_VALUE) return false;
+
+    const rankResult = resolvePersonnelRankForSave(personForm.grade, personForm.rank);
+    return rankResult.ok;
+  }, [isAddingPerson, personForm]);
 
   const autoDerivedRank = useMemo(
     () => derivePersonnelRankFromGrade(personForm.grade),
@@ -193,9 +214,9 @@ export function PersonnelDashboard({ embedded = false }: { embedded?: boolean })
   );
 
   useEffect(() => {
-    if (!editingRow) return;
+    if (!editingRow && !isAddingPerson) return;
     editorDialogRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  }, [editingRow]);
+  }, [editingRow, isAddingPerson]);
 
   const resultCount = filteredPersonRows.length;
   const totalCount = allPersonRows.length;
@@ -258,7 +279,17 @@ export function PersonnelDashboard({ embedded = false }: { embedded?: boolean })
 
   const closeEditor = () => {
     setEditingRow(null);
+    setIsAddingPerson(false);
     setPersonForm(EMPTY_PERSON_FORM);
+  };
+
+  const openAddPersonEditor = () => {
+    setAddConfirmOpen(false);
+    setEditingRow(null);
+    setIsAddingPerson(true);
+    setPersonForm(EMPTY_PERSON_FORM);
+    setMessage('');
+    setError('');
   };
 
   const openEditPerson = (row: PersonnelRow) => {
@@ -304,6 +335,22 @@ export function PersonnelDashboard({ embedded = false }: { embedded?: boolean })
     if (!divisionId) {
       showError('사업본부를 선택해 주세요.');
       return null;
+    }
+
+    if (isAddingPerson) {
+      const teamId = personForm.teamId;
+      if (!teamId || teamId === PERSONNEL_TEAM_NONE_VALUE) {
+        showError('소속 팀을 선택해 주세요.');
+        return null;
+      }
+
+      const team = teams.find((item) => item.id === teamId);
+      if (!team || team.divisionId !== divisionId) {
+        showError('선택한 팀이 사업본부와 일치하지 않습니다.');
+        return null;
+      }
+
+      return { divisionId, teamId };
     }
 
     if (!editingRow) return null;
@@ -470,6 +517,59 @@ export function PersonnelDashboard({ embedded = false }: { embedded?: boolean })
     closeEditor();
   };
 
+  const handleSavePersonAdd = () => {
+    if (!isAddingPerson) return;
+
+    const name = personForm.name.trim();
+    if (!name) {
+      showError('이름을 입력해 주세요.');
+      return;
+    }
+
+    const rankResult = resolvePersonnelRankForSave(personForm.grade, personForm.rank);
+    if (!rankResult.ok) {
+      showError(rankResult.message);
+      return;
+    }
+    const rank = rankResult.rank;
+
+    const gradeResult = buildPersonnelGradeUpdates(personForm.grade, EMPTY_PERSONNEL_PROFILE);
+    if (!gradeResult.ok) {
+      showError(gradeResult.message);
+      return;
+    }
+
+    const positionResult = buildPersonnelPositionUpdates(
+      personForm.position,
+      EMPTY_PERSONNEL_PROFILE,
+    );
+    if (!positionResult.ok) {
+      showError(positionResult.message);
+      return;
+    }
+
+    const affiliation = validateOrgAffiliation();
+    if (!affiliation) return;
+
+    const employeeId = addEmployee(affiliation.teamId, name, rank);
+    if (!employeeId) {
+      showError('인원 등록에 실패했습니다. 팀 정보를 확인해 주세요.');
+      return;
+    }
+
+    const menuPermissions = normalizeMenuPermissions(personForm.menuPermissions);
+    updateEmployee(employeeId, {
+      ...(gradeResult.updates ?? {}),
+      ...(positionResult.updates ?? {}),
+      menuPermissions,
+      divisionId: affiliation.divisionId,
+      teamId: affiliation.teamId,
+    });
+
+    showMessage('인원이 추가되었습니다.');
+    closeEditor();
+  };
+
   const handleDeletePersonConfirm = () => {
     if (!deletePersonTarget) return;
 
@@ -522,9 +622,13 @@ export function PersonnelDashboard({ embedded = false }: { embedded?: boolean })
     setDeletePersonTarget(null);
   };
 
-  const editorOpen = !!editingRow;
+  const editorOpen = !!editingRow || isAddingPerson;
 
   const handleEditorSave = () => {
+    if (isAddingPerson) {
+      handleSavePersonAdd();
+      return;
+    }
     handleSavePersonEdit();
   };
 
@@ -573,6 +677,14 @@ export function PersonnelDashboard({ embedded = false }: { embedded?: boolean })
             onChange={handlePersonFilterChange}
           />
         </div>
+
+        {canEditOrg && (
+          <div className="personnel-dashboard__add-action no-print">
+            <Button variant="primary" size="sm" onClick={() => setAddConfirmOpen(true)}>
+              인원추가등록
+            </Button>
+          </div>
+        )}
 
         <div className="personnel-dashboard__summary">
           <span>
@@ -692,7 +804,7 @@ export function PersonnelDashboard({ embedded = false }: { embedded?: boolean })
         </div>
       )}
 
-      {editorOpen && editingRow && (
+      {editorOpen && (editingRow || isAddingPerson) && (
         <div className="personnel-edit-backdrop no-print" onClick={closeEditor}>
           <div
             ref={editorDialogRef}
@@ -704,13 +816,27 @@ export function PersonnelDashboard({ embedded = false }: { embedded?: boolean })
           >
             <div className="personnel-edit-dialog__header">
               <h3 id="personnel-edit-dialog-title" className="personnel-edit-dialog__title">
-                개인정보 수정
+                {isAddingPerson ? '인원 추가등록' : '개인정보 수정'}
               </h3>
-              <p className="personnel-edit-dialog__subtitle">
-                {editingRow.name} · {editingRow.divisionName} · {editingRow.teamName}
-              </p>
+              {isAddingPerson ? (
+                <p className="personnel-edit-dialog__subtitle">
+                  전사 조직에 새 인원을 등록합니다.
+                </p>
+              ) : editingRow ? (
+                <p className="personnel-edit-dialog__subtitle">
+                  {editingRow.name} · {editingRow.divisionName} · {editingRow.teamName}
+                </p>
+              ) : null}
               <p className="personnel-edit-dialog__guide">
-                아래 항목을 수정한 뒤 하단 <strong>저장</strong> 버튼을 눌러 반영해 주세요.
+                {isAddingPerson ? (
+                  <>
+                    아래 항목을 입력한 뒤 하단 <strong>저장</strong> 버튼을 눌러 등록해 주세요.
+                  </>
+                ) : (
+                  <>
+                    아래 항목을 수정한 뒤 하단 <strong>저장</strong> 버튼을 눌러 반영해 주세요.
+                  </>
+                )}
               </p>
             </div>
 
@@ -757,7 +883,8 @@ export function PersonnelDashboard({ embedded = false }: { embedded?: boolean })
                   }
                   options={positionSelectOptions}
                 />
-                {editingRow && isPersonnelOrgAffiliationEditable(editingRow.kind) && (
+                {(isAddingPerson ||
+                  (editingRow && isPersonnelOrgAffiliationEditable(editingRow.kind))) && (
                   <>
                     <Select
                       label="사업본부"
@@ -767,7 +894,9 @@ export function PersonnelDashboard({ embedded = false }: { embedded?: boolean })
                           ...prev,
                           divisionId: e.target.value,
                           teamId:
-                            editingRow.kind === 'team_head' ? '' : PERSONNEL_TEAM_NONE_VALUE,
+                            isAddingPerson || editingRow?.kind === 'team_head'
+                              ? ''
+                              : PERSONNEL_TEAM_NONE_VALUE,
                         }))
                       }
                       options={[{ value: '', label: '선택' }, ...getDivisionOptions(divisions)]}
@@ -784,7 +913,7 @@ export function PersonnelDashboard({ embedded = false }: { embedded?: boolean })
                 )}
                 <div className="personnel-edit-dialog__menu-perms">
                   <p className="personnel-edit-dialog__field-label">메뉴 권한</p>
-                  {isPlatformSuperAdminPerson(editingRow) ? (
+                  {!isAddingPerson && editingRow && isPlatformSuperAdminPerson(editingRow) ? (
                     <p className="personnel-edit-dialog__locked-role">
                       개발자 (통합관리) — 모든 메뉴·조직·권한 관리 가능. 변경할 수 없습니다.
                     </p>
@@ -802,13 +931,27 @@ export function PersonnelDashboard({ embedded = false }: { embedded?: boolean })
 
             <div className="personnel-edit-dialog__footer">
               <p className="personnel-edit-dialog__save-hint">
-                변경 내용은 <strong>저장</strong>을 눌러야 목록에 반영됩니다.
+                {isAddingPerson ? (
+                  <>
+                    입력 내용은 <strong>저장</strong>을 눌러야 전사 인원에 반영됩니다.
+                  </>
+                ) : (
+                  <>
+                    변경 내용은 <strong>저장</strong>을 눌러야 목록에 반영됩니다.
+                  </>
+                )}
               </p>
               <div className="personnel-editor-actions">
                 <Button variant="ghost" onClick={closeEditor}>
                   취소
                 </Button>
-                <Button variant="primary" size="lg" className="personnel-edit-dialog__save-btn" onClick={handleEditorSave}>
+                <Button
+                  variant="primary"
+                  size="lg"
+                  className="personnel-edit-dialog__save-btn"
+                  onClick={handleEditorSave}
+                  disabled={isAddingPerson && !canSavePersonForm}
+                >
                   저장
                 </Button>
               </div>
@@ -816,6 +959,16 @@ export function PersonnelDashboard({ embedded = false }: { embedded?: boolean })
           </div>
         </div>
       )}
+
+      <ConfirmDialog
+        open={addConfirmOpen}
+        title="인원 추가등록"
+        message="새 인원을 전사 조직에 추가하시겠습니까?"
+        confirmLabel="네"
+        cancelLabel="아니오"
+        onConfirm={openAddPersonEditor}
+        onCancel={() => setAddConfirmOpen(false)}
+      />
 
       <ConfirmDialog
         open={deletePersonTarget !== null}

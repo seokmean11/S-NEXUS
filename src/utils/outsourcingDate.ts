@@ -279,6 +279,16 @@ export function isOutsourcingDateRangeReady(dateRange: OutsourcingDateRange): bo
   );
 }
 
+/** 결과·콤보 재계산 트리거 — 미완성 입력 중에는 빈 문자열 */
+export function getOutsourcingDateFilterCommitKey(dateRange: OutsourcingDateRange): string {
+  if (!isOutsourcingDateRangeActive(dateRange)) return '__cleared__';
+  if (!isOutsourcingDateRangeReady(dateRange)) return '';
+
+  const start = isCompleteDateWithYearDigits(dateRange.startDigits) ? dateRange.startDigits : '';
+  const end = isCompleteDateWithYearDigits(dateRange.endDigits) ? dateRange.endDigits : '';
+  return `${start}|${end}`;
+}
+
 export function isOutsourcingContractDateInRange(
   contractTimestamp: number | null,
   dateRange: OutsourcingDateRange,

@@ -5,6 +5,10 @@ import {
   EXECUTIVE_OFFICE_DIVISION_ID,
   EXECUTIVE_OFFICE_DIVISION_NAME,
 } from '@/utils/orgExecutiveOffice';
+import {
+  SAFETY_DIVISION_NAME,
+  SAFETY_TEAM_NAME,
+} from '@/utils/orgSafetyOffice';
 
 export interface PersonnelResourceShareItem {
   label: string;
@@ -66,6 +70,29 @@ export const PERSONNEL_DIVISION_ORDER = [
 
 export type PersonnelResourceGroupKind = 'rank' | 'division' | 'division_grade';
 
+const RESOURCE_PLANNING_DIVISION_NAME = '경영기획본부';
+
+/** 자원정보현황 — 안전관리실(최광효 상무보)은 경영기획본부 소속·임원으로 집계 */
+const RESOURCE_PLANNING_EXECUTIVE_NAMES = new Set(['최광효']);
+
+function isResourcePlanningSafetyPersonnel(row: PersonnelRow): boolean {
+  const name = row.name.trim();
+  const divisionName = row.divisionName.trim();
+  const teamName = row.teamName.trim();
+  return (
+    RESOURCE_PLANNING_EXECUTIVE_NAMES.has(name) ||
+    divisionName === SAFETY_DIVISION_NAME ||
+    teamName === SAFETY_TEAM_NAME
+  );
+}
+
+function mapPersonnelResourceDivisionLabel(row: PersonnelRow): string {
+  if (isResourcePlanningSafetyPersonnel(row)) {
+    return RESOURCE_PLANNING_DIVISION_NAME;
+  }
+  return mapPersonnelDivisionLabel(row);
+}
+
 export function mapPersonnelDivisionGradeBucket(
   row: PersonnelRow,
 ): (typeof PERSONNEL_DIVISION_GRADE_BUCKETS)[number] {
@@ -85,10 +112,11 @@ export function mapPersonnelDivisionGradeBucket(
   return bucketByLevel[row.gradeLevel!];
 }
 
-export function getPersonnelResourceGroupLabel(  row: PersonnelRow,
+export function getPersonnelResourceGroupLabel(
+  row: PersonnelRow,
   kind: PersonnelResourceGroupKind,
 ): string {
-  return kind === 'rank' ? mapPersonnelRankBucket(row) : mapPersonnelDivisionLabel(row);
+  return kind === 'rank' ? mapPersonnelRankBucket(row) : mapPersonnelResourceDivisionLabel(row);
 }
 
 /** 자원정보현황 분석 전용 — 1~7급(gradeLevel) 보유 여부로 직급 구간 분류 */
@@ -172,7 +200,7 @@ export function getPersonnelResourceGroupMembers(
     if (!divisionName) return [];
     return rows.filter(
       (row) =>
-        mapPersonnelDivisionLabel(row) === divisionName &&
+        mapPersonnelResourceDivisionLabel(row) === divisionName &&
         mapPersonnelDivisionGradeBucket(row) === label,
     );
   }
@@ -192,7 +220,9 @@ export function sortPersonnelResourceDetailMembers(
 
 function summarizeDivisionCompositions(rows: PersonnelRow[]): PersonnelDivisionComposition[] {
   return PERSONNEL_DIVISION_COMPOSITION_TARGETS.map((divisionName) => {
-    const divisionRows = rows.filter((row) => mapPersonnelDivisionLabel(row) === divisionName);
+    const divisionRows = rows.filter(
+      (row) => mapPersonnelResourceDivisionLabel(row) === divisionName,
+    );
     return {
       divisionName,
       totalCount: divisionRows.length,
@@ -211,7 +241,7 @@ export function summarizePersonnelResourceStats(rows: PersonnelRow[]): Personnel
     rankShares: buildOrderedShareItems(rows, mapPersonnelRankBucket, PERSONNEL_RANK_BUCKETS),
     divisionShares: buildOrderedShareItems(
       rows,
-      mapPersonnelDivisionLabel,
+      mapPersonnelResourceDivisionLabel,
       PERSONNEL_DIVISION_ORDER,
     ),
     divisionCompositions: summarizeDivisionCompositions(rows),

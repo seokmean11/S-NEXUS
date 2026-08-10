@@ -1,4 +1,4 @@
-import { memo, useRef, useState } from 'react';
+import { memo, startTransition, useCallback, useEffect, useRef, useState } from 'react';
 import type { OutsourcingDateRange } from '@/types/outsourcing';
 import { EMPTY_OUTSOURCING_DATE_RANGE } from '@/types/outsourcing';
 import {
@@ -7,6 +7,7 @@ import {
   clampRangeDigitIndex,
   getDateDigitSlots,
   getInitialRangeDigitIndex,
+  getOutsourcingDateFilterCommitKey,
   getRangeDigitValue,
   isCompleteDateWithYearDigits,
   isOutsourcingDateRangeActive,
@@ -78,18 +79,49 @@ function OutsourcingDateRangeFieldComponent({
   onActivate,
 }: OutsourcingDateRangeFieldProps) {
   const controlRef = useRef<HTMLDivElement>(null);
+  const dateRangeRef = useRef(dateRange);
+  dateRangeRef.current = dateRange;
+
+  const [draftDateRange, setDraftDateRange] = useState(dateRange);
   const [cursorDigit, setCursorDigit] = useState(0);
   const [focused, setFocused] = useState(false);
-  const isActive = isOutsourcingDateRangeActive(dateRange);
-  const isSearchReady = isOutsourcingDateRangeReady(dateRange);
-  const isInvalid = isOutsourcingDateRangeInvalid(dateRange);
-  const invalidMessage = getOutsourcingDateRangeInvalidMessage(dateRange);
+
+  useEffect(() => {
+    if (focused) return;
+    setDraftDateRange(dateRange);
+  }, [dateRange, focused]);
+
+  const tryCommitDateRange = useCallback(
+    (next: OutsourcingDateRange) => {
+      const nextKey = getOutsourcingDateFilterCommitKey(next);
+      const currentKey = getOutsourcingDateFilterCommitKey(dateRangeRef.current);
+      if (nextKey === '') return;
+      if (nextKey === currentKey) return;
+      startTransition(() => {
+        onChange(next);
+      });
+    },
+    [onChange],
+  );
+
+  const applyDraftDateRange = useCallback(
+    (next: OutsourcingDateRange) => {
+      setDraftDateRange(next);
+      tryCommitDateRange(next);
+    },
+    [tryCommitDateRange],
+  );
+
+  const isActive = isOutsourcingDateRangeActive(draftDateRange);
+  const isSearchReady = isOutsourcingDateRangeReady(draftDateRange);
+  const isInvalid = isOutsourcingDateRangeInvalid(draftDateRange);
+  const invalidMessage = getOutsourcingDateRangeInvalidMessage(draftDateRange);
   const startIncompleteMessage = getOutsourcingDateFieldIncompleteMessage(
-    dateRange.startDigits,
+    draftDateRange.startDigits,
     '시작일',
   );
   const endIncompleteMessage = getOutsourcingDateFieldIncompleteMessage(
-    dateRange.endDigits,
+    draftDateRange.endDigits,
     '종료일',
   );
   const hasError = isInvalid || Boolean(startIncompleteMessage) || Boolean(endIncompleteMessage);
@@ -103,11 +135,21 @@ function OutsourcingDateRangeFieldComponent({
   const handleFocus = () => {
     onActivate?.();
     setFocused(true);
-    setCursorDigit(getInitialRangeDigitIndex(dateRange));
+    setCursorDigit(getInitialRangeDigitIndex(draftDateRange));
   };
 
   const handleBlur = () => {
     setFocused(false);
+    const commitKey = getOutsourcingDateFilterCommitKey(draftDateRange);
+    if (commitKey !== '') {
+      tryCommitDateRange(draftDateRange);
+      return;
+    }
+    if (!isOutsourcingDateRangeActive(draftDateRange)) {
+      tryCommitDateRange({ ...EMPTY_OUTSOURCING_DATE_RANGE });
+      return;
+    }
+    setDraftDateRange(dateRangeRef.current);
   };
 
   const handleClick = (event: React.MouseEvent<HTMLDivElement>) => {
@@ -131,20 +173,20 @@ function OutsourcingDateRangeFieldComponent({
   const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
     if (event.key >= '0' && event.key <= '9') {
       event.preventDefault();
-      onChange(setRangeDigitAt(dateRange, cursorDigit, event.key));
+      applyDraftDateRange(setRangeDigitAt(draftDateRange, cursorDigit, event.key));
       setCursorDigit((current) => Math.min(current + 1, 15));
       return;
     }
 
     if (event.key === 'Backspace') {
       event.preventDefault();
-      if (getRangeDigitValue(dateRange, cursorDigit)) {
-        onChange(clearRangeDigitAt(dateRange, cursorDigit));
+      if (getRangeDigitValue(draftDateRange, cursorDigit)) {
+        applyDraftDateRange(clearRangeDigitAt(draftDateRange, cursorDigit));
         return;
       }
       if (cursorDigit > 0) {
         const prevIndex = cursorDigit - 1;
-        onChange(clearRangeDigitAt(dateRange, prevIndex));
+        applyDraftDateRange(clearRangeDigitAt(draftDateRange, prevIndex));
         setCursorDigit(prevIndex);
       }
       return;
@@ -152,7 +194,7 @@ function OutsourcingDateRangeFieldComponent({
 
     if (event.key === 'Delete') {
       event.preventDefault();
-      onChange(clearRangeDigitsFrom(dateRange, cursorDigit));
+      applyDraftDateRange(clearRangeDigitsFrom(draftDateRange, cursorDigit));
       return;
     }
 
@@ -180,6 +222,10 @@ function OutsourcingDateRangeFieldComponent({
     }
   };
 
+  const handleClearAll = () => {
+    applyDraftDateRange({ ...EMPTY_OUTSOURCING_DATE_RANGE });
+  };
+
   return (
     <div className="outsourcing-filter-field">
       <div className="outsourcing-filter-field__header">
@@ -188,7 +234,7 @@ function OutsourcingDateRangeFieldComponent({
           <button
             type="button"
             className="outsourcing-filter-field__clear-all"
-            onClick={() => onChange({ ...EMPTY_OUTSOURCING_DATE_RANGE })}
+            onClick={handleClearAll}
           >
             모두 삭제
           </button>
@@ -209,7 +255,7 @@ function OutsourcingDateRangeFieldComponent({
         <div className="outsourcing-date-range-field__inner">
           <span className="outsourcing-date-range-field__inline-label">시작일</span>
           <MaskedDateDigits
-            digits={dateRange.startDigits}
+            digits={draftDateRange.startDigits}
             rangeOffset={0}
             cursorDigit={cursorDigit}
             focused={focused}
@@ -217,7 +263,7 @@ function OutsourcingDateRangeFieldComponent({
           <span className="outsourcing-date-range-field__sep">~</span>
           <span className="outsourcing-date-range-field__inline-label">종료일</span>
           <MaskedDateDigits
-            digits={dateRange.endDigits}
+            digits={draftDateRange.endDigits}
             rangeOffset={8}
             cursorDigit={cursorDigit}
             focused={focused}
@@ -227,10 +273,10 @@ function OutsourcingDateRangeFieldComponent({
 
       {!startIncompleteMessage && !endIncompleteMessage && !isInvalid && isSearchReady && (
         <p className="outsourcing-date-range-field__hint">
-          {isCompleteDateWithYearDigits(dateRange.startDigits) &&
-          isCompleteDateWithYearDigits(dateRange.endDigits)
+          {isCompleteDateWithYearDigits(draftDateRange.startDigits) &&
+          isCompleteDateWithYearDigits(draftDateRange.endDigits)
             ? '외주계약일 기준 · 연도 포함 · 시작일~종료일 사이 (양쪽 포함)'
-            : isCompleteDateWithYearDigits(dateRange.startDigits)
+            : isCompleteDateWithYearDigits(draftDateRange.startDigits)
               ? '외주계약일 기준 · 연도 포함 · 시작일 이후 (시작일 포함)'
               : '외주계약일 기준 · 연도 포함 · 종료일까지 (종료일 포함)'}
         </p>

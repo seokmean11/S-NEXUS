@@ -3972,6 +3972,12 @@ body {
   gap: 8px;
 }
 
+.personnel-dashboard__add-action {
+  display: flex;
+  justify-content: flex-end;
+  margin: 4px 0 12px;
+}
+
 .personnel-dashboard__summary {
   display: flex;
   align-items: flex-end;

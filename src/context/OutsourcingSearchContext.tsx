@@ -153,17 +153,15 @@ export function OutsourcingSearchProvider({ children }: { children: ReactNode })
 
   const setFilters = useCallback(
     (nextFilters: OutsourcingFilters | ((prev: OutsourcingFilters) => OutsourcingFilters)) => {
-      startTransition(() => {
-        setFiltersState((prev) =>
-          typeof nextFilters === 'function' ? nextFilters(prev) : nextFilters,
-        );
-      });
+      setFiltersState((prev) =>
+        typeof nextFilters === 'function' ? nextFilters(prev) : nextFilters,
+      );
     },
     [],
   );
 
   const setDateRange = useCallback((nextDateRange: OutsourcingDateRange) => {
-    startTransition(() => setDateRangeState(nextDateRange));
+    setDateRangeState(nextDateRange);
   }, []);
 
   const handleFilePick = useCallback(

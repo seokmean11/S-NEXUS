@@ -89,6 +89,13 @@ export const EMPTY_OUTSOURCING_FILTERS: OutsourcingFilters = {
   unit: { ...EMPTY_OUTSOURCING_FILTER_FIELD },
 };
 
+export function createEmptyOutsourcingFilters(): OutsourcingFilters {
+  return OUTSOURCING_FILTER_ORDER.reduce((acc, key) => {
+    acc[key] = { keyword: '', selected: [] };
+    return acc;
+  }, {} as OutsourcingFilters);
+}
+
 export interface OutsourcingDateRange {
   startDigits: string;
   endDigits: string;
