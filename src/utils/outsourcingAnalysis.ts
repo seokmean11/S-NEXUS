@@ -11,9 +11,13 @@ import type {
 } from '@/types/outsourcing';
 import { OUTSOURCING_DIVISION_ORDER, OUTSOURCING_FILTER_ORDER } from '@/types/outsourcing';
 import {
+  dateDigitsToEndInclusiveTimestamp,
   dateDigitsToTimestamp,
+  isCompleteDateWithYearDigits,
+  isOutsourcingContractDateInRange,
   isOutsourcingDateRangeActive,
   isOutsourcingDateRangeInvalid,
+  isOutsourcingDateRangeReady,
 } from '@/utils/outsourcingDate';
 
 interface FieldPredicate {
@@ -27,6 +31,7 @@ interface FilterRuntime {
   endTs: number | null;
   hasDateFilter: boolean;
   dateInvalid: boolean;
+  dateRange?: OutsourcingDateRange;
   fields: Record<OutsourcingFilterKey, FieldPredicate>;
 }
 
@@ -53,12 +58,18 @@ function buildFilterRuntime(
   dateRange?: OutsourcingDateRange,
   excludeKey?: OutsourcingFilterKey,
 ): FilterRuntime {
-  const dateInvalid = Boolean(dateRange && isOutsourcingDateRangeInvalid(dateRange));
-  const startTs = dateRange ? dateDigitsToTimestamp(dateRange.startDigits) : null;
-  const endTs = dateRange ? dateDigitsToTimestamp(dateRange.endDigits) : null;
-  const hasDateFilter = Boolean(
-    dateRange && !dateInvalid && (startTs != null || endTs != null),
+  const dateInvalid = Boolean(
+    dateRange && isOutsourcingDateRangeActive(dateRange) && isOutsourcingDateRangeInvalid(dateRange),
   );
+  const startTs =
+    dateRange && isCompleteDateWithYearDigits(dateRange.startDigits)
+      ? dateDigitsToTimestamp(dateRange.startDigits)
+      : null;
+  const endTs =
+    dateRange && isCompleteDateWithYearDigits(dateRange.endDigits)
+      ? dateDigitsToEndInclusiveTimestamp(dateRange.endDigits)
+      : null;
+  const hasDateFilter = Boolean(dateRange && isOutsourcingDateRangeReady(dateRange));
 
   const fields = {} as Record<OutsourcingFilterKey, FieldPredicate>;
   OUTSOURCING_FILTER_ORDER.forEach((key) => {
@@ -68,7 +79,7 @@ function buildFilterRuntime(
         : buildFieldPredicate(filters[key]);
   });
 
-  return { startTs, endTs, hasDateFilter, dateInvalid, fields };
+  return { startTs, endTs, hasDateFilter, dateInvalid, dateRange, fields };
 }
 
 function matchesFieldPredicate(value: string, predicate: FieldPredicate): boolean {
@@ -89,13 +100,12 @@ function recordMatchesRuntime(
   runtime: FilterRuntime,
   excludeKey?: OutsourcingFilterKey,
 ): boolean {
-  if (runtime.dateInvalid) return true;
+  if (runtime.dateInvalid) return false;
 
-  if (runtime.hasDateFilter) {
-    const recordTimestamp = record.contractTimestamp;
-    if (recordTimestamp == null) return false;
-    if (runtime.startTs != null && recordTimestamp < runtime.startTs) return false;
-    if (runtime.endTs != null && recordTimestamp > runtime.endTs) return false;
+  if (runtime.hasDateFilter && runtime.dateRange) {
+    if (!isOutsourcingContractDateInRange(record.contractTimestamp, runtime.dateRange)) {
+      return false;
+    }
   }
 
   for (const key of OUTSOURCING_FILTER_ORDER) {
@@ -119,6 +129,8 @@ export function filterOutsourcingRecords(
 ): OutsourcingRecord[] {
   const runtime = buildFilterRuntime(filters, options?.dateRange, options?.excludeKey);
   const hasFieldFilter = OUTSOURCING_FILTER_ORDER.some((key) => runtime.fields[key]?.active);
+
+  if (runtime.dateInvalid) return [];
 
   if (!runtime.hasDateFilter && !hasFieldFilter) return records;
 
@@ -279,38 +291,59 @@ export function getOutsourcingFilterOptions(
   return sorted.filter((value) => value.toLowerCase().includes(query));
 }
 
+export function buildFacetedOptionsDependencyKey(
+  filters: OutsourcingFilters,
+  filterKey: OutsourcingFilterKey,
+  dateRange?: OutsourcingDateRange,
+): string {
+  const parts = OUTSOURCING_FILTER_ORDER.map((key) => {
+    const field = filters[key];
+    if (key === filterKey) {
+      return `${key}|kw:${field.keyword}`;
+    }
+    return `${key}|kw:${field.keyword}|sel:${field.selected.join('\u0001')}`;
+  });
+
+  if (dateRange) {
+    parts.push(`date:${dateRange.startDigits}:${dateRange.endDigits}`);
+  }
+
+  return parts.join(';;');
+}
+
+export function buildFacetedFilterOptionsForKey(
+  allRecords: OutsourcingRecord[],
+  filters: OutsourcingFilters,
+  key: OutsourcingFilterKey,
+  dateRange?: OutsourcingDateRange,
+): string[] {
+  const runtime = buildFilterRuntime(filters, dateRange, key);
+  const values = new Set<string>();
+
+  for (let index = 0; index < allRecords.length; index += 1) {
+    const record = allRecords[index];
+    if (!recordMatchesRuntime(record, runtime, key)) continue;
+    const value = getRecordFieldValue(record, key);
+    if (value) values.add(value);
+  }
+
+  const keyword = filters[key].keyword.trim().toLowerCase();
+  let sorted = sortFilterOptions(key, [...values]);
+  if (keyword) {
+    sorted = sorted.filter((value) => value.toLowerCase().includes(keyword));
+  }
+  return sorted;
+}
+
 export function buildAllFacetedFilterOptions(
   allRecords: OutsourcingRecord[],
   filters: OutsourcingFilters,
   dateRange?: OutsourcingDateRange,
 ): Record<OutsourcingFilterKey, string[]> {
-  const runtimes = OUTSOURCING_FILTER_ORDER.map((key) =>
-    buildFilterRuntime(filters, dateRange, key),
-  );
-  const optionSets = Object.fromEntries(
-    OUTSOURCING_FILTER_ORDER.map((key) => [key, new Set<string>()]),
-  ) as Record<OutsourcingFilterKey, Set<string>>;
-
-  for (let index = 0; index < allRecords.length; index += 1) {
-    const record = allRecords[index];
-
-    OUTSOURCING_FILTER_ORDER.forEach((key, runtimeIndex) => {
-      if (!recordMatchesRuntime(record, runtimes[runtimeIndex], key)) return;
-      const value = getRecordFieldValue(record, key);
-      if (value) optionSets[key].add(value);
-    });
-  }
-
   const options = {} as Record<OutsourcingFilterKey, string[]>;
   OUTSOURCING_FILTER_ORDER.forEach((key) => {
-    const keyword = filters[key].keyword.trim().toLowerCase();
-    let sorted = sortFilterOptions(key, [...optionSets[key]]);
-    if (keyword) {
-      sorted = sorted.filter((value) => value.toLowerCase().includes(keyword));
-    }
-    options[key] = sorted;
+    options[key] = buildFacetedFilterOptionsForKey(allRecords, filters, key, dateRange);
   });
-
   return options;
 }
 
@@ -320,7 +353,7 @@ export function getFacetedFilterOptions(
   key: OutsourcingFilterKey,
   dateRange?: OutsourcingDateRange,
 ): string[] {
-  return buildAllFacetedFilterOptions(allRecords, filters, dateRange)[key];
+  return buildFacetedFilterOptionsForKey(allRecords, filters, key, dateRange);
 }
 
 export function formatOutsourcingAmount(value: number): string {
@@ -345,5 +378,5 @@ export function countActiveOutsourcingFilters(
     isOutsourcingFilterActive(filters[key]),
   ).length;
 
-  return fieldCount + (dateRange && isOutsourcingDateRangeActive(dateRange) ? 1 : 0);
+  return fieldCount + (dateRange && isOutsourcingDateRangeReady(dateRange) ? 1 : 0);
 }

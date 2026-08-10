@@ -78,7 +78,7 @@ export function BidQuotationComparison({
 
       <p className="bid-quotation-compare__subtitle">
 
-        통합내역 기준 견적금액 합계 · 낮은 순(1위=최저가)
+        상세내역 합산 + 관리비및경비 = 입찰금액 · 낮은 순(1위=최저가)
 
       </p>
 
@@ -110,7 +110,9 @@ export function BidQuotationComparison({
 
               {item.lineCount > 0 && (
 
-                <span className="bid-quotation-compare__lines">{item.lineCount}개 항목 합산</span>
+                <span className="bid-quotation-compare__lines">
+                  {item.message ?? `${item.lineCount}개 항목 합산`}
+                </span>
 
               )}
 
@@ -302,21 +304,16 @@ export function BidQuotationComparison({
 
 
 
-                  <div className="bid-reviewer-summary__criteria">
-
-                    <span className="bid-reviewer-summary__criteria-label">발생 기준</span>
-
-                    <ul>
-
-                      {group.criteria.map((rule) => (
-
-                        <li key={rule}>{rule}</li>
-
-                      ))}
-
-                    </ul>
-
-                  </div>
+                  {group.count > 0 && (
+                    <div className="bid-reviewer-summary__criteria">
+                      <span className="bid-reviewer-summary__criteria-label">발생 기준</span>
+                      <ul>
+                        {group.criteria.map((rule) => (
+                          <li key={rule}>{rule}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
 
 
 

@@ -54,3 +54,19 @@ export const EMPTY_BID_REGISTRATION_FORM: BidRegistrationForm = {
   orderAmount: '',
   bidDateTime: '',
 };
+
+/** 외주발주 입찰 정보 필드만 비울 때 사용 */
+export const EMPTY_OUTSOURCING_BID_FIELDS: Pick<
+  BidRegistrationForm,
+  'tradeType' | 'bidMethod' | 'executionBudget' | 'orderAmount' | 'bidDateTime'
+> = {
+  tradeType: '',
+  bidMethod: '',
+  executionBudget: '',
+  orderAmount: '',
+  bidDateTime: '',
+};
+
+export function clearOutsourcingBidFields(form: BidRegistrationForm): BidRegistrationForm {
+  return { ...form, ...EMPTY_OUTSOURCING_BID_FIELDS };
+}

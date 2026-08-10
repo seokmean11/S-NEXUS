@@ -19,6 +19,7 @@ import {
   OUTSOURCING_VENDOR_EXPORT_FORMAT_OPTIONS,
   type OutsourcingVendorExportFormat,
 } from '@/utils/outsourcingVendorExport';
+import { resolveOutsourcingTooltipWidth } from '@/utils/outsourcingMobileLayout';
 
 
 
@@ -94,14 +95,12 @@ export function OutsourcingVendorChart({ items }: OutsourcingVendorChartProps) {
 
     const rect = barGroup.getBoundingClientRect();
 
-    const tooltipWidth = 320;
+    const tooltipWidth = resolveOutsourcingTooltipWidth(320);
 
+    const inset = 12;
     const left = Math.min(
-
-      Math.max(rect.left + rect.width / 2 - tooltipWidth / 2, 12),
-
-      window.innerWidth - tooltipWidth - 12,
-
+      Math.max(rect.left + rect.width / 2 - tooltipWidth / 2, inset),
+      window.innerWidth - tooltipWidth - inset,
     );
 
 

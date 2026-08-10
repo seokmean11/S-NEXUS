@@ -1,7 +1,9 @@
 import { formatWon } from '@/utils/bidQuotationAnalysis';
 
-const DEVIATION_RATIO = 0.1;
+const DEVIATION_RATIO = 0.3;
 const KEY_ITEM_RATIO = 0.1;
+const DEVIATION_HIGH_PERCENT = Math.round((1 + DEVIATION_RATIO) * 100);
+const DEVIATION_LOW_PERCENT = Math.round((1 - DEVIATION_RATIO) * 100);
 /** 담합 의심 — 1위 대비 동일 견적단가(재+노+경) 품목 금액이 제출 총액의 50% 이상 */
 const COLLUSION_IDENTICAL_AMOUNT_RATIO = 0.5;
 /** 담합 의심 — 1위 대비 ±5% 이내 유사 견적단가 품목 비율 70% 이상 */
@@ -31,7 +33,8 @@ export type BidReviewIssueCategory =
   | 'key_item_material_missing'
   | 'key_item_material_extra'
   | 'rank_change'
-  | 'collusion_suspected';
+  | 'collusion_suspected'
+  | 'vat_inclusive_amount';
 
 export type BidReviewIssueSeverity = 'critical' | 'warning';
 
@@ -137,6 +140,8 @@ const REVIEWER_ACTION_BY_CATEGORY: Record<BidReviewIssueCategory, string> = {
     '① 과다 주요품목을 타사 평균으로 조정 시 순위가 바뀜 ② 해당 품목 단가 재협상·재산출 검토 ③ 조정 후 낙찰 가능성 재평가',
   collusion_suspected:
     '① 1위 업체와 동일·유사 견적단가 품목의 산출 근거·협의 이력 확인 ② 1위 견적이 타사 견적을 일률 반영(대리 작성)했는지 확인 ③ 입찰 전 단가 공유·담합 여부 조사 ④ 필요 시 해당 업체 견적 무효·재입찰 검토',
+  vat_inclusive_amount:
+    '① 견적서에 부가세 제외(공급가) 금액이 명확히 기재되어 있는지 확인 ② VAT포함·부가세포함 합계를 입찰금액으로 사용하지 않았는지 확인 ③ 필요 시 부가세 제외 금액으로 견적서 보완 요청',
 };
 
 const AUTO_DETECT_REASON: Record<BidReviewIssueCategory, string[]> = {
@@ -148,8 +153,8 @@ const AUTO_DETECT_REASON: Record<BidReviewIssueCategory, string[]> = {
     `· 과다: 공과잡비율 ${OVERHEAD_ABSOLUTE_LIMIT}% 초과 필수 + 업체 수별 타사 비교`,
   ],
   overhead_sole_vendor: ['· 참여 업체 중 공과잡비 행을 기재한 업체가 1곳뿐'],
-  key_item_high: ['· 총액 10% 이상 주요품목의 견적금액이 타사 평균 대비 10% 초과'],
-  key_item_low: ['· 총액 10% 이상 주요품목의 견적금액이 타사 평균 대비 10% 미만'],
+  key_item_high: [`· 총액 10% 이상 주요품목의 견적금액이 타사 평균 대비 ${DEVIATION_HIGH_PERCENT}% 초과`],
+  key_item_low: [`· 총액 10% 이상 주요품목의 견적금액이 타사 평균 대비 ${DEVIATION_LOW_PERCENT}% 미만`],
   key_item_labor_missing: [
     '· 총액 10% 이상 주요품목에서 참여사 50% 이상이 노무 내역을 기재',
     '· 본 업체만 노무 단가·금액 미기재',
@@ -172,6 +177,11 @@ const AUTO_DETECT_REASON: Record<BidReviewIssueCategory, string[]> = {
     '· 또는 비교 가능 품목의 70% 이상이 1위 대비 ±5% 이내 유사 견적단가',
     '· 또는 1위·타사 품목별 단가 비율(1위÷타사)이 70% 이상 ±5% 이내로 일치(대리 작성·일률 상승 의심)',
   ],
+  vat_inclusive_amount: [
+    '· 견적서 시트에 VAT포함·부가세포함·부가가치세포함 등 부가세 포함 금액 표기',
+    '· 또는 합계 행에서 공급가×1.1(부가세 포함) 패턴의 금액이 확인됨',
+    '· 견적 기준은 부가세 제외 금액 — 해당 금액은 입찰금액 산출에서 제외',
+  ],
 };
 
 const CATEGORY_TO_DISPLAY_GROUP: Record<BidReviewIssueCategory, BidReviewDisplayGroupKey> = {
@@ -186,6 +196,7 @@ const CATEGORY_TO_DISPLAY_GROUP: Record<BidReviewIssueCategory, BidReviewDisplay
   key_item_material_extra: 'deviation',
   rank_change: 'rank_change',
   collusion_suspected: 'collusion',
+  vat_inclusive_amount: 'deviation',
 };
 
 const DISPLAY_GROUP_ORDER: BidReviewDisplayGroupKey[] = [
@@ -236,11 +247,12 @@ const DISPLAY_GROUP_META: Record<
   deviation: {
     title: '금액 편차',
     description:
-      '총액 10% 이상 주요품목의 견적 편차(10% 기준) 또는 노무·자재 내역 다수결 불일치 항목입니다.',
+      `총액 10% 이상 주요품목의 견적 편차(${DEVIATION_RATIO * 100}% 기준) 또는 노무·자재 내역 다수결 불일치 항목입니다.`,
     criteria: [
       '주요품목: 해당 업체 견적 총액의 10% 이상을 차지하는 항목만 대상',
-      '과다: 견적금액 > 타사 평균의 110% · 과소: 견적금액 < 타사 평균의 90%',
+      `과다: 견적금액 > 타사 평균의 ${DEVIATION_HIGH_PERCENT}% · 과소: 견적금액 < 타사 평균의 ${DEVIATION_LOW_PERCENT}%`,
       '노무·자재 불일치: 참여사 50% 이상이 노무(또는 자재) 내역을 기재(또는 미기재)하는데 본 업체만 다름',
+      '부가세 포함: VAT포함·부가세포함·부가가치세포함 표기 또는 합계 행 공급가×1.1 금액',
     ],
     actions: ['단가·수량·규격·범위 대조', '누락·과다·양식 차이 확인', '조정·보완 견적 검토'],
     priority: 'normal',
@@ -848,6 +860,57 @@ function reviewCollusionIssues(
   }
 }
 
+export interface VatInclusiveReviewInput {
+  partnerId: string;
+  vendorName: string;
+  fileName: string;
+  finalBidAmount: number;
+  excludedVatInclusiveMax: number | null;
+  vatInclusiveFindings: Array<{
+    sheetName: string;
+    rowIndex: number;
+    colIndex: number;
+    amount: number;
+    rowLabel: string;
+    reason: 'explicit_label' | 'vat_ratio_total_row';
+  }>;
+}
+
+export function buildVatInclusiveReviewIssues(input: VatInclusiveReviewInput): BidReviewIssue[] {
+  if (input.vatInclusiveFindings.length === 0) return [];
+
+  const findingLines = input.vatInclusiveFindings.map((finding) => {
+    const reasonLabel =
+      finding.reason === 'explicit_label'
+        ? '부가세 포함 표기'
+        : '부가세 포함 추정(합계 행, 공급가×1.1)';
+    const rowLabel = finding.rowLabel ? ` · ${finding.rowLabel.slice(0, 60)}` : '';
+    return `· [${finding.sheetName}] ${finding.rowIndex + 1}행 ${formatWon(finding.amount)} — ${reasonLabel}${rowLabel}`;
+  });
+
+  const excludedNote =
+    input.excludedVatInclusiveMax != null
+      ? `■ 입찰금액 산출: 부가세 포함 금액 ${formatWon(input.excludedVatInclusiveMax)}은 제외하고, 부가세 제외 금액 ${formatWon(input.finalBidAmount)}을 사용했습니다.`
+      : `■ 입찰금액 산출: 부가세 제외 금액 ${formatWon(input.finalBidAmount)}을 사용했습니다.`;
+
+  return [
+    {
+      id: `vat-inclusive-${input.partnerId}`,
+      category: 'vat_inclusive_amount',
+      severity: 'warning',
+      title: `[${input.vendorName}] 부가세 포함 금액 표기`,
+      description: joinIssueLines([
+        `■ 상황: 견적 기준은 부가세 제외 금액입니다. ${input.fileName}에서 부가세 포함(또는 VAT포함) 금액이 확인되었습니다.`,
+        ...findingLines,
+        excludedNote,
+        '■ 검토 포인트: 업체 견적서의 공급가(부가세 제외) 금액이 명확한지 확인하고, 부가세 포함 합계를 입찰금액으로 사용하지 않았는지 검토하세요.',
+      ]),
+      reviewerAction: REVIEWER_ACTION_BY_CATEGORY.vat_inclusive_amount,
+      partnerId: input.partnerId,
+    },
+  ];
+}
+
 export function buildQuotationReviewIssues(
   vendors: IntegratedVendorQuote[],
   lines: IntegratedLineQuote[],
@@ -956,7 +1019,7 @@ export function buildQuotationReviewIssues(
           description: joinIssueLines([
             `■ 상황: ${quote.vendorName} '${label}' ${formatWon(quote.quoteAmount)}은 타사 평균 ${formatWon(Math.round(othersAvg))}보다 ${formatDeviationRatio(quote.quoteAmount, othersAvg)} (${formatWon(Math.round(diffAmount))}) 높습니다.`,
             `■ 주요품목: 본 업체 총액의 ${shareRatio.toFixed(1)}% (10% 이상 항목)`,
-            `■ 판단 기준: 타사 평균 대비 10% 초과 시 표시`,
+            `■ 판단 기준: 타사 평균 대비 ${DEVIATION_HIGH_PERCENT}% 초과 시 표시`,
             `■ 검토 포인트: 단가·수량·규격 차이 또는 과다 산출 여부를 확인하세요.`,
             `■ 대상 항목: ${formatLineRef(line)}`,
           ]),
@@ -977,7 +1040,7 @@ export function buildQuotationReviewIssues(
           description: joinIssueLines([
             `■ 상황: ${quote.vendorName} '${label}' ${formatWon(quote.quoteAmount)}은 타사 평균 ${formatWon(Math.round(othersAvg))}보다 ${formatDeviationRatio(quote.quoteAmount, othersAvg)} (${formatWon(Math.round(diffAmount))}) 낮습니다.`,
             `■ 주요품목: 본 업체 총액의 ${shareRatio.toFixed(1)}% (10% 이상 항목)`,
-            `■ 판단 기준: 타사 평균 대비 10% 미만 시 표시`,
+            `■ 판단 기준: 타사 평균 대비 ${DEVIATION_LOW_PERCENT}% 미만 시 표시`,
             `■ 검토 포인트: 누락·미반영·단가 절사·범위 축소 가능성을 확인하세요.`,
             `■ 대상 항목: ${formatLineRef(line)}`,
           ]),
@@ -1017,7 +1080,7 @@ export function buildQuotationReviewIssues(
         description: joinIssueLines([
           `■ 상황: 주요품목 과다 견적분을 타사 평균가로 조정하면 ${vendor.vendorName} 총액이 ${formatWon(beforeTotal)} → ${formatWon(afterTotal)} (${formatWon(delta)} 감소)으로 변경됩니다.`,
           `■ 순위 변동: ${before}위 → ${after}위`,
-          `■ 판단 기준: 10% 초과 과다 주요품목을 타사 평균으로 환산한 시뮬레이션`,
+          `■ 판단 기준: ${DEVIATION_HIGH_PERCENT}% 초과 과다 주요품목을 타사 평균으로 환산한 시뮬레이션`,
           `■ 검토 포인트: 과다 항목 조정 시 실제 낙찰 순위가 바뀔 수 있으므로, 해당 품목 단가 재협상·재검토가 필요합니다.`,
         ]),
         partnerId: vendor.partnerId,
@@ -1064,9 +1127,9 @@ function formatIssueDashboardItem(issue: BidReviewIssue): string {
     case 'overhead_sole_vendor':
       return `공과잡비 단독 제출 · 타사 미기재`;
     case 'key_item_high':
-      return `${item} · 주요품목 과다(10% 초과)`;
+      return `${item} · 주요품목 과다(${DEVIATION_HIGH_PERCENT}% 초과)`;
     case 'key_item_low':
-      return `${item} · 주요품목 과소(10% 미만)`;
+      return `${item} · 주요품목 과소(${DEVIATION_LOW_PERCENT}% 미만)`;
     case 'key_item_labor_missing':
       return `${item} · 노무 내역 누락(다수결)`;
     case 'key_item_labor_extra':
@@ -1202,7 +1265,7 @@ function buildExcelNote(issue: BidReviewIssue, line?: IntegratedLineQuote): stri
     '─ 참고 ─',
     '  · 색상: 빨강=견적 누락(긴급), 주황=편차·불일치',
     '  · 메모 보기: Excel [검토] > [메모 표시] 또는 셀 우클릭',
-    '  · 기준: 타사 평균 ±10%, 주요품목=총액 10%+, 다수결=참여 50%+',
+    `  · 기준: 타사 평균 ${DEVIATION_LOW_PERCENT}%~${DEVIATION_HIGH_PERCENT}%, 주요품목=총액 10%+, 다수결=참여 50%+`,
     '  · 담합: 1위 대비 동일 단가 50%+ 또는 ±5% 유사 70%+',
   ]);
 }
@@ -1333,6 +1396,7 @@ export const BID_REVIEW_CATEGORY_LABELS: Record<BidReviewIssueCategory, string> 
   key_item_material_extra: '자재 내역 불일치',
   rank_change: '순위 변동',
   collusion_suspected: '담합 의심',
+  vat_inclusive_amount: '부가세 포함 금액',
 };
 
 export interface ReviewCellMark {

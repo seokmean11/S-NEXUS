@@ -110,24 +110,20 @@ export function OutsourcingSearchPage() {
   const dbStats = useMemo(() => summarizeOutsourcingDbStats(records), [records]);
 
   const debouncedDateRange = useDebouncedValue(dateRange, 180);
-
-
+  const deferredFilters = useDeferredValue(filters);
 
   const filteredRecords = useMemo(
-
-    () => filterOutsourcingRecords(records, filters, { dateRange: debouncedDateRange }),
-
-    [records, filters, debouncedDateRange],
-
+    () =>
+      filterOutsourcingRecords(records, deferredFilters, { dateRange: debouncedDateRange }),
+    [records, deferredFilters, debouncedDateRange],
   );
 
   const deferredFilteredRecords = useDeferredValue(filteredRecords);
 
-  const isDetailPending = deferredFilteredRecords !== filteredRecords;
-
-  const isDateFiltering = debouncedDateRange !== dateRange;
-
-
+  const isDetailPending =
+    deferredFilteredRecords !== filteredRecords ||
+    deferredFilters !== filters ||
+    debouncedDateRange !== dateRange;
 
   const kpiSummary = useMemo(() => summarizeOutsourcingKpi(deferredFilteredRecords), [deferredFilteredRecords]);
 
@@ -144,15 +140,10 @@ export function OutsourcingSearchPage() {
 
 
   const handleFiltersChange = useCallback(
-
-    (nextFilters: OutsourcingFilters) => {
-
+    (nextFilters: OutsourcingFilters | ((prev: OutsourcingFilters) => OutsourcingFilters)) => {
       setFilters(nextFilters);
-
     },
-
     [setFilters],
-
   );
 
 
@@ -375,9 +366,11 @@ export function OutsourcingSearchPage() {
 
               dateRange={dateRange}
 
-              filteredCount={filteredRecords.length}
+              facetedDateRange={debouncedDateRange}
 
-              isFiltering={isDetailPending || isDateFiltering}
+              filteredCount={deferredFilteredRecords.length}
+
+              isFiltering={isDetailPending}
 
               onFiltersChange={handleFiltersChange}
 

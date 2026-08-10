@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '@/components/ui/Button';
+import { useImeSafeInputValue, isKeyboardComposing } from '@/hooks/useImeSafeInputValue';
 import type { Project } from '@/types';
 import { filterProjects } from '@/utils/projectListFilter';
 
@@ -24,8 +25,14 @@ export function ProjectNameSearchInput({
 }: ProjectNameSearchInputProps) {
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
+  const {
+    inputValue,
+    onInputChange,
+    onCompositionStart,
+    onCompositionEnd,
+  } = useImeSafeInputValue(value, onChange);
 
-  const filteredProjects = useMemo(() => filterProjects(projects, value), [projects, value]);
+  const filteredProjects = useMemo(() => filterProjects(projects, inputValue), [projects, inputValue]);
 
   useEffect(() => {
     const handlePointerDown = (event: MouseEvent) => {
@@ -45,6 +52,8 @@ export function ProjectNameSearchInput({
   };
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
+    if (isKeyboardComposing(event)) return;
+
     if (event.key === 'Escape') {
       setDropdownOpen(false);
       return;
@@ -65,14 +74,16 @@ export function ProjectNameSearchInput({
       <div className="project-name-search__bar">
         <input
           id="project-name-search-input"
-          type="search"
+          type="text"
           className="form-field__input project-name-search__input"
-          value={value}
+          value={inputValue}
           placeholder="프로젝트명·코드 검색 후 선택"
           onChange={(event) => {
-            onChange(event.target.value);
+            onInputChange(event.target.value);
             setDropdownOpen(true);
           }}
+          onCompositionStart={onCompositionStart}
+          onCompositionEnd={(event) => onCompositionEnd(event.currentTarget.value)}
           onFocus={() => setDropdownOpen(true)}
           onKeyDown={handleKeyDown}
           autoComplete="off"

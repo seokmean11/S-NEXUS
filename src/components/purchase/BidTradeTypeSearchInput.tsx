@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '@/components/ui/Button';
+import { useImeSafeInputValue, isKeyboardComposing } from '@/hooks/useImeSafeInputValue';
 import { filterBidTradeTypes } from '@/utils/bidTradeTypeSearch';
 
 interface BidTradeTypeSearchInputProps {
@@ -17,10 +18,16 @@ export function BidTradeTypeSearchInput({
 }: BidTradeTypeSearchInputProps) {
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
+  const {
+    inputValue,
+    onInputChange,
+    onCompositionStart,
+    onCompositionEnd,
+  } = useImeSafeInputValue(value, onChange);
 
   const filteredTradeTypes = useMemo(
-    () => filterBidTradeTypes(tradeTypes, value),
-    [tradeTypes, value],
+    () => filterBidTradeTypes(tradeTypes, inputValue),
+    [tradeTypes, inputValue],
   );
 
   useEffect(() => {
@@ -40,6 +47,8 @@ export function BidTradeTypeSearchInput({
   };
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
+    if (isKeyboardComposing(event)) return;
+
     if (event.key === 'Escape') {
       setDropdownOpen(false);
       return;
@@ -59,14 +68,16 @@ export function BidTradeTypeSearchInput({
       <div className="project-name-search__bar">
         <input
           id="bid-trade-type-search-input"
-          type="search"
+          type="text"
           className="form-field__input project-name-search__input"
-          value={value}
+          value={inputValue}
           placeholder="기존 공종 검색 또는 직접 입력"
           onChange={(event) => {
-            onChange(event.target.value);
+            onInputChange(event.target.value);
             setDropdownOpen(true);
           }}
+          onCompositionStart={onCompositionStart}
+          onCompositionEnd={(event) => onCompositionEnd(event.currentTarget.value)}
           onFocus={() => setDropdownOpen(true)}
           onKeyDown={handleKeyDown}
           autoComplete="off"
@@ -97,15 +108,15 @@ export function BidTradeTypeSearchInput({
         >
           {filteredTradeTypes.length === 0 ? (
             <li className="project-name-search__empty">
-              {value.trim() ? `"${value.trim()}" 직접 입력` : '검색 결과가 없습니다.'}
+              {inputValue.trim() ? `"${inputValue.trim()}" 직접 입력` : '검색 결과가 없습니다.'}
             </li>
           ) : (
             filteredTradeTypes.map((tradeType) => (
-              <li key={tradeType} role="option" aria-selected={value === tradeType}>
+              <li key={tradeType} role="option" aria-selected={inputValue === tradeType}>
                 <button
                   type="button"
                   className={`project-name-search__option ${
-                    value === tradeType ? 'project-name-search__option--active' : ''
+                    inputValue === tradeType ? 'project-name-search__option--active' : ''
                   }`}
                   onClick={() => handleSelect(tradeType)}
                 >

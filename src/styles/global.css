@@ -1081,6 +1081,18 @@ body {
   font-weight: 600;
 }
 
+.bid-registration__section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.bid-registration__section-head .bid-registration__section-title {
+  margin-bottom: 0;
+}
+
 .bid-registration__grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -5121,6 +5133,12 @@ body {
   color: #d92d20;
 }
 
+.outsourcing-date-range-field__hint {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
 .outsourcing-filter-popover__list {
   flex: 1;
   min-height: 0;
@@ -5543,8 +5561,198 @@ body {
   }
 }
 
+/* 외주정보검색 — 모바일(768px 이하). PC·태블릿 가로 UI는 변경 없음 */
 @media (max-width: 768px) {
+  .main-content:has(.outsourcing-search-page) {
+    padding: 16px 12px;
+  }
+
+  .outsourcing-search-page {
+    gap: 12px;
+  }
+
+  .outsourcing-search-page .page-header {
+    margin-bottom: 12px;
+  }
+
+  .outsourcing-search-page .page-header h2 {
+    font-size: 20px;
+  }
+
+  .outsourcing-search-page .page-header p {
+    font-size: 13px;
+    line-height: 1.55;
+  }
+
+  .outsourcing-search-page__toolbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .outsourcing-search-page__toolbar-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .outsourcing-search-page__toolbar-actions .btn {
+    width: 100%;
+    white-space: normal;
+    min-height: 40px;
+    line-height: 1.3;
+  }
+
+  .outsourcing-search-page .card__header {
+    flex-direction: column;
+    align-items: stretch;
+    padding: 16px 16px 0;
+    gap: 10px;
+  }
+
+  .outsourcing-search-page .card__body {
+    padding: 12px 16px 16px;
+  }
+
+  .outsourcing-search-page .card__header .btn {
+    align-self: stretch;
+    justify-content: center;
+    min-height: 40px;
+  }
+
   .outsourcing-filter-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .outsourcing-filter-summary {
+    font-size: 12px;
+    line-height: 1.55;
+  }
+
+  .outsourcing-filter-field__control {
+    min-height: 48px;
+  }
+
+  .outsourcing-filter-field__input {
+    font-size: 16px;
+  }
+
+  .outsourcing-filter-field__add {
+    width: 36px;
+    height: 36px;
+  }
+
+  .outsourcing-search-page .outsourcing-filter-popover__option {
+    min-height: 44px;
+    padding: 10px 6px;
+  }
+
+  .outsourcing-date-range-field__inner {
+    flex-wrap: wrap;
+    row-gap: 6px;
+  }
+
+  .outsourcing-kpi-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 6px;
+    padding: 12px 0;
+  }
+
+  .outsourcing-kpi-row dd {
+    text-align: left;
+  }
+
+  .outsourcing-kpi-row--detail dd {
+    align-items: flex-start;
+  }
+
+  .outsourcing-chart-card-section__toolbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .outsourcing-chart-card-section__toolbar .form-field {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .outsourcing-chart-card-section__toolbar .btn {
+    width: 100%;
+    min-height: 40px;
+  }
+
+  .outsourcing-chart__plot {
+    grid-template-columns: 52px minmax(0, 1fr);
+    gap: 8px;
+    min-height: 240px;
+  }
+
+  .outsourcing-chart__y-axis {
+    height: 200px;
+    font-size: 10px;
+  }
+
+  .outsourcing-chart__bar-group,
+  .outsourcing-chart__x-label {
+    flex: 1 0 56px;
+    min-width: 56px;
+    max-width: 72px;
+  }
+
+  .outsourcing-chart__x-label {
+    min-height: 56px;
+  }
+
+  .outsourcing-chart__top-vendors-item {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+
+  .outsourcing-chart__top-vendors-metrics {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .outsourcing-chart__top-vendors-name {
+    -webkit-line-clamp: 3;
+  }
+
+  .outsourcing-detail__scroll {
+    max-height: min(58vh, 420px);
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .outsourcing-detail__table {
+    font-size: 11px;
+  }
+
+  .outsourcing-detail__table thead th,
+  .outsourcing-detail__table tbody td {
+    padding: 8px 10px;
+  }
+
+  .outsourcing-db-stats-card__metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .outsourcing-stale-data-alert {
+    font-size: 13px;
+    padding: 10px 12px;
+  }
+
+  .outsourcing-setup-card__hint {
+    font-size: 12px;
+    overflow-x: auto;
+  }
+}
+
+@media (max-width: 480px) {
+  .outsourcing-search-page__toolbar-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .outsourcing-db-stats-card__metrics {
     grid-template-columns: 1fr;
   }
 }

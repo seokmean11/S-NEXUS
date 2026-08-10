@@ -4,6 +4,7 @@ import type { BidPartnerEntry } from '@/types/bidRegistration';
 import {
   BID_REVIEW_CATEGORY_LABELS,
   buildQuotationReviewIssues,
+  buildVatInclusiveReviewIssues,
   buildReviewCellMarks,
   buildReviewerSummary,
   finalizeReviewIssues,
@@ -17,6 +18,7 @@ import {
   type IntegratedVendorQuote,
   type VendorOverheadRatioResult,
 } from '@/utils/bidQuotationReview';
+import { resolveOtherSheetBidAmount, type VatInclusiveAmountFinding } from '@/utils/bidQuotationBidAmount';
 
 export type { BidReviewIssue, BidReviewerSummary } from '@/utils/bidQuotationReview';
 
@@ -24,7 +26,12 @@ export interface BidQuotationCompareItem {
   partnerId: string;
   vendorName: string;
   fileName: string;
+  /** 업체 최종 입찰금액 (다른 시트 최대값, 없으면 상세내역 합계) */
   totalAmount: number | null;
+  /** 상세내역 시트 합산액 */
+  detailLineTotal?: number;
+  /** 입찰금액 − 상세내역 합산 (관리비및경비) */
+  managementFee?: number;
   lineCount: number;
   rank: number;
   status: 'ok' | 'unsupported' | 'error';
@@ -167,8 +174,14 @@ type ParsedQuotationFile = {
   vendorName: string;
   fileName: string;
   rows: unknown[][];
+  formulas: (string | undefined)[][];
   headerRowIndex: number;
   columns: QuotationColumns;
+  detailSheetName: string;
+  detailLineTotal: number;
+  finalBidAmount: number;
+  excludedVatInclusiveMax: number | null;
+  vatInclusiveFindings: VatInclusiveAmountFinding[];
 };
 
 function normalizeHeader(value: unknown): string {
@@ -231,22 +244,192 @@ function isValidErpHeaderRow(headers: string[]): boolean {
 }
 
 type DetailSheetMatch = {
+  sheetName: string;
   rows: unknown[][];
+  formulas: (string | undefined)[][];
   headerRowIndex: number;
   columns: QuotationColumns;
   lineCount: number;
 };
 
+/** 다른 시트 입찰금액 — bidQuotationBidAmount.resolveOtherSheetBidAmount 사용 */
+
+const FOOTER_ROW_LABEL_MGMT = '관리비및경비';
+const FOOTER_ROW_LABEL_BID = '입찰금액';
+const BID_AMOUNT_ROW_FILL = 'FFC6EFCE';
+
+const SUBTOTAL_LABEL_EXACT = new Set([
+  '계',
+  '합',
+  '합계',
+  '소계',
+  '총계',
+  '중계',
+  '합계액',
+  '합계금액',
+  '총합계',
+  '전체합계',
+  '합계금',
+]);
+
+const SUBTOTAL_LABEL_SUFFIX = /(?:소계|합계|총계|중계)$/;
+
+/** 라벨 컬럼에 합산·소계 표시가 있으면 해당 행 전체 금액 제외 */
+function normalizeLabelText(value: unknown): string {
+  return String(value ?? '')
+    .trim()
+    .replace(/\s/g, '');
+}
+
+export function isSubtotalLabelText(text: string): boolean {
+  const normalized = normalizeLabelText(text);
+  if (!normalized) return false;
+  if (SUBTOTAL_LABEL_EXACT.has(normalized)) return true;
+  if (SUBTOTAL_LABEL_SUFFIX.test(normalized)) return true;
+  if (normalized.endsWith('계') && normalized.length <= 10) return true;
+  return false;
+}
+
+function isSubtotalSummaryRow(row: unknown[], columns: QuotationColumns): boolean {
+  const labelColumns = [
+    columns.no,
+    columns.siteName,
+    columns.orderItemName,
+    columns.budgetCode,
+    columns.budgetItemName,
+    columns.spec,
+    columns.unit,
+  ];
+
+  for (const colIndex of labelColumns) {
+    if (colIndex < 0) continue;
+    const text = String(getCell(row, colIndex) ?? '').trim();
+    if (isSubtotalLabelText(text)) return true;
+  }
+
+  return false;
+}
+
+function stripFormulaPrefix(formula: string): string {
+  return formula.trim().replace(/^=/, '').replace(/^\++/, '').trim();
+}
+
+function normalizeFormulaRef(ref: string): string {
+  return ref.replace(/\$/g, '').toUpperCase();
+}
+
+function parseCellRef(ref: string): { col: string; row: number } | null {
+  const match = normalizeFormulaRef(ref).match(/^([A-Z]+)(\d+)$/);
+  if (!match) return null;
+  return { col: match[1]!, row: Number(match[2]) };
+}
+
+function isVerticalCellRange(rangePart: string): boolean {
+  const part = rangePart.trim();
+  if (!part) return false;
+
+  const wholeColumn = part.match(/^([A-Z]+):([A-Z]+)$/i);
+  if (wholeColumn && normalizeFormulaRef(wholeColumn[1]!) === normalizeFormulaRef(wholeColumn[2]!)) {
+    return true;
+  }
+
+  const bounded = part.match(/^([A-Z]+)(\d+):([A-Z]+)(\d+)$/i);
+  if (bounded) {
+    return normalizeFormulaRef(bounded[1]!) === normalizeFormulaRef(bounded[3]!);
+  }
+
+  return false;
+}
+
+function isVerticalAdditionFormula(formulaBody: string): boolean {
+  const refs = formulaBody.match(/[A-Z]+\$?\d+/gi) ?? [];
+  if (refs.length < 2) return false;
+
+  const parsed = refs.map((ref) => parseCellRef(ref)).filter((ref): ref is { col: string; row: number } => ref != null);
+  if (parsed.length < 2) return false;
+
+  const firstCol = parsed[0]!.col;
+  return parsed.every((ref) => ref.col === firstCol);
+}
+
+/** 견적 금액 셀에 세로열 SUM/+/SUBTOTAL 합산 수식이면 해당 행 금액 제외 */
+export function isVerticalAggregationFormula(formula: string | undefined): boolean {
+  if (!formula?.trim()) return false;
+
+  const body = stripFormulaPrefix(formula).toUpperCase();
+
+  const sumMatch = body.match(/^SUM\s*\((.+)\)$/);
+  if (sumMatch) {
+    const parts = sumMatch[1]!.split(',').map((part) => part.trim());
+    if (parts.length >= 2 && parts.every((part) => parseCellRef(part))) {
+      const cols = parts.map((part) => parseCellRef(part)!.col);
+      return cols.every((col) => col === cols[0]);
+    }
+    return parts.every(
+      (part) =>
+        isVerticalCellRange(part) ||
+        isVerticalAdditionFormula(part) ||
+        Boolean(parseCellRef(part)),
+    );
+  }
+
+  const subtotalMatch = body.match(/^SUBTOTAL\s*\(\s*\d+\s*,\s*(.+)\)$/);
+  if (subtotalMatch) {
+    return subtotalMatch[1]!
+      .split(',')
+      .every((part) => isVerticalCellRange(part.trim()));
+  }
+
+  if (/^[A-Z]+\$?\d+(\s*[+]\s*[A-Z]+\$?\d+)+$/.test(body.replace(/\s/g, ''))) {
+    return isVerticalAdditionFormula(body);
+  }
+
+  return false;
+}
+
+function isFormulaAggregatedAmountRow(
+  rowIndex: number,
+  columns: QuotationColumns,
+  formulas: (string | undefined)[][] | undefined,
+): boolean {
+  if (!formulas) return false;
+
+  const formulaRow = formulas[rowIndex] ?? [];
+  const amountColumns = [
+    columns.quoteAmount,
+    columns.laborAmount,
+    columns.materialAmount,
+    columns.expenseAmount,
+  ].filter((colIndex) => colIndex >= 0);
+
+  return amountColumns.some((colIndex) =>
+    isVerticalAggregationFormula(formulaRow[colIndex]),
+  );
+}
+
 function countComparableRows(
   rows: unknown[][],
   headerRowIndex: number,
   columns: QuotationColumns,
+  formulas?: (string | undefined)[][],
 ): number {
   let count = 0;
   for (let rowIndex = headerRowIndex + 1; rowIndex < rows.length; rowIndex++) {
-    if (shouldIncludeRow(rows[rowIndex] ?? [], columns)) count += 1;
+    if (shouldIncludeRow(rows[rowIndex] ?? [], columns, rowIndex, formulas)) count += 1;
   }
   return count;
+}
+
+function readSheetWithFormulas(sheet: XLSX.WorkSheet): { rows: unknown[][]; formulas: (string | undefined)[][] } {
+  const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' }) as unknown[][];
+  const formulas = rows.map((row, rowIndex) =>
+    row.map((_, colIndex) => {
+      const addr = XLSX.utils.encode_cell({ r: rowIndex, c: colIndex });
+      const cell = sheet[addr] as XLSX.CellObject | undefined;
+      return typeof cell?.f === 'string' ? cell.f : undefined;
+    }),
+  );
+  return { rows, formulas };
 }
 
 /** 첨부 Excel의 모든 시트를 검사해 발주품의명·견적수량 상세내역이 가장 많은 시트 선택 */
@@ -255,16 +438,23 @@ function findDetailSheet(workbook: XLSX.WorkBook): DetailSheetMatch | null {
 
   for (const sheetName of workbook.SheetNames) {
     const sheet = workbook.Sheets[sheetName];
-    const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' }) as unknown[][];
+    const { rows, formulas } = readSheetWithFormulas(sheet);
     const header = findHeaderRow(rows);
     if (!header) continue;
 
-    const lineCount = countComparableRows(rows, header.headerRowIndex, header.columns);
+    const lineCount = countComparableRows(
+      rows,
+      header.headerRowIndex,
+      header.columns,
+      formulas,
+    );
     if (lineCount === 0) continue;
 
     if (!best || lineCount > best.lineCount) {
       best = {
+        sheetName,
         rows,
+        formulas,
         headerRowIndex: header.headerRowIndex,
         columns: header.columns,
         lineCount,
@@ -273,6 +463,50 @@ function findDetailSheet(workbook: XLSX.WorkBook): DetailSheetMatch | null {
   }
 
   return best;
+}
+
+async function readExcelWorkbook(file: File): Promise<XLSX.WorkBook> {
+  const buffer = await file.arrayBuffer();
+  return XLSX.read(buffer, { type: 'array', cellFormula: true });
+}
+
+type VendorBidFooterSummary = {
+  detailLineTotal: number;
+  finalBidAmount: number;
+  managementFee: number;
+};
+
+function summarizeVendorBidAmounts(parsed: ParsedQuotationFile): VendorBidFooterSummary {
+  const detailLineTotal = parsed.detailLineTotal;
+  const finalBidAmount = parsed.finalBidAmount;
+  return {
+    detailLineTotal,
+    finalBidAmount,
+    managementFee: roundWon(finalBidAmount - detailLineTotal),
+  };
+}
+
+/** 발주품의명 열(3번째)에 라벨을 넣은 하단 요약 행 */
+function buildFooterBaseRow(label: string): unknown[] {
+  const base = Array(BASE_HEADERS.length).fill('');
+  base[2] = label;
+  return base;
+}
+
+function buildFooterPriceBlock(quoteAmount: number): unknown[] {
+  return ['', quoteAmount, '', '', '', '', '', ''];
+}
+
+function applyFullRowFill(row: ExcelJS.Row, totalColumns: number, argb: string): void {
+  for (let col = 1; col <= totalColumns; col++) {
+    const cell = row.getCell(col);
+    cell.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb },
+    };
+    cell.font = { bold: true };
+  }
 }
 
 function buildColumns(headers: string[]): QuotationColumns | null {
@@ -378,7 +612,18 @@ function readDirectQuoteAmount(row: unknown[], columns: QuotationColumns): numbe
   return 0;
 }
 
-function shouldIncludeRow(row: unknown[], columns: QuotationColumns): boolean {
+function shouldIncludeRow(
+  row: unknown[],
+  columns: QuotationColumns,
+  rowIndex?: number,
+  formulas?: (string | undefined)[][],
+): boolean {
+  if (isSubtotalSummaryRow(row, columns)) return false;
+
+  if (rowIndex != null && isFormulaAggregatedAmountRow(rowIndex, columns, formulas)) {
+    return false;
+  }
+
   if (isRoundingRow(row, columns)) {
     const quantity = parseCellNumber(getCell(row, columns.quantity));
     if (quantity != null && quantity > 0) return true;
@@ -522,6 +767,7 @@ export function computeVendorOverheadStats(
   headerRowIndex: number,
   columns: QuotationColumns,
   vendorName: string,
+  formulas?: (string | undefined)[][],
 ): VendorOverheadRatioResult | null {
   let totalAmount = 0;
   let codedTotal = 0;
@@ -532,7 +778,7 @@ export function computeVendorOverheadStats(
 
   for (let rowIndex = headerRowIndex + 1; rowIndex < rows.length; rowIndex++) {
     const row = rows[rowIndex] ?? [];
-    if (!shouldIncludeRow(row, columns)) continue;
+    if (!shouldIncludeRow(row, columns, rowIndex, formulas)) continue;
 
     const quoteAmount = rowQuoteAmount(row, columns);
     if (quoteAmount === 0) continue;
@@ -588,7 +834,10 @@ function rowKey(row: unknown[], columns: QuotationColumns, rowIndex: number): st
   return budget ? `item:${budget}` : `row:${rowIndex}`;
 }
 
-export function calculateErpQuotationTotal(rows: unknown[][]): {
+export function calculateErpQuotationTotal(
+  rows: unknown[][],
+  formulas?: (string | undefined)[][],
+): {
   total: number;
   lineCount: number;
 } | null {
@@ -601,7 +850,7 @@ export function calculateErpQuotationTotal(rows: unknown[][]): {
 
   for (let rowIndex = headerRowIndex + 1; rowIndex < rows.length; rowIndex++) {
     const row = rows[rowIndex] ?? [];
-    if (!shouldIncludeRow(row, columns)) continue;
+    if (!shouldIncludeRow(row, columns, rowIndex, formulas)) continue;
 
     const quoteAmount = rowQuoteAmount(row, columns);
     if (quoteAmount === 0) continue;
@@ -614,14 +863,8 @@ export function calculateErpQuotationTotal(rows: unknown[][]): {
   return { total, lineCount };
 }
 
-function readWorkbookRows(workbook: XLSX.WorkBook): unknown[][] | null {
-  return findDetailSheet(workbook)?.rows ?? null;
-}
-
-async function readExcelRows(file: File): Promise<unknown[][]> {
-  const buffer = await file.arrayBuffer();
-  const workbook = XLSX.read(buffer, { type: 'array' });
-  return readWorkbookRows(workbook) ?? [];
+function readWorkbookDetailMatch(workbook: XLSX.WorkBook): DetailSheetMatch | null {
+  return findDetailSheet(workbook);
 }
 
 function extractBaseRow(row: unknown[], columns: QuotationColumns): unknown[] {
@@ -658,12 +901,12 @@ function vendorLabel(name: string): string {
 }
 
 function collectComparableRows(parsed: ParsedQuotationFile): Array<{ key: string; row: unknown[] }> {
-  const { rows, headerRowIndex, columns } = parsed;
+  const { rows, headerRowIndex, columns, formulas } = parsed;
   const items: Array<{ key: string; row: unknown[] }> = [];
 
   for (let rowIndex = headerRowIndex + 1; rowIndex < rows.length; rowIndex++) {
     const row = rows[rowIndex] ?? [];
-    if (!shouldIncludeRow(row, columns)) continue;
+    if (!shouldIncludeRow(row, columns, rowIndex, formulas)) continue;
     items.push({ key: rowKey(row, columns, rowIndex), row });
   }
 
@@ -697,12 +940,12 @@ function buildIntegratedBaseItems(
 }
 
 function buildRowLookup(parsed: ParsedQuotationFile): Map<string, unknown[]> {
-  const { rows, headerRowIndex, columns } = parsed;
+  const { rows, headerRowIndex, columns, formulas } = parsed;
   const lookup = new Map<string, unknown[]>();
 
   for (let rowIndex = headerRowIndex + 1; rowIndex < rows.length; rowIndex++) {
     const row = rows[rowIndex] ?? [];
-    if (!shouldIncludeRow(row, columns)) continue;
+    if (!shouldIncludeRow(row, columns, rowIndex, formulas)) continue;
     lookup.set(rowKey(row, columns, rowIndex), row);
   }
 
@@ -816,6 +1059,22 @@ async function buildComparisonWorkbook(
   for (const row of dataRows) {
     sheet.addRow(row);
   }
+
+  const totalColumns = BASE_HEADERS.length + ranked.length * PRICE_HEADERS.length;
+  const vendorSummaries = ranked.map((parsed) => summarizeVendorBidAmounts(parsed));
+
+  const mgmtFooterRow = buildFooterBaseRow(FOOTER_ROW_LABEL_MGMT);
+  for (const summary of vendorSummaries) {
+    mgmtFooterRow.push(...buildFooterPriceBlock(summary.managementFee));
+  }
+  sheet.addRow(mgmtFooterRow);
+
+  const bidFooterRow = buildFooterBaseRow(FOOTER_ROW_LABEL_BID);
+  for (const summary of vendorSummaries) {
+    bidFooterRow.push(...buildFooterPriceBlock(summary.finalBidAmount));
+  }
+  const bidAmountExcelRow = sheet.addRow(bidFooterRow);
+  applyFullRowFill(bidAmountExcelRow, totalColumns, BID_AMOUNT_ROW_FILL);
 
   const headerFill: ExcelJS.Fill = {
     type: 'pattern',
@@ -1000,8 +1259,10 @@ async function parseQuotationFile(partner: BidPartnerEntry): Promise<ParsedQuota
   }
 
   try {
-    const rows = await readExcelRows(partner.file);
-    if (rows.length === 0) {
+    const workbook = await readExcelWorkbook(partner.file);
+    const detailMatch = readWorkbookDetailMatch(workbook);
+
+    if (!detailMatch || detailMatch.rows.length === 0) {
       return {
         partnerId: partner.id,
         vendorName: partner.vendorName,
@@ -1014,21 +1275,10 @@ async function parseQuotationFile(partner: BidPartnerEntry): Promise<ParsedQuota
       };
     }
 
-    const header = findHeaderRow(rows);
-    if (!header) {
-      return {
-        partnerId: partner.id,
-        vendorName: partner.vendorName,
-        fileName: partner.file.name,
-        totalAmount: null,
-        lineCount: 0,
-        rank: 0,
-        status: 'error',
-        message: '상세 입찰내역 시트(발주품의명·견적수량·견적금액·실행예산코드)를 찾지 못했습니다.',
-      };
-    }
+    const { rows, formulas, headerRowIndex, columns, sheetName } = detailMatch;
+    const header = { headerRowIndex, columns };
 
-    const total = calculateErpQuotationTotal(rows);
+    const total = calculateErpQuotationTotal(rows, formulas);
     if (total == null) {
       return {
         partnerId: partner.id,
@@ -1042,13 +1292,21 @@ async function parseQuotationFile(partner: BidPartnerEntry): Promise<ParsedQuota
       };
     }
 
+    const bidResolution = resolveOtherSheetBidAmount(workbook, sheetName, total.total);
+
     return {
       partnerId: partner.id,
       vendorName: partner.vendorName,
       fileName: partner.file.name,
       rows,
+      formulas,
       headerRowIndex: header.headerRowIndex,
       columns: header.columns,
+      detailSheetName: sheetName,
+      detailLineTotal: total.total,
+      finalBidAmount: bidResolution.finalBidAmount,
+      excludedVatInclusiveMax: bidResolution.excludedVatInclusiveMax,
+      vatInclusiveFindings: bidResolution.vatInclusiveFindings,
     };
   } catch {
     return {
@@ -1078,16 +1336,23 @@ export async function analyzePartnerQuotations(
   );
 
   const okItems: BidQuotationCompareItem[] = parsedFiles.map((parsed) => {
-    const total = calculateErpQuotationTotal(parsed.rows)!;
+    const detailTotal = calculateErpQuotationTotal(parsed.rows, parsed.formulas)!;
+    const managementFee = roundWon(parsed.finalBidAmount - parsed.detailLineTotal);
+    const hasExternalBidSheet = parsed.finalBidAmount !== parsed.detailLineTotal;
+
     return {
       partnerId: parsed.partnerId,
       vendorName: parsed.vendorName,
       fileName: parsed.fileName,
-      totalAmount: total.total,
-      lineCount: total.lineCount,
+      totalAmount: parsed.finalBidAmount,
+      detailLineTotal: parsed.detailLineTotal,
+      managementFee,
+      lineCount: detailTotal.lineCount,
       rank: 0,
       status: 'ok',
-      message: `${total.lineCount}개 항목 합산`,
+      message: hasExternalBidSheet
+        ? `${detailTotal.lineCount}개 상세 · 입찰금액 ${formatWon(parsed.finalBidAmount)}`
+        : `${detailTotal.lineCount}개 항목 합산`,
     };
   });
 
@@ -1119,12 +1384,13 @@ export async function analyzePartnerQuotations(
       parsed.headerRowIndex,
       parsed.columns,
       parsed.vendorName,
+      parsed.formulas,
     );
     if (stats) overheadByPartner.set(parsed.partnerId, stats);
   }
 
-  const reviewIssuesRaw =
-    template && rankedParsed.length >= 2
+  const reviewIssuesRaw = [
+    ...(template && rankedParsed.length >= 2
       ? buildQuotationReviewIssues(
           rankedItems.map(
             (item): IntegratedVendorQuote => ({
@@ -1137,7 +1403,18 @@ export async function analyzePartnerQuotations(
           integratedLines,
           overheadByPartner,
         )
-      : [];
+      : []),
+    ...parsedFiles.flatMap((parsed) =>
+      buildVatInclusiveReviewIssues({
+        partnerId: parsed.partnerId,
+        vendorName: parsed.vendorName,
+        fileName: parsed.fileName,
+        finalBidAmount: parsed.finalBidAmount,
+        excludedVatInclusiveMax: parsed.excludedVatInclusiveMax,
+        vatInclusiveFindings: parsed.vatInclusiveFindings,
+      }),
+    ),
+  ];
 
   const reviewIssues = finalizeReviewIssues(reviewIssuesRaw, integratedLines);
   const reviewerSummary = buildReviewerSummary(

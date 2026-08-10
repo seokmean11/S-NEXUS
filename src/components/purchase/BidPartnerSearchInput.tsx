@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '@/components/ui/Button';
+import { useImeSafeInputValue, isKeyboardComposing } from '@/hooks/useImeSafeInputValue';
 
 interface BidPartnerSearchInputProps {
   partners: string[];
@@ -22,10 +23,16 @@ export function BidPartnerSearchInput({
 }: BidPartnerSearchInputProps) {
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
+  const {
+    inputValue,
+    onInputChange,
+    onCompositionStart,
+    onCompositionEnd,
+  } = useImeSafeInputValue(value, onChange);
 
   const filteredPartners = useMemo(
-    () => filterPartners(partners, value),
-    [partners, value],
+    () => filterPartners(partners, inputValue),
+    [partners, inputValue],
   );
 
   useEffect(() => {
@@ -52,16 +59,19 @@ export function BidPartnerSearchInput({
       <div className="project-name-search__bar">
         <input
           id="bid-partner-search-input"
-          type="search"
+          type="text"
           className="form-field__input project-name-search__input"
-          value={value}
+          value={inputValue}
           placeholder="협력사 검색·선택 또는 직접 입력"
           onChange={(event) => {
-            onChange(event.target.value);
+            onInputChange(event.target.value);
             setDropdownOpen(true);
           }}
+          onCompositionStart={onCompositionStart}
+          onCompositionEnd={(event) => onCompositionEnd(event.currentTarget.value)}
           onFocus={() => setDropdownOpen(true)}
           onKeyDown={(event) => {
+            if (isKeyboardComposing(event)) return;
             if (event.key === 'Escape') {
               setDropdownOpen(false);
               return;
@@ -100,15 +110,15 @@ export function BidPartnerSearchInput({
         >
           {filteredPartners.length === 0 ? (
             <li className="project-name-search__empty">
-              {value.trim() ? `"${value.trim()}" 직접 입력` : '검색 결과가 없습니다.'}
+              {inputValue.trim() ? `"${inputValue.trim()}" 직접 입력` : '검색 결과가 없습니다.'}
             </li>
           ) : (
             filteredPartners.map((name) => (
-              <li key={name} role="option" aria-selected={value === name}>
+              <li key={name} role="option" aria-selected={inputValue === name}>
                 <button
                   type="button"
                   className={`project-name-search__option ${
-                    value === name ? 'project-name-search__option--active' : ''
+                    inputValue === name ? 'project-name-search__option--active' : ''
                   }`}
                   onClick={() => handleSelect(name)}
                 >

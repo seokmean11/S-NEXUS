@@ -13,8 +13,8 @@ import type { AnalysisIntegratedContext } from '@/types/analyticsChat';
 import type { ClaudeChatTurn } from '@/services/claudeAnalysis';
 import type { ChatbotResponse } from '@/types/analyticsChat';
 import {
+  createAnalysisBackgroundJob,
   runAnalysisJob,
-  type AnalysisBackgroundJob,
   type RunAnalysisJobParams,
 } from '@/services/analysisChatJobRunner';
 import {
@@ -37,10 +37,11 @@ interface StartBackgroundAnalysisParams {
   teams: Team[];
   previewMessageId: string | null;
   localOrgResponse: ChatbotResponse | null;
+  hasMultiTurnContext: boolean;
 }
 
 interface AnalysisChatRuntimeContextValue {
-  inFlight: AnalysisBackgroundJob | null;
+  inFlight: ReturnType<typeof createAnalysisBackgroundJob> | null;
   lastUsage: ClaudeUsageSnapshot | null;
   revision: number;
   startBackgroundAnalysis: (params: StartBackgroundAnalysisParams) => void;
@@ -50,7 +51,7 @@ interface AnalysisChatRuntimeContextValue {
 
 const AnalysisChatRuntimeContext = createContext<AnalysisChatRuntimeContextValue | null>(null);
 
-function writePersistedInFlight(job: AnalysisBackgroundJob | null): void {
+function writePersistedInFlight(job: ReturnType<typeof createAnalysisBackgroundJob> | null): void {
   if (!job) {
     sessionStorage.removeItem(INFLIGHT_STORAGE_KEY);
     return;
@@ -59,7 +60,7 @@ function writePersistedInFlight(job: AnalysisBackgroundJob | null): void {
 }
 
 export function AnalysisChatRuntimeProvider({ children }: { children: ReactNode }) {
-  const [inFlight, setInFlight] = useState<AnalysisBackgroundJob | null>(null);
+  const [inFlight, setInFlight] = useState<ReturnType<typeof createAnalysisBackgroundJob> | null>(null);
   const [lastUsage, setLastUsage] = useState<ClaudeUsageSnapshot | null>(() =>
     getLastClaudeUsage(),
   );
@@ -75,13 +76,13 @@ export function AnalysisChatRuntimeProvider({ children }: { children: ReactNode 
   }, []);
 
   const startBackgroundAnalysis = useCallback((params: StartBackgroundAnalysisParams) => {
-    const job: AnalysisBackgroundJob = {
+    const job = createAnalysisBackgroundJob({
       roleId: params.roleId,
       threadId: params.threadId,
-      startedAt: Date.now(),
-      previewMessageId: params.previewMessageId,
       effectiveQuery: params.effectiveQuery,
-    };
+      previewMessageId: params.previewMessageId,
+      hasMultiTurnContext: params.hasMultiTurnContext,
+    });
 
     setInFlight(job);
     writePersistedInFlight(job);

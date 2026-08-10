@@ -8,9 +8,12 @@ import {
   getDateDigitSlots,
   getInitialRangeDigitIndex,
   getRangeDigitValue,
-  isCompleteDateDigits,
+  isCompleteDateWithYearDigits,
   isOutsourcingDateRangeActive,
   isOutsourcingDateRangeInvalid,
+  isOutsourcingDateRangeReady,
+  getOutsourcingDateFieldIncompleteMessage,
+  getOutsourcingDateRangeInvalidMessage,
   setRangeDigitAt,
 } from '@/utils/outsourcingDate';
 
@@ -78,12 +81,18 @@ function OutsourcingDateRangeFieldComponent({
   const [cursorDigit, setCursorDigit] = useState(0);
   const [focused, setFocused] = useState(false);
   const isActive = isOutsourcingDateRangeActive(dateRange);
+  const isSearchReady = isOutsourcingDateRangeReady(dateRange);
   const isInvalid = isOutsourcingDateRangeInvalid(dateRange);
-  const startIncomplete =
-    dateRange.startDigits.length > 0 && !isCompleteDateDigits(dateRange.startDigits);
-  const endIncomplete =
-    dateRange.endDigits.length > 0 && !isCompleteDateDigits(dateRange.endDigits);
-  const hasError = isInvalid || startIncomplete || endIncomplete;
+  const invalidMessage = getOutsourcingDateRangeInvalidMessage(dateRange);
+  const startIncompleteMessage = getOutsourcingDateFieldIncompleteMessage(
+    dateRange.startDigits,
+    '시작일',
+  );
+  const endIncompleteMessage = getOutsourcingDateFieldIncompleteMessage(
+    dateRange.endDigits,
+    '종료일',
+  );
+  const hasError = isInvalid || Boolean(startIncompleteMessage) || Boolean(endIncompleteMessage);
 
   const focusDigit = (rangeDigitIndex: number) => {
     const nextIndex = clampRangeDigitIndex(rangeDigitIndex);
@@ -191,7 +200,7 @@ function OutsourcingDateRangeFieldComponent({
         className={`outsourcing-filter-field__control outsourcing-date-range-field__control ${focused ? 'outsourcing-filter-field__control--open' : ''} ${hasError ? 'outsourcing-date-range-field__control--invalid' : ''}`}
         tabIndex={0}
         role="textbox"
-        aria-label="기간검색 시작일 ----년--월--일 종료일 ----년--월--일 형식"
+        aria-label="기간검색 시작일 연도 포함 ----년--월--일 종료일 연도 포함 ----년--월--일 형식"
         onFocus={handleFocus}
         onBlur={handleBlur}
         onClick={handleClick}
@@ -216,18 +225,24 @@ function OutsourcingDateRangeFieldComponent({
         </div>
       </div>
 
-      {startIncomplete && (
-        <p className="outsourcing-date-range-field__error">
-          시작일을 ----년--월--일 형식으로 모두 입력해 주세요.
+      {!startIncompleteMessage && !endIncompleteMessage && !isInvalid && isSearchReady && (
+        <p className="outsourcing-date-range-field__hint">
+          {isCompleteDateWithYearDigits(dateRange.startDigits) &&
+          isCompleteDateWithYearDigits(dateRange.endDigits)
+            ? '외주계약일 기준 · 연도 포함 · 시작일~종료일 사이 (양쪽 포함)'
+            : isCompleteDateWithYearDigits(dateRange.startDigits)
+              ? '외주계약일 기준 · 연도 포함 · 시작일 이후 (시작일 포함)'
+              : '외주계약일 기준 · 연도 포함 · 종료일까지 (종료일 포함)'}
         </p>
       )}
-      {!startIncomplete && endIncomplete && (
-        <p className="outsourcing-date-range-field__error">
-          종료일을 ----년--월--일 형식으로 모두 입력해 주세요.
-        </p>
+      {startIncompleteMessage && (
+        <p className="outsourcing-date-range-field__error">{startIncompleteMessage}</p>
       )}
-      {isInvalid && (
-        <p className="outsourcing-date-range-field__error">시작일은 종료일보다 이후일 수 없습니다.</p>
+      {!startIncompleteMessage && endIncompleteMessage && (
+        <p className="outsourcing-date-range-field__error">{endIncompleteMessage}</p>
+      )}
+      {isInvalid && invalidMessage && (
+        <p className="outsourcing-date-range-field__error">{invalidMessage}</p>
       )}
     </div>
   );

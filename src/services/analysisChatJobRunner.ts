@@ -2,7 +2,11 @@ import type { Role } from '@/types';
 import type { AnalysisChatMessage } from '@/types/analysisChatSession';
 import type { AnalysisIntegratedContext } from '@/types/analyticsChat';
 import type { Team } from '@/types';
-import { sendAnalysisMessage } from '@/services/analysisClaudeAnalysis';
+import type { ChatbotResponse } from '@/types/analyticsChat';
+import {
+  sendAnalysisMessage,
+  sendInterpretationMessage,
+} from '@/services/analysisClaudeAnalysis';
 import {
   formatClaudeError,
   isClaudeQuotaError,
@@ -19,14 +23,19 @@ import {
   buildAnalysisDataPayload,
   type AnalysisDataPayloadMeta,
 } from '@/utils/buildAnalysisDataPayload';
-import { isOrganizationAnalysisQuery, isCasualConversationQuery } from '@/utils/analysisQueryIntent';
+import { buildAnalysisInterpretationPayload } from '@/utils/buildAnalysisInterpretationPayload';
+import { buildLocalAnalysisAggregate } from '@/utils/analysisLocalAggregate';
+import { isCasualConversationQuery } from '@/utils/analysisQueryIntent';
+import {
+  getAnalysisRouteLabel,
+  resolveAnalysisQueryRoute,
+  type AnalysisQueryRoute,
+} from '@/utils/analysisQueryRouter';
 import { askAnalyticsChatbot } from '@/utils/analyticsChatbot';
 import { filterProjectsByQuery } from '@/utils/analysisQueryFilter';
-import { buildOrgInsightReport } from '@/utils/orgInsightReport';
 import { parseMarkdownTables, stripMarkdownTables } from '@/utils/markdownTableParser';
 import { recordClaudeUsage, type ClaudeUsageSnapshot } from '@/utils/claudeUsage';
 import type { ExportTable } from '@/utils/reportExport';
-import type { ChatbotResponse } from '@/types/analyticsChat';
 
 export interface AnalysisBackgroundJob {
   roleId: Role;
@@ -34,6 +43,7 @@ export interface AnalysisBackgroundJob {
   startedAt: number;
   previewMessageId: string | null;
   effectiveQuery: string;
+  route: AnalysisQueryRoute;
 }
 
 export interface RunAnalysisJobParams {
@@ -92,56 +102,186 @@ function persistThreadMessages(
   saveAnalysisChatRoleStore(next);
 }
 
+function applyLocalResponse(
+  params: RunAnalysisJobParams,
+  localResponse: ChatbotResponse,
+  suffix = '',
+): AnalysisJobResult {
+  persistThreadMessages(
+    params.job.roleId,
+    params.job.threadId,
+    (messages) => {
+      const nextText = suffix ? `${localResponse.text}${suffix}` : localResponse.text;
+      const nextTables = collectChatbotTables(localResponse);
+
+      if (params.job.previewMessageId) {
+        return messages.map((message) =>
+          message.id === params.job.previewMessageId
+            ? {
+                ...message,
+                text: nextText,
+                tables: nextTables,
+                error: false,
+                exportable: shouldMarkExportable(params.job.effectiveQuery),
+              }
+            : message,
+        );
+      }
+
+      return [
+        ...messages,
+        {
+          id: createMessageId(),
+          role: 'assistant' as const,
+          text: nextText,
+          tables: nextTables,
+          exportable: shouldMarkExportable(params.job.effectiveQuery),
+        },
+      ];
+    },
+    { lastQuery: params.job.effectiveQuery },
+  );
+
+  return { usage: null };
+}
+
 function applyLocalFallback(
   params: RunAnalysisJobParams,
   note: string,
 ): AnalysisJobResult {
   const localResponse =
     params.localOrgResponse ??
-    (isOrganizationAnalysisQuery(params.job.effectiveQuery)
-      ? buildOrgInsightReport(params.chatContext)
-      : askAnalyticsChatbot(params.job.effectiveQuery, {
-          ...params.chatContext,
-          projects: filterProjectsByQuery(params.chatContext.projects, params.job.effectiveQuery)
-            .projects,
-        }));
+    buildLocalAnalysisAggregate(params.job.effectiveQuery, params.chatContext) ??
+    askAnalyticsChatbot(params.job.effectiveQuery, {
+      ...params.chatContext,
+      projects: filterProjectsByQuery(params.chatContext.projects, params.job.effectiveQuery)
+        .projects,
+    });
 
-  persistThreadMessages(params.job.roleId, params.job.threadId, (messages) => {
-    const nextText = `${localResponse.text}${note}`;
-    const nextTables = collectChatbotTables(localResponse);
-
-    if (params.job.previewMessageId) {
-      return messages.map((message) =>
-        message.id === params.job.previewMessageId
-          ? { ...message, text: nextText, tables: nextTables, error: false, exportable: shouldMarkExportable(params.job.effectiveQuery) }
-          : message,
-      );
-    }
-
-    return [
-      ...messages,
-      {
-        id: createMessageId(),
-        role: 'assistant' as const,
-        text: nextText,
-        tables: nextTables,
-        exportable: shouldMarkExportable(params.job.effectiveQuery),
-      },
-    ];
-  }, { lastQuery: params.job.effectiveQuery });
-
-  return { usage: null };
+  return applyLocalResponse(params, localResponse, note);
 }
 
-export async function runAnalysisJob(params: RunAnalysisJobParams): Promise<AnalysisJobResult> {
+function persistClaudeAssistantMessage(
+  params: RunAnalysisJobParams,
+  text: string,
+): void {
+  const tables = parseMarkdownTables(text);
+  const displayText = tables.length > 0 ? stripMarkdownTables(text) : text;
+  const assistantMessage: AnalysisChatMessage = {
+    id: createMessageId(),
+    role: 'assistant',
+    text: displayText,
+    tables: tables.length > 0 ? tables : undefined,
+    exportable: shouldMarkExportable(params.job.effectiveQuery),
+  };
+
+  persistThreadMessages(
+    params.job.roleId,
+    params.job.threadId,
+    (messages) => {
+      const base = params.job.previewMessageId
+        ? messages.filter((message) => message.id !== params.job.previewMessageId)
+        : messages;
+      return [...base, assistantMessage];
+    },
+    { lastQuery: params.job.effectiveQuery },
+  );
+}
+
+async function runInterpretationJob(params: RunAnalysisJobParams): Promise<AnalysisJobResult> {
+  const localAggregate =
+    buildLocalAnalysisAggregate(params.job.effectiveQuery, params.chatContext) ??
+    params.localOrgResponse;
+
+  if (localAggregate) {
+    const interpretationPayload = buildAnalysisInterpretationPayload(
+      params.chatContext,
+      params.meta,
+      params.teams,
+      params.job.effectiveQuery,
+      localAggregate,
+    );
+
+    const result = await sendInterpretationMessage({
+      apiKey: params.apiKey,
+      turns: params.turns,
+      payload: interpretationPayload,
+    });
+
+    const usage = recordClaudeUsage(result.usage);
+    persistClaudeAssistantMessage(params, result.text);
+    return { usage };
+  }
+
   const dataPayload = buildAnalysisDataPayload(
     params.chatContext,
     params.meta,
     params.teams,
     params.job.effectiveQuery,
   );
+  const result = await sendAnalysisMessage({
+    apiKey: params.apiKey,
+    turns: params.turns,
+    dataPayload,
+  });
+
+  const usage = recordClaudeUsage(result.usage);
+  persistClaudeAssistantMessage(params, result.text);
+  return { usage };
+}
+
+export function createAnalysisBackgroundJob(params: {
+  roleId: Role;
+  threadId: string;
+  effectiveQuery: string;
+  previewMessageId: string | null;
+  hasMultiTurnContext: boolean;
+}): AnalysisBackgroundJob {
+  return {
+    roleId: params.roleId,
+    threadId: params.threadId,
+    startedAt: Date.now(),
+    previewMessageId: params.previewMessageId,
+    effectiveQuery: params.effectiveQuery,
+    route: resolveAnalysisQueryRoute(params.effectiveQuery, {
+      hasMultiTurnContext: params.hasMultiTurnContext,
+    }),
+  };
+}
+
+export async function runAnalysisJob(params: RunAnalysisJobParams): Promise<AnalysisJobResult> {
+  if (params.job.route === 'local') {
+    const localAggregate = buildLocalAnalysisAggregate(
+      params.job.effectiveQuery,
+      params.chatContext,
+    );
+
+    if (localAggregate) {
+      return applyLocalResponse(params, localAggregate);
+    }
+  }
+
+  if (!params.apiKey) {
+    return applyLocalResponse(
+      params,
+      {
+        text: `${getAnalysisRouteLabel(params.job.route)}에는 Claude API 키가 필요합니다. 상단 "API 설정"에서 키를 입력해 주세요.`,
+      },
+      '',
+    );
+  }
 
   try {
+    if (params.job.route === 'interpret') {
+      return await runInterpretationJob(params);
+    }
+
+    const dataPayload = buildAnalysisDataPayload(
+      params.chatContext,
+      params.meta,
+      params.teams,
+      params.job.effectiveQuery,
+    );
     const result = await sendAnalysisMessage({
       apiKey: params.apiKey,
       turns: params.turns,
@@ -149,28 +289,7 @@ export async function runAnalysisJob(params: RunAnalysisJobParams): Promise<Anal
     });
 
     const usage = recordClaudeUsage(result.usage);
-    const tables = parseMarkdownTables(result.text);
-    const displayText = tables.length > 0 ? stripMarkdownTables(result.text) : result.text;
-    const assistantMessage: AnalysisChatMessage = {
-      id: createMessageId(),
-      role: 'assistant',
-      text: displayText,
-      tables: tables.length > 0 ? tables : undefined,
-      exportable: shouldMarkExportable(params.job.effectiveQuery),
-    };
-
-    persistThreadMessages(
-      params.job.roleId,
-      params.job.threadId,
-      (messages) => {
-        const base = params.job.previewMessageId
-          ? messages.filter((message) => message.id !== params.job.previewMessageId)
-          : messages;
-        return [...base, assistantMessage];
-      },
-      { lastQuery: params.job.effectiveQuery },
-    );
-
+    persistClaudeAssistantMessage(params, result.text);
     return { usage };
   } catch (error) {
     if (isClaudeQuotaError(error) || isClaudeTimeoutError(error)) {
@@ -186,12 +305,12 @@ export async function runAnalysisJob(params: RunAnalysisJobParams): Promise<Anal
       );
     }
 
-      const errorText = formatClaudeError(error);
-      if (/429|RPM|too many requests/i.test(errorText)) {
-        window.dispatchEvent(new CustomEvent('analysis-chat-rate-limited'));
-      }
+    const errorText = formatClaudeError(error);
+    if (/429|RPM|too many requests/i.test(errorText)) {
+      window.dispatchEvent(new CustomEvent('analysis-chat-rate-limited'));
+    }
 
-      persistThreadMessages(params.job.roleId, params.job.threadId, (messages) => [
+    persistThreadMessages(params.job.roleId, params.job.threadId, (messages) => [
       ...messages,
       {
         id: createMessageId(),
@@ -204,3 +323,5 @@ export async function runAnalysisJob(params: RunAnalysisJobParams): Promise<Anal
     return { usage: null };
   }
 }
+
+export { getAnalysisRouteLabel, resolveAnalysisQueryRoute };

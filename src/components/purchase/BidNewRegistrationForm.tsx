@@ -42,11 +42,28 @@ export function BidNewRegistrationForm() {
     setAttachmentPanelOpen,
     quotationAttachments,
     setQuotationAttachments,
-    resetRegistration,
+    resetRegistrationForm,
+    resetBidInfo,
   } = useBidManagement();
   const attachmentPanelRef = useRef<HTMLDivElement>(null);
 
   const [analysisConfirmOpen, setAnalysisConfirmOpen] = useState(false);
+  const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
+  const [fullResetConfirmOpen, setFullResetConfirmOpen] = useState(false);
+
+  const openResetConfirm = () => {
+    setResetConfirmOpen(true);
+  };
+
+  const handleConfirmReset = () => {
+    setResetConfirmOpen(false);
+    resetBidInfo();
+  };
+
+  const handleConfirmFullReset = () => {
+    setFullResetConfirmOpen(false);
+    resetRegistrationForm();
+  };
 
   const isComplete = useMemo(
     () => isBidRegistrationComplete(form, selectedProjectId),
@@ -108,7 +125,7 @@ export function BidNewRegistrationForm() {
   };
 
   const handleReset = () => {
-    resetRegistration();
+    setFullResetConfirmOpen(true);
   };
 
   const handleConfirmAnalysis = () => {
@@ -124,6 +141,11 @@ export function BidNewRegistrationForm() {
       <Card
         title="신규 입찰 등록"
         subtitle="프로젝트명·코드는 프로젝트 관리 데이터에서 검색·선택합니다"
+        headerAction={
+          <Button variant="outline" size="sm" onClick={handleReset}>
+            입력 초기화
+          </Button>
+        }
       >
         <div className="bid-registration">
           <section className="bid-registration__section">
@@ -165,7 +187,12 @@ export function BidNewRegistrationForm() {
           </section>
 
           <section className="bid-registration__section">
-            <h4 className="bid-registration__section-title">외주발주 입찰 정보</h4>
+            <div className="bid-registration__section-head">
+              <h4 className="bid-registration__section-title">외주발주 입찰 정보</h4>
+              <Button variant="outline" size="sm" onClick={openResetConfirm}>
+                입찰정보 초기화
+              </Button>
+            </div>
             <div className="bid-registration__grid">
               <BidTradeTypeSearchInput
                 tradeTypes={existingTradeTypes}
@@ -205,9 +232,6 @@ export function BidNewRegistrationForm() {
           </section>
 
           <div className="bid-registration__actions">
-            <Button variant="ghost" size="sm" onClick={handleReset}>
-              입력 초기화
-            </Button>
             {isComplete && (
               <Button variant="primary" onClick={() => setAnalysisConfirmOpen(true)}>
                 입찰사 등록
@@ -242,6 +266,26 @@ export function BidNewRegistrationForm() {
           />
         </div>
       )}
+
+      <ConfirmDialog
+        open={resetConfirmOpen}
+        title="입찰정보 초기화"
+        message="외주발주 입찰 정보 입력란과 등록된 참여업체·견적 첨부가 초기화됩니다. 프로젝트 기본 정보는 유지됩니다. 계속하시겠습니까?"
+        confirmLabel="초기화"
+        cancelLabel="취소"
+        onConfirm={handleConfirmReset}
+        onCancel={() => setResetConfirmOpen(false)}
+      />
+
+      <ConfirmDialog
+        open={fullResetConfirmOpen}
+        title="입력 초기화"
+        message="프로젝트 기본 정보를 포함한 모든 입력과 등록된 입찰사·견적 첨부가 초기화됩니다. 계속하시겠습니까?"
+        confirmLabel="초기화"
+        cancelLabel="취소"
+        onConfirm={handleConfirmFullReset}
+        onCancel={() => setFullResetConfirmOpen(false)}
+      />
 
       <ConfirmDialog
         open={analysisConfirmOpen}

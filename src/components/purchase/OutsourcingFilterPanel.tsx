@@ -11,15 +11,18 @@ import type {
 } from '@/types/outsourcing';
 import { EMPTY_OUTSOURCING_DATE_RANGE, EMPTY_OUTSOURCING_FILTERS, OUTSOURCING_FILTER_ORDER } from '@/types/outsourcing';
 import type { OutsourcingRecord } from '@/types/outsourcing';
-import { buildAllFacetedFilterOptions, countActiveOutsourcingFilters } from '@/utils/outsourcingAnalysis';
+import { countActiveOutsourcingFilters, buildFacetedOptionsDependencyKey } from '@/utils/outsourcingAnalysis';
 
 interface OutsourcingFilterPanelProps {
   allRecords: OutsourcingRecord[];
   filters: OutsourcingFilters;
   dateRange: OutsourcingDateRange;
+  facetedDateRange: OutsourcingDateRange;
   filteredCount: number;
   isFiltering?: boolean;
-  onFiltersChange: (filters: OutsourcingFilters) => void;
+  onFiltersChange: (
+    filters: OutsourcingFilters | ((prev: OutsourcingFilters) => OutsourcingFilters),
+  ) => void;
   onDateRangeChange: (dateRange: OutsourcingDateRange) => void;
 }
 
@@ -27,6 +30,7 @@ function OutsourcingFilterPanelComponent({
   allRecords,
   filters,
   dateRange,
+  facetedDateRange,
   filteredCount,
   isFiltering = false,
   onFiltersChange,
@@ -39,16 +43,11 @@ function OutsourcingFilterPanelComponent({
     [filters, dateRange],
   );
 
-  const facetedOptions = useMemo(
-    () => buildAllFacetedFilterOptions(allRecords, filters, dateRange),
-    [allRecords, filters, dateRange],
-  );
-
   const setField = useCallback(
     (key: OutsourcingFilterKey, field: OutsourcingFilterFieldState) => {
-      onFiltersChange({ ...filters, [key]: field });
+      onFiltersChange((prev) => ({ ...prev, [key]: field }));
     },
-    [filters, onFiltersChange],
+    [onFiltersChange],
   );
 
   const handleResetAll = () => {
@@ -90,8 +89,11 @@ function OutsourcingFilterPanelComponent({
           <OutsourcingMultiSelectFilter
             key={key}
             filterKey={key}
-            options={facetedOptions[key]}
+            allRecords={allRecords}
+            filters={filters}
+            dateRange={facetedDateRange}
             field={filters[key]}
+            facetedDependencyKey={buildFacetedOptionsDependencyKey(filters, key, facetedDateRange)}
             activeFilterKey={activeFilterKey}
             onActivate={() => setActiveFilterKey(key)}
             onChange={(field) => setField(key, field)}

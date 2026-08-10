@@ -138,6 +138,62 @@ export function isCompleteDateDigits(digits: string): boolean {
   return /^\d{8}$/.test(digits);
 }
 
+const MIN_SEARCH_YEAR = 1900;
+const MAX_SEARCH_YEAR = 2100;
+
+export function isCompleteYearDigits(digits: string): boolean {
+  if (digits.length < 4) return false;
+
+  const yearPart = digits.slice(0, 4);
+  if (!/^\d{4}$/.test(yearPart)) return false;
+
+  const year = Number(yearPart);
+  return year >= MIN_SEARCH_YEAR && year <= MAX_SEARCH_YEAR;
+}
+
+/** 연도(4자리) 포함 YYYY-MM-DD 전체가 유효할 때만 검색 가능 */
+export function isCompleteDateWithYearDigits(digits: string): boolean {
+  if (!isCompleteDateDigits(digits)) return false;
+  if (!isCompleteYearDigits(digits)) return false;
+  return dateDigitsToTimestamp(digits) !== null;
+}
+
+/** 월·일만 입력되었거나 연도(4자리)가 빠진 경우 */
+export function hasDateInputWithoutYear(digits: string): boolean {
+  if (digits.length === 0) return false;
+  if (isCompleteDateWithYearDigits(digits)) return false;
+  if (isCompleteYearDigits(digits)) return false;
+
+  if (digits.length < 4) return true;
+  if (digits.length === 4) return !isCompleteYearDigits(digits);
+  if (digits.length < DIGIT_COUNT) return !isCompleteYearDigits(digits);
+
+  return !isCompleteYearDigits(digits);
+}
+
+export function getOutsourcingDateFieldIncompleteMessage(
+  digits: string,
+  label: '시작일' | '종료일',
+): string | null {
+  if (digits.length === 0) return null;
+  if (isCompleteDateWithYearDigits(digits)) return null;
+  if (isCompleteDateDigits(digits)) return null;
+
+  if (hasDateInputWithoutYear(digits)) {
+    return `${label}은 연도(4자리)를 포함한 ----년--월--일 형식으로 입력해 주세요.`;
+  }
+
+  return `${label}을 ----년--월--일 형식으로 모두 입력해 주세요.`;
+}
+
+export function isCompleteInvalidDateDigits(digits: string): boolean {
+  return (
+    isCompleteDateDigits(digits) &&
+    isCompleteYearDigits(digits) &&
+    dateDigitsToTimestamp(digits) === null
+  );
+}
+
 export function dateDigitsToTimestamp(digits: string): number | null {
   if (!isCompleteDateDigits(digits)) return null;
 
@@ -155,6 +211,13 @@ export function dateDigitsToTimestamp(digits: string): number | null {
   }
 
   return date.setHours(0, 0, 0, 0);
+}
+
+/** 종료일 포함 비교용 — 해당 일 23:59:59.999 */
+export function dateDigitsToEndInclusiveTimestamp(digits: string): number | null {
+  const startTs = dateDigitsToTimestamp(digits);
+  if (startTs == null) return null;
+  return startTs + 24 * 60 * 60 * 1000 - 1;
 }
 
 export function parseContractDate(value: string): number | null {
@@ -196,14 +259,78 @@ export function parseContractDate(value: string): number | null {
 }
 
 export function isOutsourcingDateRangeActive(dateRange: OutsourcingDateRange): boolean {
-  return isCompleteDateDigits(dateRange.startDigits) || isCompleteDateDigits(dateRange.endDigits);
+  return dateRange.startDigits.length > 0 || dateRange.endDigits.length > 0;
+}
+
+function hasPartialDateDigits(digits: string): boolean {
+  return digits.length > 0 && !isCompleteDateWithYearDigits(digits);
+}
+
+/** 연도 포함 유효 날짜가 하나 이상 있고, 미완성·오류가 없을 때 필터 적용 */
+export function isOutsourcingDateRangeReady(dateRange: OutsourcingDateRange): boolean {
+  if (hasPartialDateDigits(dateRange.startDigits) || hasPartialDateDigits(dateRange.endDigits)) {
+    return false;
+  }
+  if (getOutsourcingDateRangeInvalidMessage(dateRange) != null) return false;
+
+  return (
+    isCompleteDateWithYearDigits(dateRange.startDigits) ||
+    isCompleteDateWithYearDigits(dateRange.endDigits)
+  );
+}
+
+export function isOutsourcingContractDateInRange(
+  contractTimestamp: number | null,
+  dateRange: OutsourcingDateRange,
+): boolean {
+  if (contractTimestamp == null || !isOutsourcingDateRangeReady(dateRange)) return false;
+
+  const startTs = isCompleteDateWithYearDigits(dateRange.startDigits)
+    ? dateDigitsToTimestamp(dateRange.startDigits)
+    : null;
+  const endTs = isCompleteDateWithYearDigits(dateRange.endDigits)
+    ? dateDigitsToEndInclusiveTimestamp(dateRange.endDigits)
+    : null;
+
+  if (startTs != null && contractTimestamp < startTs) return false;
+  if (endTs != null && contractTimestamp > endTs) return false;
+
+  return true;
 }
 
 export function isOutsourcingDateRangeInvalid(dateRange: OutsourcingDateRange): boolean {
+  return getOutsourcingDateRangeInvalidMessage(dateRange) != null;
+}
+
+function formatInvalidCalendarMessage(digits: string, label: '시작일' | '종료일'): string {
+  const month = Number(digits.slice(4, 6));
+  const day = Number(digits.slice(6, 8));
+  return `${label}이 올바른 날짜가 아닙니다. (${month}월 ${day}일은 존재하지 않습니다)`;
+}
+
+export function getOutsourcingDateRangeInvalidMessage(
+  dateRange: OutsourcingDateRange,
+): string | null {
+  if (isCompleteDateDigits(dateRange.startDigits) && !isCompleteYearDigits(dateRange.startDigits)) {
+    return '시작일 연도(4자리)를 올바르게 입력해 주세요.';
+  }
+  if (isCompleteDateDigits(dateRange.endDigits) && !isCompleteYearDigits(dateRange.endDigits)) {
+    return '종료일 연도(4자리)를 올바르게 입력해 주세요.';
+  }
+  if (isCompleteInvalidDateDigits(dateRange.startDigits)) {
+    return formatInvalidCalendarMessage(dateRange.startDigits, '시작일');
+  }
+  if (isCompleteInvalidDateDigits(dateRange.endDigits)) {
+    return formatInvalidCalendarMessage(dateRange.endDigits, '종료일');
+  }
+
   const startTs = dateDigitsToTimestamp(dateRange.startDigits);
   const endTs = dateDigitsToTimestamp(dateRange.endDigits);
-  if (startTs == null || endTs == null) return false;
-  return startTs > endTs;
+  if (startTs != null && endTs != null && startTs > endTs) {
+    return '시작일은 종료일보다 이후일 수 없습니다.';
+  }
+
+  return null;
 }
 
 export function setDateDigitAt(digits: string, digitIndex: number, digit: string): string {

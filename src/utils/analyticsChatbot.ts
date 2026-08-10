@@ -1,10 +1,12 @@
 import { formatCurrency } from '@/data/mockData';
 import type { Project } from '@/types';
 import type {
+  AnalysisIntegratedContext,
   AnalyticsChatContext,
   ChatbotResponse,
   ChatExportAction,
 } from '@/types/analyticsChat';
+import { buildOutsourcingQueryAnalysis } from '@/utils/analysisOutsourcingPayload';
 import type { ExportTable } from '@/utils/reportExport';
 import { formatIsoToKoreanDate } from '@/utils/formatInput';
 import { getAmendmentsForProject } from '@/utils/contractChange';
@@ -286,7 +288,7 @@ function helpResponse(): ChatbotResponse {
   };
 }
 
-function isInsightReportQuery(query: string): boolean {
+export function isInsightReportQuery(query: string): boolean {
   if (isOrganizationAnalysisQuery(query)) return false;
   if (/인사이트|종합\s*분석|심층\s*분석|insight/i.test(query)) return true;
   if (/보고서|분석/.test(query) && /프로젝트|등록|현재|전체|지금/.test(query)) {
@@ -296,11 +298,50 @@ function isInsightReportQuery(query: string): boolean {
   return false;
 }
 
-function isListOnlyQuery(query: string): boolean {
+export function isListOnlyQuery(query: string): boolean {
   return /리스트|목록|나열|뽑아/.test(query) && !/인사이트|보고서/.test(query);
 }
 
-export function askAnalyticsChatbot(query: string, ctx: AnalyticsChatContext): ChatbotResponse {
+function outsourcingVendorRanking(
+  ctx: AnalysisIntegratedContext,
+  query: string,
+): ChatbotResponse | null {
+  const analysis = buildOutsourcingQueryAnalysis(ctx.outsourcingRecords, query);
+  if (!analysis) return null;
+
+  const table: ExportTable = {
+    headers: ['순위', '업체', '금액', '비중(%)', '계약건수', '프로젝트수'],
+    rows: analysis.topVendorsByAmount.map((vendor) => [
+      String(vendor.rank),
+      vendor.vendorLabel,
+      formatAmount(vendor.amount),
+      `${vendor.sharePercent.toFixed(1)}%`,
+      String(vendor.contractCount),
+      String(vendor.projectCount),
+    ]),
+  };
+
+  const summary = `외주 ${analysis.matchedRecordCount}건 · 합계 ${formatAmount(analysis.matchedTotalAmount)}`;
+  const title = `외주_${analysis.filterKeywords.join('_')}_상위${analysis.topLimit}`;
+
+  if (table.rows.length === 0) {
+    return {
+      text: `${analysis.note}\n조건에 맞는 외주 데이터가 없습니다.`,
+    };
+  }
+
+  return {
+    text: `${analysis.note}\n${summary} 기준 상위 업체를 정리했습니다.`,
+    table,
+    exports: buildExports('outsourcing-vendors', title, table, summary),
+  };
+}
+
+/** 규칙 기반 로컬 집계. null이면 Claude(해석) 경로로 넘깁니다. */
+export function tryLocalAnalyticsQuery(
+  query: string,
+  ctx: AnalysisIntegratedContext,
+): ChatbotResponse | null {
   const normalized = query.trim();
   if (!normalized) return helpResponse();
 
@@ -320,16 +361,35 @@ export function askAnalyticsChatbot(query: string, ctx: AnalyticsChatContext): C
     return divisionOrderStatus(ctx, normalized);
   }
 
-  if (/수주|계약\s*금액|수주\s*현황/.test(normalized)) {
-    return buildProjectInsightReport(ctx);
-  }
-
-  if (/프로젝트\s*(전체|현황|목록|리스트)|전체\s*프로젝트/.test(normalized) && isListOnlyQuery(normalized)) {
+  if (
+    /프로젝트\s*(전체|현황|목록|리스트)|전체\s*프로젝트/.test(normalized) &&
+    isListOnlyQuery(normalized)
+  ) {
     return projectOverview(ctx);
   }
 
+  const outsourcingResponse = outsourcingVendorRanking(ctx, normalized);
+  if (outsourcingResponse) return outsourcingResponse;
+
+  if (/안녕|도움|help|뭐\s*할\s*수/.test(normalized)) {
+    return helpResponse();
+  }
+
+  return null;
+}
+
+export function askAnalyticsChatbot(query: string, ctx: AnalyticsChatContext): ChatbotResponse {
+  const integratedCtx = ctx as AnalysisIntegratedContext;
+  const local = tryLocalAnalyticsQuery(query, integratedCtx);
+  if (local) return local;
+
+  const normalized = query.trim();
+  if (/수주|계약\s*금액|수주\s*현황/.test(normalized)) {
+    return buildProjectInsightReport(integratedCtx);
+  }
+
   if (/프로젝트\s*(전체|현황)|전체\s*프로젝트|등록/.test(normalized)) {
-    return buildProjectInsightReport(ctx);
+    return buildProjectInsightReport(integratedCtx);
   }
 
   if (/인력|배분|기여/.test(normalized)) {
@@ -342,11 +402,7 @@ export function askAnalyticsChatbot(query: string, ctx: AnalyticsChatContext): C
     };
   }
 
-  if (/안녕|도움|help|뭐\s*할\s*수/.test(normalized)) {
-    return helpResponse();
-  }
-
-  return buildProjectInsightReport(ctx);
+  return buildProjectInsightReport(integratedCtx);
 }
 
 export function getProjectStatsSummary(ctx: AnalyticsChatContext): string {

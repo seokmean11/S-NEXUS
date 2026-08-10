@@ -4,6 +4,10 @@ import {
   getAnalysisMaxTokensForIntent,
   type AnalysisDataPayload,
 } from '@/utils/buildAnalysisDataPayload';
+import {
+  buildInterpretationSystemInstruction,
+  type AnalysisInterpretationPayload,
+} from '@/utils/buildAnalysisInterpretationPayload';
 import type { AnalysisQueryIntent } from '@/utils/analysisQueryIntent';
 
 export async function sendAnalysisMessage(params: {
@@ -20,6 +24,23 @@ export async function sendAnalysisMessage(params: {
     system: buildSystemInstruction(dataPayload),
     turns,
     maxTokens: getAnalysisMaxTokensForIntent(intent),
+    timeoutMs,
+  });
+}
+
+export async function sendInterpretationMessage(params: {
+  apiKey: string;
+  turns: ClaudeChatTurn[];
+  payload: AnalysisInterpretationPayload;
+  timeoutMs?: number;
+}): Promise<ClaudeMessageResult> {
+  const { apiKey, turns, payload, timeoutMs = 45_000 } = params;
+
+  return sendClaudeMessage({
+    apiKey,
+    system: buildInterpretationSystemInstruction(payload),
+    turns,
+    maxTokens: 1536,
     timeoutMs,
   });
 }

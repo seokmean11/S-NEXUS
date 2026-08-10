@@ -70,6 +70,10 @@ import {
   isOrganizationAnalysisQuery,
 } from '@/utils/analysisQueryIntent';
 
+import {
+  getAnalysisRouteLabel,
+  resolveAnalysisQueryRoute,
+} from '@/utils/analysisQueryRouter';
 import { buildOrgInsightReport } from '@/utils/orgInsightReport';
 
 import { buildPersonnelRows } from '@/utils/personnelSearch';
@@ -987,44 +991,6 @@ export function AnalysisChatbot() {
 
     lastRequestAt.current = now;
 
-
-
-    const apiKey = getClaudeApiKey();
-
-    if (!apiKey) {
-
-      setSettingsOpen(true);
-
-      setMessages((prev) => [
-
-        ...prev,
-
-        { id: createId(), role: 'user', text: trimmed },
-
-        {
-
-          id: createId(),
-
-          role: 'assistant',
-
-          text: 'Claude API 키가 필요합니다. 상단 "API 설정"에서 키를 입력·저장해 주세요.',
-
-          error: true,
-
-        },
-
-      ]);
-
-      setInput('');
-
-      scrollToBottom();
-
-      return;
-
-    }
-
-
-
     const userMessage: AnalysisChatMessage = { id: createId(), role: 'user', text: trimmed };
 
     const pendingMessages = [...messages, userMessage];
@@ -1034,8 +1000,6 @@ export function AnalysisChatbot() {
     setInput('');
 
     scrollToBottom();
-
-
 
     const clarificationStats = {
 
@@ -1137,7 +1101,43 @@ export function AnalysisChatbot() {
 
     scrollToBottom();
 
+    const conversationTurns = getConversationTurns(pendingMessages);
 
+    const queryRoute = resolveAnalysisQueryRoute(effectiveQuery, {
+
+      hasMultiTurnContext: conversationTurns.length > 1,
+
+    });
+
+    const apiKey = getClaudeApiKey() ?? '';
+
+    if (queryRoute === 'interpret' && !apiKey) {
+
+      setSettingsOpen(true);
+
+      setMessages((prev) => [
+
+        ...prev,
+
+        {
+
+          id: createId(),
+
+          role: 'assistant',
+
+          text: `${getAnalysisRouteLabel(queryRoute)}에는 Claude API 키가 필요합니다. 상단 "API 설정"에서 키를 입력·저장해 주세요.`,
+
+          error: true,
+
+        },
+
+      ]);
+
+      scrollToBottom();
+
+      return;
+
+    }
 
     const isOrgQuery = isOrganizationAnalysisQuery(effectiveQuery);
 
@@ -1151,7 +1151,7 @@ export function AnalysisChatbot() {
 
       effectiveQuery,
 
-      turns: getConversationTurns(pendingMessages),
+      turns: conversationTurns,
 
       chatContext,
 
@@ -1170,6 +1170,8 @@ export function AnalysisChatbot() {
       previewMessageId: null,
 
       localOrgResponse: isOrgQuery ? buildOrgInsightReport(chatContext) : null,
+
+      hasMultiTurnContext: conversationTurns.length > 1,
 
     });
 
@@ -1746,9 +1748,9 @@ export function AnalysisChatbot() {
                 {loadingSec > 0 ? ` · ${loadingSec}초 경과` : ''}
 
                 <p className="analysis-chat__loading-scope">
-
-                  {summarizePayloadScope(dataPayload)}
-
+                  {inFlight
+                    ? getAnalysisRouteLabel(inFlight.route)
+                    : summarizePayloadScope(dataPayload)}
                 </p>
 
               </div>

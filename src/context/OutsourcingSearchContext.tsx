@@ -39,7 +39,9 @@ interface OutsourcingSearchContextValue {
   setSetupOpen: (open: boolean | ((prev: boolean) => boolean)) => void;
   dbStatsOpen: boolean;
   setDbStatsOpen: (open: boolean | ((prev: boolean) => boolean)) => void;
-  setFilters: (filters: OutsourcingFilters) => void;
+  setFilters: (
+    filters: OutsourcingFilters | ((prev: OutsourcingFilters) => OutsourcingFilters),
+  ) => void;
   setDateRange: (dateRange: OutsourcingDateRange) => void;
   loadFromLocalFolder: () => Promise<void>;
   handleFilePick: (file: File) => Promise<void>;
@@ -149,12 +151,19 @@ export function OutsourcingSearchProvider({ children }: { children: ReactNode })
     return () => window.clearInterval(timer);
   }, [applyLoadResult, localInfo?.configured, localInfo?.error]);
 
-  const setFilters = useCallback((nextFilters: OutsourcingFilters) => {
-    startTransition(() => setFiltersState(nextFilters));
-  }, []);
+  const setFilters = useCallback(
+    (nextFilters: OutsourcingFilters | ((prev: OutsourcingFilters) => OutsourcingFilters)) => {
+      startTransition(() => {
+        setFiltersState((prev) =>
+          typeof nextFilters === 'function' ? nextFilters(prev) : nextFilters,
+        );
+      });
+    },
+    [],
+  );
 
   const setDateRange = useCallback((nextDateRange: OutsourcingDateRange) => {
-    setDateRangeState(nextDateRange);
+    startTransition(() => setDateRangeState(nextDateRange));
   }, []);
 
   const handleFilePick = useCallback(
