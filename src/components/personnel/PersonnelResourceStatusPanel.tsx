@@ -340,6 +340,14 @@ export function PersonnelResourceStatusPanel({ stats, rows }: PersonnelResourceS
     [stats.divisionShares],
   );
 
+  const divisionChartRows = useMemo(() => {
+    const rows: typeof stats.divisionCompositions[] = [];
+    for (let index = 0; index < stats.divisionCompositions.length; index += 2) {
+      rows.push(stats.divisionCompositions.slice(index, index + 2));
+    }
+    return rows;
+  }, [stats.divisionCompositions]);
+
   const statItems = [
     { label: '전체 인적자원', value: formatStatValue(stats.totalCount), unit: '명' },
     { label: '직급 구분', value: formatStatValue(stats.rankShares.length), unit: '종' },
@@ -422,7 +430,12 @@ export function PersonnelResourceStatusPanel({ stats, rows }: PersonnelResourceS
             사업본부별 임원·1~7급 인원 분포입니다. 항목을 클릭하면 해당 인원 목록을 볼 수 있습니다.
           </p>
           <div className="personnel-resource-status__division-charts">
-            {stats.divisionCompositions.map((composition) => {
+            {divisionChartRows.map((row, rowIndex) => (
+              <div
+                key={`division-chart-row-${rowIndex}`}
+                className="personnel-resource-status__division-charts-row"
+              >
+                {row.map((composition) => {
               const divisionShare = divisionShareByName.get(composition.divisionName);
               const headerShare = {
                 count: divisionShare?.count ?? 0,
@@ -444,7 +457,9 @@ export function PersonnelResourceStatusPanel({ stats, rows }: PersonnelResourceS
                   headerShare={headerShare}
                 />
               );
-            })}
+                })}
+              </div>
+            ))}
           </div>
         </div>
       </Card>
