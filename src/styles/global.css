@@ -618,7 +618,7 @@ body {
 
 .personnel-resource-status__division-charts {
   display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
 }
 
@@ -662,12 +662,6 @@ body {
 .personnel-resource-legend--compact .personnel-resource-legend__swatch {
   width: 6px;
   height: 6px;
-}
-
-@media (max-width: 1400px) {
-  .personnel-resource-status__division-charts {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
 }
 
 @media (max-width: 1100px) {
