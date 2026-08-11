@@ -141,3 +141,13 @@ export interface VendorChartItem {
   projectCount: number;
   projectAverageAmount: number;
 }
+
+export interface OutsourcingExecutionRateSummary {
+  totalContractAmount: number;
+  totalExecutionAmount: number;
+  totalOutsourcingAmount: number;
+  /** 실행률(내부) = 실행금액(실행예산) ÷ 계약금액 */
+  internalExecutionRatePercent: number | null;
+  /** 실행률(외주) = 외주금액 ÷ 계약금액 */
+  outsourcingExecutionRatePercent: number | null;
+}

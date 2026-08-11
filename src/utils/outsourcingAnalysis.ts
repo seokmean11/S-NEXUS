@@ -3,6 +3,7 @@ import type {
   OutsourcingFilterFieldState,
   OutsourcingFilterKey,
   OutsourcingFilters,
+  OutsourcingExecutionRateSummary,
   OutsourcingKpiSummary,
   OutsourcingRecord,
   UnitPriceStats,
@@ -20,6 +21,16 @@ import {
   isOutsourcingDateRangeReady,
   getOutsourcingDateFilterCommitKey,
 } from '@/utils/outsourcingDate';
+
+export const OUTSOURCING_EXCLUDED_BUDGET_NAME = '가편성예산';
+
+export function isIncludedInOutsourcingSearchResults(record: OutsourcingRecord): boolean {
+  return record.budget.trim() !== OUTSOURCING_EXCLUDED_BUDGET_NAME;
+}
+
+export function excludeProvisionalBudgetRecords(records: OutsourcingRecord[]): OutsourcingRecord[] {
+  return records.filter(isIncludedInOutsourcingSearchResults);
+}
 
 interface FieldPredicate {
   active: boolean;
@@ -102,6 +113,8 @@ function recordMatchesRuntime(
   runtime: FilterRuntime,
   excludeKey?: OutsourcingFilterKey,
 ): boolean {
+  if (!isIncludedInOutsourcingSearchResults(record)) return false;
+
   if (runtime.dateInvalid) return false;
 
   if (runtime.hasDateFilter && runtime.dateRange) {
@@ -134,7 +147,9 @@ export function filterOutsourcingRecords(
 
   if (runtime.dateInvalid) return [];
 
-  if (!runtime.hasDateFilter && !hasFieldFilter) return records;
+  if (!runtime.hasDateFilter && !hasFieldFilter) {
+    return excludeProvisionalBudgetRecords(records);
+  }
 
   const filtered: OutsourcingRecord[] = [];
   for (let index = 0; index < records.length; index += 1) {
@@ -259,6 +274,44 @@ export function buildVendorChartData(rows: OutsourcingRecord[]): VendorChartItem
       };
     })
     .sort((a, b) => b.amount - a.amount);
+}
+
+function computeRatePercent(numerator: number, denominator: number): number | null {
+  if (!Number.isFinite(denominator) || denominator <= 0) return null;
+  return (numerator / denominator) * 100;
+}
+
+export function buildOutsourcingExecutionRateSummary(
+  rows: OutsourcingRecord[],
+): OutsourcingExecutionRateSummary {
+  let totalContractAmount = 0;
+  let totalExecutionAmount = 0;
+  let totalOutsourcingAmount = 0;
+
+  rows.forEach((row) => {
+    totalContractAmount += row.contractAmount;
+    totalExecutionAmount += row.executionAmount;
+    totalOutsourcingAmount += rowAmount(row);
+  });
+
+  return {
+    totalContractAmount,
+    totalExecutionAmount,
+    totalOutsourcingAmount,
+    internalExecutionRatePercent: computeRatePercent(
+      totalExecutionAmount,
+      totalContractAmount,
+    ),
+    outsourcingExecutionRatePercent: computeRatePercent(
+      totalOutsourcingAmount,
+      totalContractAmount,
+    ),
+  };
+}
+
+export function formatExecutionRatePercent(value: number | null): string {
+  if (value == null || !Number.isFinite(value)) return '-';
+  return `${value.toFixed(1)}%`;
 }
 
 function sortFilterOptions(key: OutsourcingFilterKey, values: string[]): string[] {

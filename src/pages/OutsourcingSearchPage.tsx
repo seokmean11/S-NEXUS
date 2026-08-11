@@ -27,10 +27,9 @@ import {
 import type { OutsourcingDateRange, OutsourcingFilters } from '@/types/outsourcing';
 
 import {
-
   countActiveOutsourcingFilters,
+  excludeProvisionalBudgetRecords,
   filterOutsourcingRecords,
-
 } from '@/utils/outsourcingAnalysis';
 
 import { summarizeOutsourcingDbStats } from '@/utils/outsourcingDbStats';
@@ -122,6 +121,11 @@ export function OutsourcingSearchPage() {
 
   const dbStats = useMemo(() => summarizeOutsourcingDbStats(records), [records]);
 
+  const searchableRecords = useMemo(
+    () => excludeProvisionalBudgetRecords(records),
+    [records],
+  );
+
   const activeFilterCount = useMemo(
     () => countActiveOutsourcingFilters(filters, dateRange),
     [filters, dateRange],
@@ -140,8 +144,8 @@ export function OutsourcingSearchPage() {
   const dateRangeForResults = useImmediateFilters ? dateRange : deferredDateRange;
 
   const filteredRecords = useMemo(
-    () => filterOutsourcingRecords(records, filtersForResults, { dateRange: dateRangeForResults }),
-    [records, filtersForResults, dateRangeForResults],
+    () => filterOutsourcingRecords(searchableRecords, filtersForResults, { dateRange: dateRangeForResults }),
+    [searchableRecords, filtersForResults, dateRangeForResults],
   );
 
   const isResultsPending =
@@ -152,7 +156,7 @@ export function OutsourcingSearchPage() {
   const dateRangeForFaceted = useImmediateFilters ? dateRange : deferredDateRange;
 
   const facetedOptions = useDeferredFacetedFilterOptions(
-    records,
+    searchableRecords,
     filtersForFaceted,
     dateRangeForFaceted,
   );
@@ -342,7 +346,7 @@ export function OutsourcingSearchPage() {
 
             <OutsourcingFilterPanel
 
-              allRecords={records}
+              allRecords={searchableRecords}
 
               filters={filters}
 
