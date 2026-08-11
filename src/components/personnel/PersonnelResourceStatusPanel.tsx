@@ -434,29 +434,34 @@ export function PersonnelResourceStatusPanel({ stats, rows }: PersonnelResourceS
               <div
                 key={`division-chart-row-${rowIndex}`}
                 className="personnel-resource-status__division-charts-row"
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+                  gap: '10px',
+                }}
               >
                 {row.map((composition) => {
-              const divisionShare = divisionShareByName.get(composition.divisionName);
-              const headerShare = {
-                count: divisionShare?.count ?? 0,
-                sharePercent: divisionShare?.sharePercent ?? 0,
-              };
+                  const divisionShare = divisionShareByName.get(composition.divisionName);
+                  const headerShare = {
+                    count: divisionShare?.count ?? 0,
+                    sharePercent: divisionShare?.sharePercent ?? 0,
+                  };
 
-              return (
-                <PersonnelDistributionBarChart
-                  key={composition.divisionName}
-                  title={composition.divisionName}
-                  groupKind="division_grade"
-                  items={composition.gradeShares}
-                  totalValue={composition.totalCount}
-                  labelOrder={PERSONNEL_DIVISION_GRADE_BUCKETS}
-                  onItemSelect={setDetailSelection}
-                  compact
-                  divisionName={composition.divisionName}
-                  getColor={divisionGradeColorGetter}
-                  headerShare={headerShare}
-                />
-              );
+                  return (
+                    <PersonnelDistributionBarChart
+                      key={composition.divisionName}
+                      title={composition.divisionName}
+                      groupKind="division_grade"
+                      items={composition.gradeShares}
+                      totalValue={composition.totalCount}
+                      labelOrder={PERSONNEL_DIVISION_GRADE_BUCKETS}
+                      onItemSelect={setDetailSelection}
+                      compact
+                      divisionName={composition.divisionName}
+                      getColor={divisionGradeColorGetter}
+                      headerShare={headerShare}
+                    />
+                  );
                 })}
               </div>
             ))}
