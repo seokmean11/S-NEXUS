@@ -1,12 +1,44 @@
 import fs from 'node:fs';
 import path from 'node:path';
+
+import {
+  getNexusDriveConfig,
+  getNexusSubfolderCacheDir,
+  isNexusDriveUploadConfigured,
+  syncNexusDriveCache,
+  uploadOrUpdateNexusDriveFile,
+} from './nexusGoogleDrive';
 import type { StoredOrgState } from '../src/utils/orgStorage';
 
-const ORG_DIR = '.data/nexus-org';
-const ORG_FILE = 'state.json';
+export const ORG_STATE_FILENAME = 'state.json';
 
-function getOrgFilePath(projectRoot: string): string {
-  return path.join(projectRoot, ORG_DIR, ORG_FILE);
+const ORG_DIR = '.data/nexus-org';
+const SYNC_META_FILE = '.sync-meta.json';
+
+function getLocalOrgFilePath(projectRoot: string): string {
+  return path.join(projectRoot, ORG_DIR, ORG_STATE_FILENAME);
+}
+
+function getDriveCacheOrgFilePath(projectRoot: string): string | null {
+  const cacheDir = getNexusSubfolderCacheDir(projectRoot, 'organization');
+  if (!cacheDir) return null;
+  return path.join(cacheDir, ORG_STATE_FILENAME);
+}
+
+function readJsonFile<T>(filePath: string): T | null {
+  if (!fs.existsSync(filePath)) return null;
+  try {
+    return JSON.parse(fs.readFileSync(filePath, 'utf8')) as T;
+  } catch {
+    return null;
+  }
+}
+
+function loadDriveSyncMeta(projectRoot: string): { syncedAt?: string } | null {
+  const cacheDir = getNexusSubfolderCacheDir(projectRoot, 'organization');
+  if (!cacheDir) return null;
+  const metaPath = path.join(cacheDir, SYNC_META_FILE);
+  return readJsonFile<{ syncedAt?: string }>(metaPath);
 }
 
 export function ensureOrgStoreDir(projectRoot: string): void {
@@ -14,25 +46,103 @@ export function ensureOrgStoreDir(projectRoot: string): void {
 }
 
 export function readServerOrgState(projectRoot: string): StoredOrgState | null {
-  const filePath = getOrgFilePath(projectRoot);
-  if (!fs.existsSync(filePath)) return null;
-  try {
-    const raw = fs.readFileSync(filePath, 'utf8');
-    return JSON.parse(raw) as StoredOrgState;
-  } catch {
-    return null;
-  }
+  return readJsonFile<StoredOrgState>(getLocalOrgFilePath(projectRoot));
 }
 
 export function writeServerOrgState(projectRoot: string, state: StoredOrgState): void {
   ensureOrgStoreDir(projectRoot);
-  const filePath = getOrgFilePath(projectRoot);
-  fs.writeFileSync(filePath, JSON.stringify(state, null, 2), 'utf8');
+  fs.writeFileSync(getLocalOrgFilePath(projectRoot), JSON.stringify(state, null, 2), 'utf8');
 }
 
-export function getServerOrgMeta(projectRoot: string): { exists: boolean; updatedAt?: string } {
-  const filePath = getOrgFilePath(projectRoot);
-  if (!fs.existsSync(filePath)) return { exists: false };
+export interface ServerOrgMeta {
+  exists: boolean;
+  updatedAt?: string;
+  dataSource?: 'local' | 'drive-cache';
+  driveConfigured?: boolean;
+  driveUploadConfigured?: boolean;
+  lastDriveSyncAt?: string;
+}
+
+function resolveOrgFileStat(filePath: string | null): { exists: boolean; updatedAt?: string } {
+  if (!filePath || !fs.existsSync(filePath)) return { exists: false };
   const stat = fs.statSync(filePath);
   return { exists: true, updatedAt: stat.mtime.toISOString() };
+}
+
+export function getServerOrgMeta(projectRoot: string): ServerOrgMeta {
+  const driveConfigured = getNexusDriveConfig(projectRoot).enabled;
+  const driveCachePath = getDriveCacheOrgFilePath(projectRoot);
+  const localPath = getLocalOrgFilePath(projectRoot);
+  const driveCacheStat = resolveOrgFileStat(driveCachePath);
+  const localStat = resolveOrgFileStat(localPath);
+
+  if (driveCacheStat.exists) {
+    return {
+      exists: true,
+      updatedAt: driveCacheStat.updatedAt,
+      dataSource: 'drive-cache',
+      driveConfigured,
+      driveUploadConfigured: isNexusDriveUploadConfigured(projectRoot),
+      lastDriveSyncAt: loadDriveSyncMeta(projectRoot)?.syncedAt,
+    };
+  }
+
+  return {
+    exists: localStat.exists,
+    updatedAt: localStat.updatedAt,
+    dataSource: 'local',
+    driveConfigured,
+    driveUploadConfigured: isNexusDriveUploadConfigured(projectRoot),
+    lastDriveSyncAt: loadDriveSyncMeta(projectRoot)?.syncedAt,
+  };
+}
+
+export async function syncAndReadServerOrgState(projectRoot: string): Promise<StoredOrgState | null> {
+  const config = getNexusDriveConfig(projectRoot);
+  if (config.enabled) {
+    try {
+      await syncNexusDriveCache(projectRoot, { subfolderKey: 'organization' });
+    } catch {
+      // Drive sync 실패 시 로컬 폴백
+    }
+
+    const driveCachePath = getDriveCacheOrgFilePath(projectRoot);
+    const driveState = driveCachePath ? readJsonFile<StoredOrgState>(driveCachePath) : null;
+    if (driveState) {
+      return driveState;
+    }
+  }
+
+  return readServerOrgState(projectRoot);
+}
+
+export async function writeServerOrgStateWithDriveSync(
+  projectRoot: string,
+  state: StoredOrgState,
+): Promise<ServerOrgMeta> {
+  writeServerOrgState(projectRoot, state);
+
+  const serialized = JSON.stringify(state, null, 2);
+  const buffer = Buffer.from(serialized, 'utf8');
+  const config = getNexusDriveConfig(projectRoot);
+
+  if (config.enabled) {
+    const cacheDir = getNexusSubfolderCacheDir(projectRoot, 'organization');
+    if (cacheDir) {
+      fs.mkdirSync(cacheDir, { recursive: true });
+      fs.writeFileSync(path.join(cacheDir, ORG_STATE_FILENAME), serialized, 'utf8');
+    }
+
+    if (isNexusDriveUploadConfigured(projectRoot)) {
+      try {
+        await uploadOrUpdateNexusDriveFile(projectRoot, ORG_STATE_FILENAME, buffer, 'application/json', {
+          subfolderKey: 'organization',
+        });
+      } catch {
+        // 로컬·캐시 저장은 유지. Drive 업로드 실패는 meta로만 표시.
+      }
+    }
+  }
+
+  return getServerOrgMeta(projectRoot);
 }

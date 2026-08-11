@@ -23,7 +23,7 @@ export interface NexusDriveStatus {
   error?: string;
 }
 
-export type NexusDataMenuSlotKey = 'outsourcing';
+export type NexusDataMenuSlotKey = 'outsourcing' | 'organization';
 
 export interface NexusDataMenuSlot {
   key: NexusDataMenuSlotKey;
@@ -43,6 +43,14 @@ export const NEXUS_DATA_MENU_SLOTS: NexusDataMenuSlot[] = [
     route: '/outsourcing',
     enabled: true,
     description: 'AppSheet CSV · Excel 외주 DB',
+  },
+  {
+    key: 'organization',
+    menuLabel: '조직관리',
+    driveFolder: '조직인원데이터',
+    route: '/org',
+    enabled: true,
+    description: '조직·인원 state.json (자동 저장)',
   },
 ];
 

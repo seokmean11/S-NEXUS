@@ -12,6 +12,7 @@ import {
 } from './server/nexusGoogleDrive';
 
 function parseSubfolderKey(value: unknown): NexusDriveSubfolderKey {
+  if (value === 'organization') return 'organization';
   if (value === 'outsourcing') return 'outsourcing';
   return 'outsourcing';
 }

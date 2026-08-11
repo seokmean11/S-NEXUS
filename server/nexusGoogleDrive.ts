@@ -11,6 +11,7 @@ const SYNC_MIN_INTERVAL_MS = 55_000;
 /** NEXUS 루트 아래 기능별 하위 폴더 이름 (Drive 폴더명과 동일해야 함) */
 export const NEXUS_DRIVE_SUBFOLDERS = {
   outsourcing: '외주정보데이터',
+  organization: '조직인원데이터',
 } as const;
 
 export type NexusDriveSubfolderKey = keyof typeof NEXUS_DRIVE_SUBFOLDERS;
@@ -88,6 +89,13 @@ export function isNexusDriveUploadConfigured(projectRoot: string): boolean {
 function isDataFileName(name: string): boolean {
   const lower = name.toLowerCase();
   return DATA_EXTENSIONS.some((ext) => lower.endsWith(ext));
+}
+
+function isSyncFileName(name: string, subfolderKey: NexusDriveSubfolderKey): boolean {
+  if (subfolderKey === 'organization') {
+    return name.toLowerCase() === 'state.json';
+  }
+  return isDataFileName(name);
 }
 
 function readEnvPath(root: string): Partial<NexusDriveConfig> {
@@ -218,6 +226,15 @@ function getSubfolderCacheDir(config: NexusDriveConfig, subfolderKey: NexusDrive
   return path.join(config.cacheDir, NEXUS_DRIVE_SUBFOLDERS[subfolderKey]);
 }
 
+export function getNexusSubfolderCacheDir(
+  projectRoot: string,
+  subfolderKey: NexusDriveSubfolderKey,
+): string | null {
+  const config = getNexusDriveConfig(projectRoot);
+  if (!config.enabled) return null;
+  return getSubfolderCacheDir(config, subfolderKey);
+}
+
 export async function listNexusDriveFiles(
   config: NexusDriveConfig,
   options?: { subfolderKey?: NexusDriveSubfolderKey },
@@ -300,7 +317,7 @@ export async function syncNexusDriveCache(
   });
   const files = (response.data.files ?? [])
     .filter((file): file is drive_v3.Schema$File & { id: string; name: string } =>
-      Boolean(file.id && file.name && isDataFileName(file.name)),
+      Boolean(file.id && file.name && isSyncFileName(file.name, subfolderKey)),
     )
     .map((file) => ({
       id: file.id!,
@@ -373,6 +390,78 @@ export async function uploadToNexusDriveFolder(
     mimeType: created.mimeType ?? mimeType,
     modifiedTime: created.modifiedTime ?? new Date().toISOString(),
     size: created.size ?? String(buffer.length),
+  };
+}
+
+async function findFileByName(
+  drive: drive_v3.Drive,
+  parentId: string,
+  fileName: string,
+): Promise<string | null> {
+  const response = await drive.files.list({
+    q: `'${parentId}' in parents and trashed=false and name='${fileName.replace(/'/g, "\\'")}'`,
+    fields: 'files(id,name)',
+    pageSize: 1,
+  });
+  return response.data.files?.[0]?.id ?? null;
+}
+
+/** Drive에 동일 파일명이 있으면 덮어쓰고, 없으면 새로 생성합니다. */
+export async function uploadOrUpdateNexusDriveFile(
+  projectRoot: string,
+  fileName: string,
+  buffer: Buffer,
+  mimeType: string,
+  options?: { subfolderKey?: NexusDriveSubfolderKey },
+): Promise<NexusDriveFileInfo> {
+  const config = getNexusDriveConfig(projectRoot);
+  if (!config.enabled || !config.folderId || !config.keyPath) {
+    throw new Error('Google Drive NEXUS 폴더 연동이 설정되지 않았습니다.');
+  }
+  if (!isNexusDriveUploadConfigured(projectRoot)) {
+    throw new Error(formatDriveUploadError('Service Accounts do not have storage quota'));
+  }
+
+  const subfolderKey = options?.subfolderKey ?? 'outsourcing';
+  const drive = await createOAuthDriveClient(projectRoot);
+  const subfolderId = await resolveSubfolderIdWithDrive(drive, config, subfolderKey);
+  const existingId = await findFileByName(drive, subfolderId, fileName);
+
+  const response = existingId
+    ? await drive.files.update({
+        fileId: existingId,
+        media: {
+          mimeType,
+          body: Readable.from(buffer),
+        },
+        fields: 'id,name,mimeType,modifiedTime,size',
+      })
+    : await drive.files.create({
+        requestBody: {
+          name: fileName,
+          parents: [subfolderId],
+        },
+        media: {
+          mimeType,
+          body: Readable.from(buffer),
+        },
+        fields: 'id,name,mimeType,modifiedTime,size',
+      });
+
+  const saved = response.data;
+  if (!saved.id || !saved.name) {
+    throw new Error('Google Drive 저장에 실패했습니다.');
+  }
+
+  await syncNexusDriveCache(projectRoot, { force: true, subfolderKey });
+
+  const subfolderName = NEXUS_DRIVE_SUBFOLDERS[subfolderKey];
+  return {
+    id: saved.id,
+    name: `${subfolderName}/${saved.name}`,
+    mimeType: saved.mimeType ?? mimeType,
+    modifiedTime: saved.modifiedTime ?? new Date().toISOString(),
+    size: saved.size ?? String(buffer.length),
   };
 }
 

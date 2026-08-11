@@ -2,8 +2,8 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { Plugin } from 'vite';
 import {
   getServerOrgMeta,
-  readServerOrgState,
-  writeServerOrgState,
+  syncAndReadServerOrgState,
+  writeServerOrgStateWithDriveSync,
 } from './server/nexusOrgStore';
 import type { StoredOrgState } from './src/utils/orgStorage';
 
@@ -33,20 +33,31 @@ function attachRoutes(server: { middlewares: { use: Function } }, root: string):
 
   server.middlewares.use('/api/nexus-org/state', async (req, res) => {
     if (req.method === 'GET') {
-      const state = readServerOrgState(root);
-      sendJson(res, 200, { ok: true, state, meta: getServerOrgMeta(root) });
+      try {
+        const state = await syncAndReadServerOrgState(root);
+        sendJson(res, 200, { ok: true, state, meta: getServerOrgMeta(root) });
+      } catch (error) {
+        sendJson(res, 500, {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
       return;
     }
 
     if (req.method === 'PUT') {
       try {
         const body = await readJsonBody<{ state: StoredOrgState }>(req);
-        if (!body?.state || !Array.isArray(body.state.divisions) || !Array.isArray(body.state.teams) || !Array.isArray(body.state.employees)) {
+        if (
+          !body?.state ||
+          !Array.isArray(body.state.divisions) ||
+          !Array.isArray(body.state.teams) ||
+          !Array.isArray(body.state.employees)
+        ) {
           sendJson(res, 400, { error: 'Invalid org state payload' });
           return;
         }
-        writeServerOrgState(root, body.state);
-        sendJson(res, 200, { ok: true, meta: getServerOrgMeta(root) });
+        const meta = await writeServerOrgStateWithDriveSync(root, body.state);
+        sendJson(res, 200, { ok: true, meta });
       } catch (error) {
         sendJson(res, 500, {
           error: error instanceof Error ? error.message : String(error),

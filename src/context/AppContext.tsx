@@ -4,6 +4,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from 'react';
@@ -58,6 +59,7 @@ import {
   repairStoredData,
   saveAppState,
   saveOrgState,
+  type StoredOrgState,
 } from '@/utils/orgStorage';
 import {
   buildContributionCards,
@@ -92,7 +94,12 @@ import {
   PLATFORM_SUPER_ADMIN_NAME,
 } from '@/utils/platformSuperAdmin';
 import { webAccessRoleToSystemRole } from '@/utils/webAccessRole';
-import { fetchNexusOrgState, saveNexusOrgState } from '@/services/nexusOrgApi';
+import {
+  fetchNexusOrgMeta,
+  fetchNexusOrgState,
+  ORG_AUTO_REFRESH_INTERVAL_MS,
+  saveNexusOrgState,
+} from '@/services/nexusOrgApi';
 import type { PersonnelAuthMap, PersonnelAuthRecord } from '@/types/auth';
 import type { PersonnelRow } from '@/utils/personnelSearch';
 import {
@@ -168,6 +175,13 @@ function finalizeOrgAuthState(
       admins: applyPersonnelAuthToExecutives(org.executiveOffice.admins ?? [], personnelAuth),
     },
   };
+}
+
+function buildOrgStateFromStored(saved: StoredOrgState) {
+  return finalizeOrgAuthState({
+    ...normalizeLoadedOrgState(saved),
+    personnelAuth: saved.personnelAuth ?? {},
+  });
 }
 
 function createInitialOrgState() {
@@ -393,6 +407,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
   );
   const [riskScenario, setRiskScenario] = useState<RiskScenario>('normal');
   const [historyEvents, setHistoryEvents] = useState<HistoryEvent[]>([]);
+  const remoteOrgUpdatedAtRef = useRef<string | null>(null);
+  const lastLocalOrgSaveAtRef = useRef(0);
+
+  const applyOrgStatePayload = useCallback((saved: StoredOrgState) => {
+    const withAuth = buildOrgStateFromStored(saved);
+    setExecutiveOffice(withAuth.executiveOffice);
+    setDivisions(withAuth.divisions);
+    setTeams(withAuth.teams);
+    setEmployees(withAuth.employees);
+    setPersonnelAuth(withAuth.personnelAuth);
+  }, []);
 
   const refreshHistory = useCallback(() => {
     setHistoryEvents(loadHistoryEvents());
@@ -432,20 +457,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
     let cancelled = false;
 
     (async () => {
-      const serverState = await fetchNexusOrgState();
+      const { state: serverState, meta } = await fetchNexusOrgState();
       if (cancelled) return;
 
       if (serverState) {
-        const normalized = normalizeLoadedOrgState(serverState);
-        const withAuth = finalizeOrgAuthState({
-          ...normalized,
-          personnelAuth: serverState.personnelAuth ?? {},
-        });
-        setExecutiveOffice(withAuth.executiveOffice);
-        setDivisions(withAuth.divisions);
-        setTeams(withAuth.teams);
-        setEmployees(withAuth.employees);
-        setPersonnelAuth(withAuth.personnelAuth);
+        applyOrgStatePayload(serverState);
+        remoteOrgUpdatedAtRef.current = meta?.updatedAt ?? null;
       }
 
       setOrgReady(true);
@@ -454,7 +471,33 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [applyOrgStatePayload]);
+
+  useEffect(() => {
+    if (!orgReady) return undefined;
+
+    const syncIfRemoteUpdated = async () => {
+      if (Date.now() - lastLocalOrgSaveAtRef.current < 3000) return;
+
+      const meta = await fetchNexusOrgMeta();
+      if (!meta?.driveConfigured || !meta.updatedAt) return;
+      if (meta.updatedAt === remoteOrgUpdatedAtRef.current) return;
+
+      const { state: serverState, meta: nextMeta } = await fetchNexusOrgState();
+      if (!serverState) return;
+
+      applyOrgStatePayload(serverState);
+      remoteOrgUpdatedAtRef.current = nextMeta?.updatedAt ?? meta.updatedAt;
+    };
+
+    const timer = window.setInterval(() => {
+      void syncIfRemoteUpdated();
+    }, ORG_AUTO_REFRESH_INTERVAL_MS);
+
+    return () => {
+      window.clearInterval(timer);
+    };
+  }, [applyOrgStatePayload, orgReady]);
 
   useEffect(() => {
     if (!orgReady) return;
@@ -470,7 +513,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
     };
 
     saveOrgState(payload);
-    void saveNexusOrgState(payload);
+    lastLocalOrgSaveAtRef.current = Date.now();
+    void saveNexusOrgState(payload).then((meta) => {
+      if (meta?.updatedAt) {
+        remoteOrgUpdatedAtRef.current = meta.updatedAt;
+      }
+    });
   }, [
     executiveOffice,
     divisions,
