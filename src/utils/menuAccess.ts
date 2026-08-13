@@ -37,16 +37,47 @@ export function canAccessMenuPermission(
   return isMenuPermissionEnabled(permissions, key);
 }
 
+export type ProjectManagementRoleFlags = {
+  canCreateProject: boolean;
+  canAccessAllocationForm: boolean;
+};
+
+function canAccessProjectManagementPath(
+  pathname: string,
+  roleFlags: ProjectManagementRoleFlags,
+): boolean {
+  if (pathname === '/project/register' || pathname === '/admin') {
+    return roleFlags.canCreateProject;
+  }
+  if (pathname === '/project/allocation' || pathname === '/allocation') {
+    return roleFlags.canAccessAllocationForm;
+  }
+  if (pathname.startsWith('/project')) {
+    return roleFlags.canCreateProject || roleFlags.canAccessAllocationForm;
+  }
+  return false;
+}
+
 export function canAccessPathWithMenuPermissions(
   pathname: string,
   permissions: PersonnelMenuPermissions | undefined,
   isDeveloper: boolean,
+  roleFlags?: ProjectManagementRoleFlags,
 ): boolean {
   if (isDeveloper) return true;
 
   if (pathname === '/' || pathname.startsWith('/dashboard')) return true;
 
   if (isRestrictedPathForRegularUser(pathname)) return false;
+
+  if (
+    pathname.startsWith('/project') ||
+    pathname === '/admin' ||
+    pathname === '/allocation'
+  ) {
+    if (!roleFlags) return false;
+    return canAccessProjectManagementPath(pathname, roleFlags);
+  }
 
   const key = pathnameToMenuPermissionKey(pathname);
   if (!key) return false;
@@ -57,7 +88,6 @@ export function canShowSidebarNavItem(
   path: string,
   permissions: PersonnelMenuPermissions | undefined,
   isDeveloper: boolean,
-  roleFlags: { canCreateProject: boolean; canAccessAllocationForm: boolean },
 ): boolean {
   if (isDeveloper) return true;
 
@@ -69,14 +99,25 @@ export function canShowSidebarNavItem(
     return canAccessMenuPermission(permissions, 'org', false);
   }
 
-  if (path === '/admin') {
-    return roleFlags.canCreateProject;
-  }
+  return false;
+}
 
-  if (path === '/allocation') {
-    return roleFlags.canAccessAllocationForm;
-  }
+export function shouldShowProjectManagementNav(
+  roleFlags: ProjectManagementRoleFlags,
+  isDeveloper: boolean,
+): boolean {
+  if (isDeveloper) return true;
+  return roleFlags.canCreateProject || roleFlags.canAccessAllocationForm;
+}
 
+export function shouldShowProjectManagementSubItem(
+  path: string,
+  roleFlags: ProjectManagementRoleFlags,
+  isDeveloper: boolean,
+): boolean {
+  if (isDeveloper) return true;
+  if (path === '/project/register') return roleFlags.canCreateProject;
+  if (path === '/project/allocation') return roleFlags.canAccessAllocationForm;
   return false;
 }
 

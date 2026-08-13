@@ -17,10 +17,17 @@ import {
   shouldShowMiscInfoNav,
   shouldShowPurchaseNav,
   shouldShowPurchaseSubItem,
+  shouldShowProjectManagementNav,
+  shouldShowProjectManagementSubItem,
   isRestrictedPathForRegularUser,
 } from '@/utils/menuAccess';
 
 import type { PermissionFlags, RoleConfig } from '@/types';
+import { MISC_INFO_SUB_ITEMS } from '@/constants/miscInfoNav';
+import {
+  isProjectManagementSectionPath,
+  PROJECT_MANAGEMENT_SUB_ITEMS,
+} from '@/constants/projectManagementNav';
 
 
 
@@ -30,11 +37,7 @@ const NAV_ITEMS = [
 
   { path: '/analysis', label: 'NEXUS AI', icon: '🤖' },
 
-  { path: '/admin', label: '프로젝트 관리', icon: '⚙️', adminOnly: true },
-
   { path: '/org', label: '조직관리', icon: '🏢', adminOnly: true },
-
-  { path: '/allocation', label: 'PM 인력 배분', icon: '👥', managerOnly: true },
 
 ] as const;
 
@@ -43,10 +46,6 @@ const NAV_ITEMS = [
 const PURCHASE_SUB_ITEMS = [
   { path: '/purchase/bidding', label: '입찰도우미' },
   { path: '/outsourcing', label: '외주정보검색' },
-] as const;
-
-const MISC_INFO_SUB_ITEMS = [
-  { path: '/misc-info/exhibition-business-cost', label: '유형별사업비(전시)' },
 ] as const;
 
 function isPurchaseSectionPath(pathname: string): boolean {
@@ -75,6 +74,14 @@ export function AppLayout() {
 
   const [purchaseOpen, setPurchaseOpen] = useState(() => isPurchaseSectionPath(location.pathname));
   const [miscInfoOpen, setMiscInfoOpen] = useState(() => isMiscInfoSectionPath(location.pathname));
+  const [projectOpen, setProjectOpen] = useState(() =>
+    isProjectManagementSectionPath(location.pathname),
+  );
+
+  const projectRoleFlags = {
+    canCreateProject: permissions.canCreateProject,
+    canAccessAllocationForm: permissions.canAccessAllocationForm,
+  };
 
   const showPurchaseNav =
     isDeveloper || permissions.canCreateProject || permissions.canViewAll
@@ -82,6 +89,11 @@ export function AppLayout() {
       : shouldShowPurchaseNav(menuPermissions, false);
   const purchaseActive = isPurchaseSectionPath(location.pathname);
   const miscInfoActive = isMiscInfoSectionPath(location.pathname);
+  const projectActive = isProjectManagementSectionPath(location.pathname);
+
+  useEffect(() => {
+    if (projectActive) setProjectOpen(true);
+  }, [projectActive]);
 
   useEffect(() => {
     if (purchaseActive) setPurchaseOpen(true);
@@ -97,33 +109,25 @@ export function AppLayout() {
 
     const path = location.pathname;
 
-    const adminRoute = path === '/admin';
     const orgRoute = path === '/org';
-    const allocationRoute = path === '/allocation';
+    const projectRegisterRoute = path === '/project/register' || path === '/admin';
+    const projectAllocationRoute = path === '/project/allocation' || path === '/allocation';
     const purchaseRoute = path.startsWith('/purchase');
     const outsourcingRoute = path.startsWith('/outsourcing');
-
-
-
-    if (adminRoute && !isDeveloper && !permissions.canCreateProject) {
-
-      navigate('/', { replace: true });
-
-      return;
-
-    }
 
     if (orgRoute && !canAccessPath('/org')) {
       navigate('/', { replace: true });
       return;
     }
 
-    if (allocationRoute && !isDeveloper && !permissions.canAccessAllocationForm) {
-
+    if (projectRegisterRoute && !isDeveloper && !permissions.canCreateProject) {
       navigate('/', { replace: true });
-
       return;
+    }
 
+    if (projectAllocationRoute && !isDeveloper && !permissions.canAccessAllocationForm) {
+      navigate('/', { replace: true });
+      return;
     }
 
     if ((purchaseRoute || outsourcingRoute) && !canAccessPath(path)) {
@@ -157,14 +161,16 @@ export function AppLayout() {
 
 
   const visibleNav = NAV_ITEMS.filter((item) =>
-    canShowSidebarNavItem(item.path, menuPermissions, isDeveloper, {
-      canCreateProject: permissions.canCreateProject,
-      canAccessAllocationForm: permissions.canAccessAllocationForm,
-    }),
+    canShowSidebarNavItem(item.path, menuPermissions, isDeveloper),
   );
 
   const showMiscInfoNav = shouldShowMiscInfoNav(isDeveloper);
   const showDataFolderNav = shouldShowDataFolderNav(isDeveloper);
+  const showProjectNav = shouldShowProjectManagementNav(projectRoleFlags, isDeveloper);
+
+  const visibleProjectSubItems = PROJECT_MANAGEMENT_SUB_ITEMS.filter((item) =>
+    shouldShowProjectManagementSubItem(item.path, projectRoleFlags, isDeveloper),
+  );
 
   const visiblePurchaseSubItems = PURCHASE_SUB_ITEMS.filter((item) =>
     isDeveloper || permissions.canCreateProject || permissions.canViewAll
@@ -292,6 +298,37 @@ export function AppLayout() {
             ))}
 
 
+
+            {showProjectNav && visibleProjectSubItems.length > 0 && (
+              <div className={`lnb__group ${projectActive ? 'lnb__group--active' : ''}`}>
+                <button
+                  type="button"
+                  className={`lnb__group-toggle ${projectActive ? 'lnb__group-toggle--active' : ''}`}
+                  onClick={() => setProjectOpen((open) => !open)}
+                  aria-expanded={projectOpen}
+                >
+                  <span className="lnb__icon">📋</span>
+                  <span className="lnb__group-label">프로젝트 관리</span>
+                  <span className="lnb__group-chevron">{projectOpen ? '▾' : '▸'}</span>
+                </button>
+
+                {projectOpen && (
+                  <div className="lnb__subnav">
+                    {visibleProjectSubItems.map((item) => (
+                      <NavLink
+                        key={item.path}
+                        to={item.path}
+                        className={({ isActive }) =>
+                          `lnb__sublink ${isActive ? 'lnb__sublink--active' : ''}`
+                        }
+                      >
+                        {item.label}
+                      </NavLink>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
 
             {showPurchaseNav && visiblePurchaseSubItems.length > 0 && (
 

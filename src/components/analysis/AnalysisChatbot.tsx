@@ -11,7 +11,11 @@ import { MOCK_BIDS } from '@/data/mockBidData';
 
 import { MOCK_EXHIBITION_BUSINESS_COST } from '@/data/mockExhibitionBusinessCost';
 
-import type { AnalysisChatMessage, AnalysisChatRoleStore } from '@/types/analysisChatSession';
+import type {
+  AnalysisChatMessage,
+  AnalysisChatRoleStore,
+  AnalysisAnswerResponder,
+} from '@/types/analysisChatSession';
 
 import { DEFAULT_CLAUDE_MODEL } from '@/services/claudeAnalysis';
 
@@ -49,12 +53,12 @@ import {
 } from '@/utils/analysisChatStorage';
 
 import {
-
-  evaluateAnalysisQueryClarification,
-
-  type PendingAnalysisClarification,
-
-} from '@/utils/analysisQueryClarification';
+  evaluateLocalDataScopeSelection,
+  inferSuggestedPromptScopeDomain,
+  type PendingLocalDataScope,
+} from '@/utils/analysisLocalDataScope';
+import { DOMAIN_LABELS } from '@/utils/analysisQueryDomainLabels';
+import type { AnalysisDomainKey } from '@/utils/analysisQueryClarification';
 
 import { getClaudeApiKey, hasClaudeApiKey, saveClaudeApiKey } from '@/utils/claudeApiKey';
 import {
@@ -62,6 +66,7 @@ import {
   formatUsd,
   getRemainingCreditUsd,
   saveRemainingCreditUsd,
+  clearLastClaudeUsage,
 } from '@/utils/claudeUsage';
 
 import {
@@ -74,6 +79,19 @@ import {
   getAnalysisRouteLabel,
   resolveAnalysisQueryRoute,
 } from '@/utils/analysisQueryRouter';
+import { formatAnalysisAnswerResponder, analysisAnswerUsedClaude } from '@/utils/analysisAnswerResponder';
+import { buildLocalAnalysisAggregate } from '@/utils/analysisLocalAggregate';
+import { filterProjectsByQuery } from '@/utils/analysisQueryFilter';
+import { askAnalyticsChatbot } from '@/utils/analyticsChatbot';
+import { buildMenuHelpResponse } from '@/utils/analysisProjectLocalHandlers';
+import { buildAssistantMessageFromChatbotResponse } from '@/utils/analysisChatMessage';
+import {
+  buildClaudeAnalysisDeclinedMessage,
+  buildClaudeAnalysisOfferMessage,
+  isClaudeAnalysisConfirmResponse,
+  isClaudeAnalysisDeclineResponse,
+} from '@/utils/analysisClaudeOffer';
+import type { PendingClaudeAnalysisOffer } from '@/types/analysisChatSession';
 import { buildOrgInsightReport } from '@/utils/orgInsightReport';
 
 import { buildPersonnelRows } from '@/utils/personnelSearch';
@@ -106,14 +124,18 @@ const SUGGESTED_PROMPTS = [
 
 ];
 
-const WELCOME_WITH_API_KEY = `NEXUS AI입니다. 저는 항상 데이터 기반의 정보 제공을 위해 최선을 다하고 있어요.
+const WELCOME_WITH_API_KEY = `NEXUS AI입니다. **등록·동기화된 데이터**를 우선 바탕으로 객관적인 정보를 안내합니다.
 
-필요한 정보가 있으면 편하게 말씀해 주세요. 범위가 불명확하면 확인 질문을 드립니다.
+1. 질문하시면 **어느 메뉴 데이터를 근거로 할지** 먼저 선택해 주세요.
+2. 선택한 범위 안에서 **로컬 집계 결과**를 보여 드립니다. (크레딧 없음)
+3. **인사이트·해석·평가** 등 추가 분석이 필요하면 Claude 연동 여부와 **크레딧 발생** 안내 후 진행합니다.`;
 
-이어서 "네, 진행해줘", "외주만"처럼 **대화로 범위를 조정**할 수 있습니다.`;
+const WELCOME_WITHOUT_API_KEY = `NEXUS AI입니다. **로컬 데이터 집계**로 객관적인 정보를 먼저 안내합니다.
 
-const WELCOME_WITHOUT_API_KEY = `Claude API 키를 설정하면 NEXUS AI 대화형 정보 조회를 사용할 수 있습니다.
+1. 질문 후 **메뉴 데이터 범위**(프로젝트·조직·입찰·외주 등)를 선택합니다.
+2. 선택한 범위에서만 로컬 답변을 제공합니다.
 
+Claude **추가 분석**을 쓰려면 API 키가 필요합니다.
 1. Anthropic Console(https://console.anthropic.com/settings/keys)에서 API 키 발급
 2. 아래 설정에 키 입력 후 저장
 3. 또는 프로젝트 루트 .env 파일에 VITE_CLAUDE_API_KEY= 입력`;
@@ -172,7 +194,7 @@ export function AnalysisChatbot() {
 
   } = useApp();
 
-  const { inFlight, lastUsage, revision, startBackgroundAnalysis, isThreadLoading } =
+  const { inFlight, lastUsage, revision, startBackgroundAnalysis, isThreadLoading, reloadUsage } =
     useAnalysisChatRuntime();
 
   const { records: outsourcingRecords, loadResult, localInfo } = useOutsourcingSearch();
@@ -241,7 +263,8 @@ export function AnalysisChatbot() {
 
   const lastQuery = activeThread.lastQuery;
 
-  const pendingClarification = activeThread.pendingClarification;
+  const pendingLocalDataScope = activeThread.pendingLocalDataScope ?? null;
+  const pendingClaudeOffer = activeThread.pendingClaudeOffer;
 
   const pinnedRequestText = useMemo(() => {
     if (lastQuery?.trim()) return lastQuery.trim();
@@ -303,8 +326,9 @@ export function AnalysisChatbot() {
       messages?: AnalysisChatMessage[];
 
       lastQuery?: string;
-
-      pendingClarification?: PendingAnalysisClarification | null;
+      lastResponder?: AnalysisAnswerResponder | null;
+      pendingClaudeOffer?: PendingClaudeAnalysisOffer | null;
+      pendingLocalDataScope?: PendingLocalDataScope | null;
 
       title?: string;
 
@@ -374,11 +398,18 @@ export function AnalysisChatbot() {
 
 
 
-  const setPendingClarification = useCallback(
+  const setPendingLocalDataScope = useCallback(
+    (value: PendingLocalDataScope | null) => {
+      patchActiveThread({ pendingLocalDataScope: value });
+    },
+    [patchActiveThread],
+  );
 
-    (value: PendingAnalysisClarification | null) => {
+  const setPendingClaudeOffer = useCallback(
 
-      patchActiveThread({ pendingClarification: value });
+    (value: PendingClaudeAnalysisOffer | null) => {
+
+      patchActiveThread({ pendingClaudeOffer: value });
 
     },
 
@@ -468,7 +499,11 @@ export function AnalysisChatbot() {
     if (remaining != null) setHeldCreditInput(remaining.toFixed(2));
   }, [revision]);
 
-  const currentAnalysisUsd = loading ? 0 : (lastUsage?.estimatedUsd ?? 0);
+  const currentAnalysisUsd = loading
+    ? 0
+    : analysisAnswerUsedClaude(activeThread.lastResponder)
+      ? (lastUsage?.estimatedUsd ?? 0)
+      : 0;
 
   const personnelResourceStats = useMemo(() => {
 
@@ -548,6 +583,8 @@ export function AnalysisChatbot() {
 
       personnelResourceStats,
 
+      budget,
+
     }),
 
     [
@@ -579,6 +616,8 @@ export function AnalysisChatbot() {
       outsourcingMeta,
 
       personnelResourceStats,
+
+      budget,
 
     ],
 
@@ -1001,180 +1040,226 @@ export function AnalysisChatbot() {
 
     scrollToBottom();
 
-    const clarificationStats = {
+    if (pendingClaudeOffer) {
+      if (isClaudeAnalysisConfirmResponse(trimmed)) {
+        setPendingClaudeOffer(null);
+        const offerQuery = pendingClaudeOffer.effectiveQuery;
+        setLastQuery(offerQuery);
+        const apiKey = getClaudeApiKey() ?? '';
+        if (!apiKey) {
+          setSettingsOpen(true);
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: createId(),
+              role: 'assistant',
+              text: 'Claude 추가 분석에는 API 키가 필요합니다. 상단 "API 설정"에서 키를 입력·저장한 뒤 「네, AI 분석 진행」을 다시 입력해 주세요.',
+              error: true,
+            },
+          ]);
+          scrollToBottom();
+          return;
+        }
 
+        startBackgroundAnalysis({
+          roleId: role,
+          threadId,
+          apiKey,
+          effectiveQuery: offerQuery,
+          turns: getConversationTurns(pendingMessages),
+          chatContext,
+          meta: {
+            roleLabel: roleConfig.label,
+            scopeLabel: buildScopeLabel(permissions.canViewAll, roleConfig.label),
+            budget,
+          },
+          teams,
+          previewMessageId: null,
+          localOrgResponse: isOrganizationAnalysisQuery(offerQuery)
+            ? buildOrgInsightReport(chatContext)
+            : null,
+          hasMultiTurnContext: getConversationTurns(pendingMessages).length > 1,
+          routeOverride: 'interpret',
+        });
+        return;
+      }
+
+      if (isClaudeAnalysisDeclineResponse(trimmed)) {
+        setPendingClaudeOffer(null);
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: createId(),
+            role: 'assistant',
+            text: buildClaudeAnalysisDeclinedMessage(),
+          },
+        ]);
+        scrollToBottom();
+        return;
+      }
+
+      setPendingClaudeOffer(null);
+    }
+
+    if (!pendingLocalDataScope && isCasualConversationQuery(trimmed)) {
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: createId(),
+          role: 'assistant',
+          text: buildCasualConversationReply(trimmed),
+        },
+      ]);
+      scrollToBottom();
+      return;
+    }
+
+    if (!pendingLocalDataScope && /^(안녕|도움|help|뭐\s*할\s*수)/i.test(trimmed)) {
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: createId(),
+          role: 'assistant',
+          text: buildMenuHelpResponse().text,
+        },
+      ]);
+      scrollToBottom();
+      return;
+    }
+
+    const scopeStats = {
       projectCount: visibleProjects.length,
-
       divisionCount: divisions.length,
-
       employeeCount: employees.length,
-
       bidCount: MOCK_BIDS.length,
-
       outsourcingRecordCount: outsourcingRecords.length,
-
       scopeLabel: buildScopeLabel(permissions.canViewAll, roleConfig.label),
-
     };
 
+    const suggestedScopeDomain = SUGGESTED_PROMPTS.includes(trimmed)
+      ? inferSuggestedPromptScopeDomain(trimmed)
+      : null;
 
-
-    const clarification = evaluateAnalysisQueryClarification(trimmed, {
-
-      pendingClarification,
-
-      conversationTurns: getConversationTurns(pendingMessages),
-
-      stats: clarificationStats,
-
-      skipClarification: SUGGESTED_PROMPTS.includes(trimmed),
-
+    const scopeEvaluation = evaluateLocalDataScopeSelection(trimmed, {
+      pending: pendingLocalDataScope,
+      stats: scopeStats,
+      skipSelection: Boolean(suggestedScopeDomain),
+      suggestedScopeDomain,
     });
 
-
-
-    if (clarification.needsClarification) {
-
-      setPendingClarification({
-
-        originalQuery: clarification.originalQuery,
-
-        proposedDomains: clarification.proposedDomains,
-
+    if (scopeEvaluation.needsSelection) {
+      setPendingLocalDataScope({
+        originalQuery: scopeEvaluation.originalQuery,
+        proposedDomains: scopeEvaluation.proposedDomains,
       });
-
       setMessages((prev) => [
-
         ...prev,
-
         {
-
           id: createId(),
-
           role: 'assistant',
-
-          text: clarification.message,
-
+          text: scopeEvaluation.message,
           clarification: true,
-
         },
-
       ]);
-
       scrollToBottom();
-
       return;
-
     }
 
-
-
-    setPendingClarification(null);
-
-    const effectiveQuery = clarification.effectiveQuery;
-
-    if (isCasualConversationQuery(effectiveQuery)) {
-
-      setMessages((prev) => [
-
-        ...prev,
-
-        {
-
-          id: createId(),
-
-          role: 'assistant',
-
-          text: buildCasualConversationReply(effectiveQuery),
-
-        },
-
-      ]);
-
-      scrollToBottom();
-
-      return;
-
-    }
+    setPendingLocalDataScope(null);
+    const effectiveQuery = scopeEvaluation.effectiveQuery;
+    const scopeDomain = scopeEvaluation.scopeDomain;
 
     setLastQuery(effectiveQuery);
-
-    scrollToBottom();
 
     const conversationTurns = getConversationTurns(pendingMessages);
 
     const queryRoute = resolveAnalysisQueryRoute(effectiveQuery, {
-
       hasMultiTurnContext: conversationTurns.length > 1,
-
     });
 
-    const apiKey = getClaudeApiKey() ?? '';
+    const scopedProjects = filterProjectsByQuery(chatContext.projects, effectiveQuery).projects;
+    const localResponse =
+      buildLocalAnalysisAggregate(effectiveQuery, chatContext, scopeDomain) ??
+      askAnalyticsChatbot(effectiveQuery, {
+        ...chatContext,
+        projects: scopedProjects,
+      });
 
-    if (queryRoute === 'interpret' && !apiKey) {
-
-      setSettingsOpen(true);
-
-      setMessages((prev) => [
-
-        ...prev,
-
-        {
-
-          id: createId(),
-
-          role: 'assistant',
-
-          text: `${getAnalysisRouteLabel(queryRoute)}에는 Claude API 키가 필요합니다. 상단 "API 설정"에서 키를 입력·저장해 주세요.`,
-
-          error: true,
-
-        },
-
-      ]);
-
-      scrollToBottom();
-
-      return;
-
+    const assistantMessages: AnalysisChatMessage[] = [];
+    if (localResponse) {
+      assistantMessages.push(
+        buildAssistantMessageFromChatbotResponse(effectiveQuery, localResponse),
+      );
     }
 
-    const isOrgQuery = isOrganizationAnalysisQuery(effectiveQuery);
+    const finalizeLocalFirst = (
+      nextAssistantMessages: AnalysisChatMessage[],
+      patch?: { pendingClaudeOffer?: PendingClaudeAnalysisOffer | null },
+    ) => {
+      const nextMessages = [...pendingMessages, ...nextAssistantMessages];
+      setMessages(nextMessages);
+      patchActiveThread({
+        messages: nextMessages,
+        lastQuery: effectiveQuery,
+        lastResponder: 'local' satisfies AnalysisAnswerResponder,
+        pendingClaudeOffer: patch?.pendingClaudeOffer ?? null,
+      });
+      clearLastClaudeUsage();
+      reloadUsage();
+      scrollToBottom();
+    };
 
-    startBackgroundAnalysis({
+    if (queryRoute === 'interpret') {
+      const apiKey = getClaudeApiKey() ?? '';
+      if (!apiKey) {
+        finalizeLocalFirst([
+          ...assistantMessages,
+          {
+            id: createId(),
+            role: 'assistant',
+            text: localResponse
+              ? `${buildClaudeAnalysisOfferMessage(true)}\n\nClaude 추가 분석을 진행하려면 상단 **「API 설정」**에서 Claude API 키를 입력·저장해 주세요.`
+              : `${getAnalysisRouteLabel(queryRoute)}에는 Claude API 키가 필요합니다. 상단 "API 설정"에서 키를 입력·저장해 주세요.`,
+            clarification: Boolean(localResponse),
+            error: !localResponse,
+          },
+        ]);
+        if (!localResponse) setSettingsOpen(true);
+        return;
+      }
 
-      roleId: role,
+      finalizeLocalFirst(
+        [
+          ...assistantMessages,
+          {
+            id: createId(),
+            role: 'assistant',
+            text: buildClaudeAnalysisOfferMessage(Boolean(localResponse)),
+            clarification: true,
+          },
+        ],
+        {
+          pendingClaudeOffer: {
+            effectiveQuery,
+            hasLocalData: Boolean(localResponse),
+          },
+        },
+      );
+      return;
+    }
 
-      threadId,
+    if (localResponse) {
+      finalizeLocalFirst(assistantMessages);
+      return;
+    }
 
-      apiKey,
-
-      effectiveQuery,
-
-      turns: conversationTurns,
-
-      chatContext,
-
-      meta: {
-
-        roleLabel: roleConfig.label,
-
-        scopeLabel: buildScopeLabel(permissions.canViewAll, roleConfig.label),
-
-        budget,
-
+    finalizeLocalFirst([
+      {
+        id: createId(),
+        role: 'assistant',
+        text: '등록·동기화된 데이터에서 이 질문에 맞는 **로컬 집계 결과**를 찾지 못했습니다. 질문 범위를 구체적으로 적어 주시거나, 다른 메뉴 데이터가 연결되어 있는지 확인해 주세요.',
       },
-
-      teams,
-
-      previewMessageId: null,
-
-      localOrgResponse: isOrgQuery ? buildOrgInsightReport(chatContext) : null,
-
-      hasMultiTurnContext: conversationTurns.length > 1,
-
-    });
-
+    ]);
   };
 
 
@@ -1415,11 +1500,11 @@ export function AnalysisChatbot() {
 
           <div className="analysis-chat__header-main">
 
-            <h3>{activeThread.title}</h3>
+            <h3>NEXUS AI</h3>
 
             <p className="analysis-chat__header-desc">
 
-              데이터 기반 정보 제공 · 범위 확인 후 대화로 조정·심화
+              로컬 데이터 우선 안내 · Claude 추가 분석은 확인 후 진행(크레딧 발생)
 
             </p>
 
@@ -1585,6 +1670,14 @@ export function AnalysisChatbot() {
 
           </div>
 
+          <div className="analysis-chat__usage-item analysis-chat__usage-item--responder">
+
+            <span className="analysis-chat__usage-label">답변자</span>
+
+            <strong>{formatAnalysisAnswerResponder(activeThread.lastResponder)}</strong>
+
+          </div>
+
         </div>
 
 
@@ -1736,6 +1829,21 @@ export function AnalysisChatbot() {
           ))}
 
 
+
+          {pendingLocalDataScope && !loading && (
+            <div className="analysis-chat__scope-picker no-print">
+              {pendingLocalDataScope.proposedDomains.map((domain, index) => (
+                <button
+                  key={domain}
+                  type="button"
+                  className="analysis-chat__scope-picker-btn"
+                  onClick={() => void submitQuery(String(index + 1))}
+                >
+                  {index + 1}. {DOMAIN_LABELS[domain as AnalysisDomainKey]}
+                </button>
+              ))}
+            </div>
+          )}
 
           {loading && (
 

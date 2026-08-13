@@ -17,6 +17,7 @@ import {
   runAnalysisJob,
   type RunAnalysisJobParams,
 } from '@/services/analysisChatJobRunner';
+import type { AnalysisQueryRoute } from '@/utils/analysisQueryRouter';
 import {
   clearLastClaudeUsage,
   getLastClaudeUsage,
@@ -38,6 +39,7 @@ interface StartBackgroundAnalysisParams {
   previewMessageId: string | null;
   localOrgResponse: ChatbotResponse | null;
   hasMultiTurnContext: boolean;
+  routeOverride?: AnalysisQueryRoute;
 }
 
 interface AnalysisChatRuntimeContextValue {
@@ -82,6 +84,7 @@ export function AnalysisChatRuntimeProvider({ children }: { children: ReactNode 
       effectiveQuery: params.effectiveQuery,
       previewMessageId: params.previewMessageId,
       hasMultiTurnContext: params.hasMultiTurnContext,
+      routeOverride: params.routeOverride,
     });
 
     setInFlight(job);
@@ -105,7 +108,8 @@ export function AnalysisChatRuntimeProvider({ children }: { children: ReactNode 
       if (result.usage) {
         setLastUsage(result.usage);
       } else {
-        reloadUsage();
+        clearLastClaudeUsage();
+        setLastUsage(null);
       }
       notifyComplete();
     });

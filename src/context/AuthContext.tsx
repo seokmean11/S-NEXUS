@@ -17,6 +17,7 @@ import {
   loadAuthSession,
   saveAuthSession,
 } from '@/utils/authStorage';
+import { clearCompetitorAnalysisStorage } from '@/utils/competitorAnalysisStorage';
 import {
   findPersonnelById,
   isDeveloperPerson,
@@ -60,6 +61,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     employees,
     personnelAuth,
     orgReady,
+    permissions,
     setAuthPerson,
     setRole,
     updatePersonnelAuth,
@@ -141,7 +143,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       navigate('/', { replace: true });
       return;
     }
-    if (!canAccessPathWithMenuPermissions(location.pathname, menuPermissions, isDeveloper)) {
+    if (!canAccessPathWithMenuPermissions(location.pathname, menuPermissions, isDeveloper, {
+      canCreateProject: permissions.canCreateProject,
+      canAccessAllocationForm: permissions.canAccessAllocationForm,
+    })) {
       navigate('/', { replace: true });
     }
   }, [
@@ -151,6 +156,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     location.pathname,
     menuPermissions,
     isDeveloper,
+    permissions.canCreateProject,
+    permissions.canAccessAllocationForm,
     navigate,
   ]);
 
@@ -192,6 +199,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 
   const logout = useCallback(() => {
+    clearCompetitorAnalysisStorage();
     clearAuthSession();
     setSession(null);
     setAuthPerson(null);
@@ -231,8 +239,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const canAccessPath = useCallback(
     (pathname: string) =>
-      canAccessPathWithMenuPermissions(pathname, menuPermissions, isDeveloper),
-    [menuPermissions, isDeveloper],
+      canAccessPathWithMenuPermissions(pathname, menuPermissions, isDeveloper, {
+        canCreateProject: permissions.canCreateProject,
+        canAccessAllocationForm: permissions.canAccessAllocationForm,
+      }),
+    [
+      menuPermissions,
+      isDeveloper,
+      permissions.canCreateProject,
+      permissions.canAccessAllocationForm,
+    ],
   );
 
   const canEditMenu = useCallback(

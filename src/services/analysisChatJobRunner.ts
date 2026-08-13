@@ -1,5 +1,5 @@
 import type { Role } from '@/types';
-import type { AnalysisChatMessage } from '@/types/analysisChatSession';
+import type { AnalysisChatMessage, AnalysisAnswerResponder } from '@/types/analysisChatSession';
 import type { AnalysisIntegratedContext } from '@/types/analyticsChat';
 import type { Team } from '@/types';
 import type { ChatbotResponse } from '@/types/analyticsChat';
@@ -35,7 +35,7 @@ import { askAnalyticsChatbot } from '@/utils/analyticsChatbot';
 import { filterProjectsByQuery } from '@/utils/analysisQueryFilter';
 import { parseMarkdownTables, stripMarkdownTables } from '@/utils/markdownTableParser';
 import { recordClaudeUsage, type ClaudeUsageSnapshot } from '@/utils/claudeUsage';
-import type { ExportTable } from '@/utils/reportExport';
+import { collectChatbotTables } from '@/utils/analysisChatMessage';
 
 export interface AnalysisBackgroundJob {
   roleId: Role;
@@ -58,6 +58,7 @@ export interface RunAnalysisJobParams {
 
 export interface AnalysisJobResult {
   usage: ClaudeUsageSnapshot | null;
+  responder: AnalysisAnswerResponder | null;
 }
 
 function createMessageId(): string {
@@ -68,25 +69,14 @@ function shouldMarkExportable(query: string): boolean {
   return !isCasualConversationQuery(query);
 }
 
-function collectChatbotTables(response: ChatbotResponse): ExportTable[] | undefined {
-  const sectionTables = response.sections
-    ?.map((section) => section.table)
-    .filter(Boolean) as ExportTable[] | undefined;
-  const tables = response.table ? [response.table, ...(sectionTables ?? [])] : sectionTables;
-  if (!tables || tables.length === 0) return undefined;
-
-  return tables.filter(
-    (table, index, array) =>
-      array.findIndex((candidate) => candidate.headers.join('|') === table.headers.join('|')) ===
-      index,
-  );
-}
-
 function persistThreadMessages(
   roleId: Role,
   threadId: string,
   updater: (messages: AnalysisChatMessage[]) => AnalysisChatMessage[],
-  patch?: { lastQuery?: string },
+  patch?: {
+    lastQuery?: string;
+    lastResponder?: AnalysisAnswerResponder | null;
+  },
 ): void {
   const store = loadAnalysisChatRoleStore(roleId);
   if (!store) return;
@@ -98,6 +88,7 @@ function persistThreadMessages(
   const next = updateThreadById(store, resolvedThread.id, {
     messages: updater(resolvedThread.messages),
     lastQuery: patch?.lastQuery,
+    lastResponder: patch?.lastResponder,
   });
   saveAnalysisChatRoleStore(next);
 }
@@ -106,7 +97,14 @@ function applyLocalResponse(
   params: RunAnalysisJobParams,
   localResponse: ChatbotResponse,
   suffix = '',
+  options?: { recordResponder?: AnalysisAnswerResponder | 'skip' },
 ): AnalysisJobResult {
+  const recordResponder = options?.recordResponder ?? 'local';
+  const threadPatch =
+    recordResponder === 'skip'
+      ? { lastQuery: params.job.effectiveQuery }
+      : { lastQuery: params.job.effectiveQuery, lastResponder: recordResponder };
+
   persistThreadMessages(
     params.job.roleId,
     params.job.threadId,
@@ -139,10 +137,14 @@ function applyLocalResponse(
         },
       ];
     },
-    { lastQuery: params.job.effectiveQuery },
+    threadPatch,
   );
 
-  return { usage: null };
+  if (recordResponder === 'skip') {
+    return { usage: null, responder: null };
+  }
+
+  return { usage: null, responder: recordResponder };
 }
 
 function applyLocalFallback(
@@ -164,6 +166,7 @@ function applyLocalFallback(
 function persistClaudeAssistantMessage(
   params: RunAnalysisJobParams,
   text: string,
+  responder: AnalysisAnswerResponder,
 ): void {
   const tables = parseMarkdownTables(text);
   const displayText = tables.length > 0 ? stripMarkdownTables(text) : text;
@@ -184,7 +187,7 @@ function persistClaudeAssistantMessage(
         : messages;
       return [...base, assistantMessage];
     },
-    { lastQuery: params.job.effectiveQuery },
+    { lastQuery: params.job.effectiveQuery, lastResponder: responder },
   );
 }
 
@@ -209,8 +212,8 @@ async function runInterpretationJob(params: RunAnalysisJobParams): Promise<Analy
     });
 
     const usage = recordClaudeUsage(result.usage);
-    persistClaudeAssistantMessage(params, result.text);
-    return { usage };
+    persistClaudeAssistantMessage(params, result.text, 'local+claude');
+    return { usage, responder: 'local+claude' };
   }
 
   const dataPayload = buildAnalysisDataPayload(
@@ -226,8 +229,8 @@ async function runInterpretationJob(params: RunAnalysisJobParams): Promise<Analy
   });
 
   const usage = recordClaudeUsage(result.usage);
-  persistClaudeAssistantMessage(params, result.text);
-  return { usage };
+  persistClaudeAssistantMessage(params, result.text, 'claude');
+  return { usage, responder: 'claude' };
 }
 
 export function createAnalysisBackgroundJob(params: {
@@ -236,6 +239,7 @@ export function createAnalysisBackgroundJob(params: {
   effectiveQuery: string;
   previewMessageId: string | null;
   hasMultiTurnContext: boolean;
+  routeOverride?: AnalysisQueryRoute;
 }): AnalysisBackgroundJob {
   return {
     roleId: params.roleId,
@@ -243,9 +247,11 @@ export function createAnalysisBackgroundJob(params: {
     startedAt: Date.now(),
     previewMessageId: params.previewMessageId,
     effectiveQuery: params.effectiveQuery,
-    route: resolveAnalysisQueryRoute(params.effectiveQuery, {
-      hasMultiTurnContext: params.hasMultiTurnContext,
-    }),
+    route:
+      params.routeOverride ??
+      resolveAnalysisQueryRoute(params.effectiveQuery, {
+        hasMultiTurnContext: params.hasMultiTurnContext,
+      }),
   };
 }
 
@@ -268,6 +274,7 @@ export async function runAnalysisJob(params: RunAnalysisJobParams): Promise<Anal
         text: `${getAnalysisRouteLabel(params.job.route)}에는 Claude API 키가 필요합니다. 상단 "API 설정"에서 키를 입력해 주세요.`,
       },
       '',
+      { recordResponder: 'skip' },
     );
   }
 
@@ -289,8 +296,8 @@ export async function runAnalysisJob(params: RunAnalysisJobParams): Promise<Anal
     });
 
     const usage = recordClaudeUsage(result.usage);
-    persistClaudeAssistantMessage(params, result.text);
-    return { usage };
+    persistClaudeAssistantMessage(params, result.text, 'claude');
+    return { usage, responder: 'claude' };
   } catch (error) {
     if (isClaudeQuotaError(error) || isClaudeTimeoutError(error)) {
       const fallbackNote = isClaudeTimeoutError(error)
@@ -320,7 +327,7 @@ export async function runAnalysisJob(params: RunAnalysisJobParams): Promise<Anal
       },
     ]);
 
-    return { usage: null };
+    return { usage: null, responder: null };
   }
 }
 

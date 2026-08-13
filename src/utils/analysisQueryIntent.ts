@@ -1,3 +1,5 @@
+import { OUTSOURCING_ANALYTICS_QUERY_PATTERN } from '@/utils/analysisOutsourcingPayload';
+
 export type AnalysisQueryIntent = 'organization' | 'project' | 'mixed';
 
 const ORG_PATTERN =
@@ -8,8 +10,7 @@ const PROJECT_PATTERN =
 
 const BID_PATTERN = /입찰|낙찰|구매|입찰도우미|bid|tender|평가|전자입찰/i;
 
-const OUTSOURCING_PATTERN =
-  /외주|업체|vendor|outsourc|외주정보|협력사|하도급|금속|목공|전기|설비|공종|규격|탑\s*\d|상위\s*\d|\btop\s*\d/i;
+const OUTSOURCING_PATTERN = OUTSOURCING_ANALYTICS_QUERY_PATTERN;
 
 const CLARIFICATION_SCOPE_PATTERN = /\[분석 범위 (?:확정|조정)\][^\n]*/i;
 
@@ -28,6 +29,10 @@ const PERSONNEL_RESOURCE_PATTERN =
   /자원정보|자원\s*현황|급수|직급|인력\s*구성|headcount|피라미드|본부별\s*인원/i;
 
 const EXHIBITION_PATTERN = /전시\s*비용|전시사업\s*비용|exhibition\s*cost/i;
+
+const ALLOCATION_PATTERN = /배분|공모|설계|제작|기여|팀\s*배분|allocation/i;
+
+const DASHBOARD_PATTERN = /대시보드|기여도|리스크\s*시나리오|예산\s*현황|kpi/i;
 
 /** 사용자 질문이 조직/프로젝트 중 무엇을 중심으로 하는지 판별 */
 export function detectAnalysisQueryIntent(query?: string): AnalysisQueryIntent {
@@ -66,6 +71,8 @@ export function detectAnalysisDomainHints(query?: string): string[] {
   if (OUTSOURCING_PATTERN.test(query)) hints.push('outsourcing');
   if (PERSONNEL_RESOURCE_PATTERN.test(query)) hints.push('personnelResource');
   if (EXHIBITION_PATTERN.test(query)) hints.push('exhibitionBusinessCost');
+  if (ALLOCATION_PATTERN.test(query)) hints.push('allocations');
+  if (DASHBOARD_PATTERN.test(query)) hints.push('dashboard');
   if (ORG_PATTERN.test(query)) hints.push('organization');
   if (PROJECT_PATTERN.test(query)) hints.push('projects');
 

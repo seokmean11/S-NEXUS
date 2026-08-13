@@ -193,6 +193,52 @@ async function findSubfolderId(
   return folder?.id ?? null;
 }
 
+const ensureSubfolderPending = new Map<string, Promise<string>>();
+
+/** 하위 폴더가 없으면 생성합니다 (OAuth Drive 클라이언트 권장). */
+export async function ensureSubfolderId(
+  drive: drive_v3.Drive,
+  parentFolderId: string,
+  folderName: string,
+): Promise<string> {
+  const lockKey = `${parentFolderId}:${folderName}`;
+  const pending = ensureSubfolderPending.get(lockKey);
+  if (pending) return pending;
+
+  const promise = (async () => {
+    const existing = await findSubfolderId(drive, parentFolderId, folderName);
+    if (existing) return existing;
+
+    try {
+      const response = await drive.files.create({
+        requestBody: {
+          name: folderName,
+          mimeType: 'application/vnd.google-apps.folder',
+          parents: [parentFolderId],
+        },
+        fields: 'id',
+      });
+      if (response.data.id) return response.data.id;
+    } catch {
+      // 동시 생성 경합 시 이미 만들어진 폴더를 다시 조회
+    }
+
+    const created = await findSubfolderId(drive, parentFolderId, folderName);
+    if (created) return created;
+
+    throw new Error(`Google Drive 하위 폴더 생성에 실패했습니다: ${folderName}`);
+  })();
+
+  ensureSubfolderPending.set(lockKey, promise);
+  try {
+    return await promise;
+  } finally {
+    ensureSubfolderPending.delete(lockKey);
+  }
+}
+
+export { createDriveClient, createOAuthDriveClient, findSubfolderId };
+
 async function resolveSubfolderIdWithDrive(
   drive: drive_v3.Drive,
   config: NexusDriveConfig,

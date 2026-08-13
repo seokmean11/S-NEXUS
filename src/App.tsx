@@ -7,11 +7,13 @@ import { AdminPage } from '@/pages/AdminPage';
 import { AllocationPage } from '@/pages/AllocationPage';
 import { OrgChartPage } from '@/pages/OrgChartPage';
 import { AnalysisPage } from '@/pages/AnalysisPage';
+import { ProjectManagementLayout } from '@/pages/ProjectManagementLayout';
 import { PurchaseLayout } from '@/pages/PurchaseLayout';
 import { BidManagementPage } from '@/pages/BidManagementPage';
 import { OutsourcingSearchPage } from '@/pages/OutsourcingSearchPage';
 import { MiscInfoLayout } from '@/pages/MiscInfoLayout';
 import { ExhibitionBusinessCostPage } from '@/pages/ExhibitionBusinessCostPage';
+import { CompetitorAnalysisPage } from '@/pages/CompetitorAnalysisPage';
 import { DataFolderPage } from '@/pages/DataFolderPage';
 import { LoginPage } from '@/pages/LoginPage';
 
@@ -37,10 +39,22 @@ export function AppRoutes() {
             </ErrorBoundary>
           }
         />
-        <Route path="admin" element={<AdminPage />} />
+        <Route path="admin" element={<Navigate to="/project/register" replace />} />
         <Route path="org" element={<OrgChartPage />} />
         <Route path="personnel" element={<Navigate to="/org" replace />} />
-        <Route path="allocation" element={<AllocationPage />} />
+        <Route path="allocation" element={<Navigate to="/project/allocation" replace />} />
+        <Route
+          path="project"
+          element={
+            <ErrorBoundary fallbackTitle="프로젝트 관리 화면 오류">
+              <ProjectManagementLayout />
+            </ErrorBoundary>
+          }
+        >
+          <Route index element={<Navigate to="register" replace />} />
+          <Route path="register" element={<AdminPage />} />
+          <Route path="allocation" element={<AllocationPage />} />
+        </Route>
         <Route
           path="analysis"
           element={
@@ -79,6 +93,7 @@ export function AppRoutes() {
         >
           <Route index element={<Navigate to="exhibition-business-cost" replace />} />
           <Route path="exhibition-business-cost" element={<ExhibitionBusinessCostPage />} />
+          <Route path="competitor-analysis" element={<CompetitorAnalysisPage />} />
         </Route>
         <Route path="reports" element={<Navigate to="/" replace />} />
         <Route path="*" element={<Navigate to="/" replace />} />

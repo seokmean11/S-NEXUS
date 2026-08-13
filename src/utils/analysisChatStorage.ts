@@ -4,8 +4,11 @@ import type {
   AnalysisChatRoleStore,
   AnalysisChatStorageRoot,
   AnalysisChatThread,
+  AnalysisAnswerResponder,
+  PendingClaudeAnalysisOffer,
 } from '@/types/analysisChatSession';
 import type { PendingAnalysisClarification } from '@/utils/analysisQueryClarification';
+import type { PendingLocalDataScope } from '@/utils/analysisLocalDataScope';
 
 const STORAGE_KEY = 'perf-dashboard-analysis-chat-sessions';
 
@@ -55,7 +58,9 @@ export function createAnalysisChatThread(
     title: deriveThreadTitle(welcomeMessages),
     messages: welcomeMessages,
     lastQuery: '',
+    pendingClaudeOffer: null,
     pendingClarification: null,
+    pendingLocalDataScope: null,
     createdAt: now,
     updatedAt: now,
     archived,
@@ -131,7 +136,10 @@ export function updateThreadById(
   patch: {
     messages?: AnalysisChatMessage[];
     lastQuery?: string;
+    lastResponder?: AnalysisAnswerResponder | null;
+    pendingClaudeOffer?: PendingClaudeAnalysisOffer | null;
     pendingClarification?: PendingAnalysisClarification | null;
+    pendingLocalDataScope?: PendingLocalDataScope | null;
     title?: string;
     titleManuallyEdited?: boolean;
   },
@@ -155,10 +163,20 @@ export function updateThreadById(
       ...thread,
       messages,
       lastQuery: patch.lastQuery ?? thread.lastQuery,
+      lastResponder:
+        patch.lastResponder !== undefined ? patch.lastResponder : thread.lastResponder,
+      pendingClaudeOffer:
+        patch.pendingClaudeOffer !== undefined
+          ? patch.pendingClaudeOffer
+          : thread.pendingClaudeOffer,
       pendingClarification:
         patch.pendingClarification !== undefined
           ? patch.pendingClarification
           : thread.pendingClarification,
+      pendingLocalDataScope:
+        patch.pendingLocalDataScope !== undefined
+          ? patch.pendingLocalDataScope
+          : thread.pendingLocalDataScope ?? null,
       title,
       titleManuallyEdited,
       updatedAt: now,
@@ -174,7 +192,10 @@ export function updateActiveThread(
   patch: {
     messages?: AnalysisChatMessage[];
     lastQuery?: string;
+    lastResponder?: AnalysisAnswerResponder | null;
+    pendingClaudeOffer?: PendingClaudeAnalysisOffer | null;
     pendingClarification?: PendingAnalysisClarification | null;
+    pendingLocalDataScope?: PendingLocalDataScope | null;
     title?: string;
     titleManuallyEdited?: boolean;
   },

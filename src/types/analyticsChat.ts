@@ -1,3 +1,4 @@
+import type { BudgetStatus } from '@/types';
 import type { ExportTable } from '@/utils/reportExport';
 import type {
   ContributionCard,
@@ -44,6 +45,7 @@ export interface AnalysisIntegratedContext extends AnalyticsChatContext {
   };
   exhibitionBusinessCost: ExhibitionBusinessCostSummary;
   personnelResourceStats: PersonnelResourceStats;
+  budget?: BudgetStatus;
 }
 
 export interface ChatExportAction {

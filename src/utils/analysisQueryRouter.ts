@@ -3,7 +3,9 @@ import {
   isOrganizationAnalysisQuery,
   detectAnalysisDomainHints,
 } from '@/utils/analysisQueryIntent';
-import { isInsightReportQuery, isListOnlyQuery } from '@/utils/analyticsChatbot';
+import { isInsightReportQuery, isListOnlyQuery } from '@/utils/analysisProjectLocalHandlers';
+import { isPersonLookupQuery } from '@/utils/analysisPersonLookup';
+import { OUTSOURCING_ANALYTICS_QUERY_PATTERN } from '@/utils/analysisOutsourcingPayload';
 
 export type AnalysisQueryRoute = 'local' | 'interpret';
 
@@ -13,13 +15,13 @@ const INTERPRETATION_PATTERN =
 const MULTI_TURN_REFINE_PATTERN =
   /수정|바꿔|다시|추가|더\s*자세|짧게|표\s*만|요약\s*만|위\s*내용|앞\s*답|이어서|보완/i;
 
-const OUTSOURCING_QUERY_PATTERN =
-  /외주|업체|vendor|outsourc|협력사|하도급|금속|목공|전기|설비|공종|규격|탑\s*\d|상위\s*\d|\btop\s*\d/i;
+const OUTSOURCING_QUERY_PATTERN = OUTSOURCING_ANALYTICS_QUERY_PATTERN;
 
 function isDeterministicLocalQuery(query: string): boolean {
   const normalized = query.trim();
   if (!normalized) return false;
 
+  if (isPersonLookupQuery(normalized)) return true;
   if (isOrganizationAnalysisQuery(normalized)) return true;
   if (/계약\s*변경|변경\s*\d+\s*차|amendment/i.test(normalized)) return true;
   if (/추이|트렌드|연도별|년\s*간|년간/.test(normalized) && /수주|계약|매출/.test(normalized)) {
@@ -35,6 +37,11 @@ function isDeterministicLocalQuery(query: string): boolean {
   if (OUTSOURCING_QUERY_PATTERN.test(normalized) && !INTERPRETATION_PATTERN.test(normalized)) {
     return true;
   }
+  if (/입찰|낙찰|구매|입찰도우미|bid|tender|전자입찰/i.test(normalized)) return true;
+  if (/전시\s*비용|전시사업\s*비용|유형별\s*사업비/i.test(normalized)) return true;
+  if (/자원정보|자원\s*현황|급수|직급|피라미드|본부별\s*인원/i.test(normalized)) return true;
+  if (/배분|공모|설계|제작|기여|팀\s*배분/i.test(normalized)) return true;
+  if (/대시보드|기여도|리스크\s*시나리오|예산\s*현황|kpi/i.test(normalized)) return true;
   if (isInsightReportQuery(normalized)) return true;
   if (/안녕|도움|help|뭐\s*할\s*수/.test(normalized)) return true;
 
