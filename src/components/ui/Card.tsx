@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 interface CardProps {
   title?: string;
   subtitle?: string;
+  subtitleAside?: string;
   children: ReactNode;
   className?: string;
   headerAction?: ReactNode;
@@ -12,6 +13,7 @@ interface CardProps {
 export function Card({
   title,
   subtitle,
+  subtitleAside,
   children,
   className = '',
   headerAction,
@@ -23,7 +25,12 @@ export function Card({
         <div className="card__header">
           <div>
             {title && <h3 className="card__title">{title}</h3>}
-            {subtitle && <p className="card__subtitle">{subtitle}</p>}
+            {(subtitle || subtitleAside) && (
+              <div className="card__subtitle-row">
+                {subtitle && <p className="card__subtitle">{subtitle}</p>}
+                {subtitleAside && <span className="card__subtitle-aside">{subtitleAside}</span>}
+              </div>
+            )}
           </div>
           {headerAction}
         </div>

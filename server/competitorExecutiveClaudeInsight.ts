@@ -1,4 +1,10 @@
 import { sendClaudeServerMessage } from './claudeServer';
+import {
+  formatMarketSizeTrillion,
+  MARKET_SIZE_TREND_DISPLAY,
+  MARKET_SIZE_TREND_FROM_YEAR,
+  MARKET_SIZE_TREND_TO_YEAR,
+} from '../src/utils/marketSizeTrend';
 
 export interface ExecutiveInsightClaudeItem {
   severity: 'info' | 'warning' | 'risk';
@@ -10,7 +16,7 @@ export interface ExecutiveInsightsBySection {
   timeline: ExecutiveInsightClaudeItem[];
   revenueRanking: ExecutiveInsightClaudeItem[];
   costStructure: ExecutiveInsightClaudeItem[];
-  stabilityRisk: ExecutiveInsightClaudeItem[];
+  productivity: ExecutiveInsightClaudeItem[];
 }
 
 export interface ExecutiveInsightClaudeContext {
@@ -39,10 +45,12 @@ export interface ExecutiveInsightClaudeContext {
     sgaRatio: number | null;
     operatingMargin: number | null;
   }>;
-  stabilityRisk: Array<{
+  productivity: Array<{
+    rank: number;
     name: string;
-    debtRatio: number;
-    leverageAmount: number;
+    avgEmployees: number | null;
+    revenuePerEmployeeEok: number | null;
+    operatingProfitPerEmployeeEok: number | null;
   }>;
   dataQualityHints?: string[];
 }
@@ -53,14 +61,15 @@ const SECTION_HEADER_MAP: Record<string, SectionKey> = {
   TIMELINE: 'timeline',
   REVENUE_RANKING: 'revenueRanking',
   COST_STRUCTURE: 'costStructure',
-  STABILITY_RISK: 'stabilityRisk',
+  PRODUCTIVITY: 'productivity',
+  STABILITY_RISK: 'productivity',
 };
 
 const EMPTY_SECTIONS: ExecutiveInsightsBySection = {
   timeline: [],
   revenueRanking: [],
   costStructure: [],
-  stabilityRisk: [],
+  productivity: [],
 };
 
 function normalizeSeverity(value: string): ExecutiveInsightClaudeItem['severity'] {
@@ -119,7 +128,7 @@ function parseExecutiveInsightsFromSectionText(text: string): ExecutiveInsightsB
     timeline: [],
     revenueRanking: [],
     costStructure: [],
-    stabilityRisk: [],
+    productivity: [],
   };
 
   const parts = text.split(/===\s*([A-Z_]+)\s*===/u);
@@ -161,7 +170,7 @@ function tryParseExecutiveInsightsJson(text: string): ExecutiveInsightsBySection
         timeline: parseJsonItems(parsed.timeline),
         revenueRanking: parseJsonItems(parsed.revenueRanking),
         costStructure: parseJsonItems(parsed.costStructure),
-        stabilityRisk: parseJsonItems(parsed.stabilityRisk),
+        productivity: parseJsonItems(parsed.productivity ?? parsed.stabilityRisk),
       };
       if (countInsightItems(mapped) > 0) return mapped;
     } catch {
@@ -197,7 +206,7 @@ function countInsightItems(insights: ExecutiveInsightsBySection): number {
     insights.timeline.length +
     insights.revenueRanking.length +
     insights.costStructure.length +
-    insights.stabilityRisk.length
+    insights.productivity.length
   );
 }
 
@@ -214,19 +223,17 @@ function parseExecutiveInsightsFromClaudeText(text: string): ExecutiveInsightsBy
 function buildFallbackInsightsFromContext(
   ctx: ExecutiveInsightClaudeContext,
 ): ExecutiveInsightsBySection {
-  const latestTimeline = ctx.timeline[ctx.timeline.length - 1];
   const topRevenue = ctx.revenueRanking[0];
-  const highDebt = [...ctx.stabilityRisk]
-    .filter((item) => item.debtRatio > 0)
-    .sort((a, b) => b.debtRatio - a.debtRatio)
-    .slice(0, 2);
+  const topProductivity = [...ctx.productivity]
+    .filter((item) => (item.revenuePerEmployeeEok ?? 0) > 0)
+    .sort((a, b) => (b.revenuePerEmployeeEok ?? 0) - (a.revenuePerEmployeeEok ?? 0))[0];
 
   const result: ExecutiveInsightsBySection = {
     timeline: [
       {
         severity: 'info',
-        title: '매출 추이 요약',
-        detail: `${ctx.fromYear}-${ctx.toYear}년 ${ctx.companyCount}개사 · 최근 ${latestTimeline?.year ?? ctx.baseYear}년 합산 매출 ${latestTimeline?.totalRevenue ?? '-'}억원`,
+        title: '시장규모 추이 요약',
+        detail: `${MARKET_SIZE_TREND_FROM_YEAR}-${MARKET_SIZE_TREND_TO_YEAR}년 시장규모 ${formatMarketSizeTrillion(MARKET_SIZE_TREND_DISPLAY[0]?.sizeTrillion)} → ${formatMarketSizeTrillion(MARKET_SIZE_TREND_DISPLAY[MARKET_SIZE_TREND_DISPLAY.length - 1]?.sizeTrillion)}`,
       },
     ],
     revenueRanking: topRevenue
@@ -239,11 +246,15 @@ function buildFallbackInsightsFromContext(
         ]
       : [],
     costStructure: [],
-    stabilityRisk: highDebt.map((item) => ({
-      severity: item.debtRatio >= 200 ? ('risk' as const) : ('warning' as const),
-      title: '부채비율 주목',
-      detail: `${item.name} · 부채비율 ${item.debtRatio.toFixed(1)}%`,
-    })),
+    productivity: topProductivity
+      ? [
+          {
+            severity: 'info',
+            title: '인당 매출 1위',
+            detail: `${topProductivity.rank}위 ${topProductivity.name} · 평균 ${topProductivity.avgEmployees ?? '-'}명 · 인당 매출 ${topProductivity.revenuePerEmployeeEok ?? '-'}억/인`,
+          },
+        ]
+      : [],
   };
 
   for (const hint of ctx.dataQualityHints ?? []) {
@@ -256,8 +267,10 @@ function buildFallbackInsightsFromContext(
 
     if (lower.includes('원가') || lower.includes('영업이익')) {
       pushInsightItem(result, 'costStructure', item);
+    } else if (lower.includes('종업원') || lower.includes('생산성') || lower.includes('인당')) {
+      pushInsightItem(result, 'productivity', item);
     } else if (lower.includes('부채')) {
-      pushInsightItem(result, 'stabilityRisk', item);
+      pushInsightItem(result, 'productivity', item);
     } else if (lower.includes('매출') && lower.includes('미추출')) {
       pushInsightItem(result, 'revenueRanking', item);
     } else if (lower.includes('단위')) {
@@ -285,8 +298,8 @@ info|짧은 제목|1-2문장 상세
 warning|짧은 제목|1-2문장 상세
 ===COST_STRUCTURE===
 info|짧은 제목|1-2문장 상세
-===STABILITY_RISK===
-risk|짧은 제목|1-2문장 상세
+===PRODUCTIVITY===
+info|짧은 제목|1-2문장 상세
 
 규칙:
 - 각 구간 1~3줄, 형식은 severity|title|detail
@@ -316,7 +329,7 @@ export async function generateCompetitorExecutiveInsights(
     timeline: ctx.timeline,
     revenueRanking: ctx.revenueRanking.slice(0, 10),
     costStructure: ctx.costStructure.slice(0, 10),
-    stabilityRisk: ctx.stabilityRisk.slice(0, 10),
+    productivity: ctx.productivity.slice(0, 10),
     dataQualityHints: ctx.dataQualityHints?.slice(0, 6) ?? [],
   };
 

@@ -1,5 +1,9 @@
 import type { CompetitorAnalysisSummary, CompetitorSector } from '@/types/competitorAnalysis';
 import { COMPETITOR_SECTORS } from '@/types/competitorAnalysis';
+import type {
+  CompetitorAnalysisPeriodWarning,
+  CompetitorExecutiveMultiYearSummary,
+} from '@/types/competitorStandard';
 import { clearCachedExecutiveClaudeInsights } from '@/utils/competitorExecutiveClaudeInsightCache';
 
 const LEGACY_SELECTION_STORAGE_KEY = 'perf-dashboard-competitor-selection';
@@ -7,6 +11,8 @@ const UPLOAD_SELECTION_STORAGE_KEY = 'perf-dashboard-competitor-upload-selection
 const ANALYSIS_SELECTION_STORAGE_KEY = 'perf-dashboard-competitor-analysis-selection';
 const ANALYSIS_CACHE_PREFIX = 'perf-dashboard-competitor-analysis:';
 const ANALYSIS_CACHE_VERSION = '2';
+const PERIOD_ANALYSIS_CACHE_PREFIX = 'perf-dashboard-competitor-period-analysis:';
+const PERIOD_ANALYSIS_CACHE_VERSION = '1';
 
 export interface CompetitorSelectionState {
   sector: CompetitorSector | null;
@@ -137,6 +143,83 @@ export function saveCachedCompetitorAnalysis(
   );
 }
 
+export interface CompetitorPeriodAnalysisCache {
+  cacheVersion: string;
+  sector: CompetitorSector;
+  fromYear: number;
+  toYear: number;
+  summaryYear: number | null;
+  warnings: CompetitorAnalysisPeriodWarning[];
+  analysis: CompetitorAnalysisSummary | null;
+  executive: CompetitorExecutiveMultiYearSummary | null;
+  cachedAt: string;
+}
+
+function periodAnalysisCacheKey(
+  sector: CompetitorSector,
+  fromYear: number,
+  toYear: number,
+): string {
+  const from = Math.min(fromYear, toYear);
+  const to = Math.max(fromYear, toYear);
+  return `${PERIOD_ANALYSIS_CACHE_PREFIX}${sector}:${from}:${to}`;
+}
+
+export function loadCachedPeriodAnalysis(
+  sector: CompetitorSector,
+  fromYear: number,
+  toYear: number,
+): CompetitorPeriodAnalysisCache | null {
+  try {
+    const raw = localStorage.getItem(periodAnalysisCacheKey(sector, fromYear, toYear));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as CompetitorPeriodAnalysisCache;
+    if (parsed.cacheVersion !== PERIOD_ANALYSIS_CACHE_VERSION) return null;
+    const from = Math.min(fromYear, toYear);
+    const to = Math.max(fromYear, toYear);
+    if (parsed.sector !== sector || parsed.fromYear !== from || parsed.toYear !== to) return null;
+    if (!parsed.executive && !parsed.analysis) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+export function saveCachedPeriodAnalysis(
+  sector: CompetitorSector,
+  fromYear: number,
+  toYear: number,
+  payload: {
+    summaryYear: number | null;
+    warnings: CompetitorAnalysisPeriodWarning[];
+    analysis: CompetitorAnalysisSummary | null;
+    executive: CompetitorExecutiveMultiYearSummary | null;
+  },
+): void {
+  const from = Math.min(fromYear, toYear);
+  const to = Math.max(fromYear, toYear);
+  const cache: CompetitorPeriodAnalysisCache = {
+    cacheVersion: PERIOD_ANALYSIS_CACHE_VERSION,
+    sector,
+    fromYear: from,
+    toYear: to,
+    summaryYear: payload.summaryYear,
+    warnings: payload.warnings,
+    analysis: payload.analysis,
+    executive: payload.executive,
+    cachedAt: new Date().toISOString(),
+  };
+  localStorage.setItem(periodAnalysisCacheKey(sector, from, to), JSON.stringify(cache));
+}
+
+export function clearCachedPeriodAnalysis(
+  sector: CompetitorSector,
+  fromYear: number,
+  toYear: number,
+): void {
+  localStorage.removeItem(periodAnalysisCacheKey(sector, fromYear, toYear));
+}
+
 export function clearCompetitorAnalysisStorage(): void {
   localStorage.removeItem(LEGACY_SELECTION_STORAGE_KEY);
   localStorage.removeItem(UPLOAD_SELECTION_STORAGE_KEY);
@@ -152,6 +235,18 @@ export function clearCompetitorAnalysisStorage(): void {
   for (const key of keysToRemove) {
     sessionStorage.removeItem(key);
   }
+
+  const localKeysToRemove: string[] = [];
+  for (let index = 0; index < localStorage.length; index += 1) {
+    const key = localStorage.key(index);
+    if (key?.startsWith(PERIOD_ANALYSIS_CACHE_PREFIX)) {
+      localKeysToRemove.push(key);
+    }
+  }
+  for (const key of localKeysToRemove) {
+    localStorage.removeItem(key);
+  }
+
   clearCachedExecutiveClaudeInsights();
 }
 

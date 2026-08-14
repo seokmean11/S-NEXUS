@@ -85,6 +85,32 @@ function resolveDocumentCompanyKey(doc: CompetitorParsedDocument): string {
   );
 }
 
+/** PDF 파일명·크기만 사용 (mtime은 PC↔서버 Drive 동기화 시 달라져 서명 불일치 방지) */
+export function normalizeCompetitorSourceSignature(signature: string): string {
+  if (!signature) return '';
+
+  return signature
+    .split('|')
+    .map((part) => {
+      const firstColon = part.indexOf(':');
+      if (firstColon === -1) return part;
+      const secondColon = part.indexOf(':', firstColon + 1);
+      return secondColon === -1 ? part : part.slice(0, secondColon);
+    })
+    .sort()
+    .join('|');
+}
+
+export function competitorSourceSignaturesMatch(
+  localSignature: string,
+  storedSignature: string,
+): boolean {
+  return (
+    normalizeCompetitorSourceSignature(localSignature) ===
+    normalizeCompetitorSourceSignature(storedSignature)
+  );
+}
+
 export function buildCompetitorSourceSignature(cacheDir: string): string {
   if (!fs.existsSync(cacheDir)) return '';
 
@@ -94,10 +120,34 @@ export function buildCompetitorSourceSignature(cacheDir: string): string {
     .filter((name) => fs.statSync(path.join(cacheDir, name)).isFile())
     .map((name) => {
       const stat = fs.statSync(path.join(cacheDir, name));
-      return `${name}:${stat.size}:${stat.mtimeMs}`;
+      return `${name}:${stat.size}`;
     })
     .sort()
     .join('|');
+}
+
+/** 신용분석 PDF 날짜(2022.12 등)가 매출로 파싱된 오류 데이터 감지 */
+export function isStructuredDataTrustworthy(data: CompetitorStructuredData): boolean {
+  const revenues = data.companies
+    .flatMap((company) =>
+      (company.metrics ?? [])
+        .filter((metric) => metric.key === 'revenue' && typeof metric.value === 'number' && metric.value > 0)
+        .map((metric) => metric.value as number),
+    );
+
+  if (revenues.length === 0) return false;
+
+  const dateLikeRevenues = revenues.filter((value) => value >= 1.5e9 && value <= 3.5e9);
+  if (dateLikeRevenues.length >= 3 && dateLikeRevenues.length >= revenues.length * 0.4) {
+    return false;
+  }
+
+  const maxRevenue = Math.max(...revenues);
+  if (maxRevenue < 50_000_000_000 && revenues.length >= 5) {
+    return false;
+  }
+
+  return true;
 }
 
 export function buildStructuredDataFromAnalysis(
@@ -124,12 +174,12 @@ export function buildStructuredDataFromAnalysis(
       analysis.year,
       doc.companyName,
     );
-    doc.companyName = resolvedCompanyName;
-    doc.fiscalYear = identity.fiscalYear;
-
     const aliased = applyCompetitorCompanyAlias(identity.companyKey, analysis.sector);
     const resolvedCompanyKey = aliased.key;
     const resolvedCompanyName = aliased.displayName;
+    doc.companyName = resolvedCompanyName;
+    doc.fiscalYear = identity.fiscalYear;
+
     const fiscalYear = identity.fiscalYear;
     const dedupKey = buildFileScopedDedupKey(doc.fileName, fiscalYear);
     const sourceType = toSourceTypeLabel(doc.documentType, doc.fileName);
@@ -303,11 +353,11 @@ export async function downloadStructuredDataFromDrive(
   drive: drive_v3.Drive,
   folderId: string,
   cacheDir: string,
+  targetPath = getStructuredDataPath(cacheDir),
 ): Promise<boolean> {
   const fileId = await findStructuredDataFileId(drive, folderId);
   if (!fileId) return false;
 
-  const targetPath = getStructuredDataPath(cacheDir);
   fs.mkdirSync(cacheDir, { recursive: true });
   const dest = fs.createWriteStream(targetPath);
   const response = await drive.files.get(
@@ -337,7 +387,11 @@ export async function rebuildCompetitorStructuredData(
 
   if (!options?.forceReparse) {
     const cached = loadStructuredDataFromCache(cacheDir);
-    if (cached?.sourceSignature === sourceSignature) {
+    if (
+      cached &&
+      competitorSourceSignaturesMatch(sourceSignature, cached.sourceSignature) &&
+      isStructuredDataTrustworthy(cached)
+    ) {
       return cached;
     }
   }
@@ -381,6 +435,43 @@ export async function rebuildCompetitorStructuredData(
   return structured;
 }
 
+export async function tryHydrateStructuredCacheFromDrive(
+  drive: drive_v3.Drive,
+  folderId: string,
+  cacheDir: string,
+): Promise<boolean> {
+  const sourceSignature = buildCompetitorSourceSignature(cacheDir);
+  if (!sourceSignature) return false;
+
+  const tempPath = path.join(cacheDir, '.competitor-data.drive-tmp.json');
+  const downloaded = await downloadStructuredDataFromDrive(drive, folderId, cacheDir, tempPath);
+  if (!downloaded) return false;
+
+  let hydrated: CompetitorStructuredData | null = null;
+  try {
+    hydrated = JSON.parse(fs.readFileSync(tempPath, 'utf8')) as CompetitorStructuredData;
+    if (hydrated.version !== COMPETITOR_STRUCTURED_DATA_VERSION) {
+      hydrated = null;
+    }
+  } catch {
+    hydrated = null;
+  }
+
+  if (
+    !hydrated ||
+    !competitorSourceSignaturesMatch(sourceSignature, hydrated.sourceSignature) ||
+    !isStructuredDataTrustworthy(hydrated)
+  ) {
+    fs.unlinkSync(tempPath);
+    return false;
+  }
+
+  hydrated.sourceSignature = sourceSignature;
+  saveStructuredDataToCache(cacheDir, hydrated);
+  fs.unlinkSync(tempPath);
+  return true;
+}
+
 export async function loadCompetitorAnalysisData(
   projectRoot: string,
   year: number,
@@ -393,7 +484,11 @@ export async function loadCompetitorAnalysisData(
 
   if (!options?.rebuild) {
     const cached = loadStructuredDataFromCache(cacheDir);
-    if (cached?.sourceSignature === sourceSignature) {
+    if (
+      cached &&
+      competitorSourceSignaturesMatch(sourceSignature, cached.sourceSignature) &&
+      isStructuredDataTrustworthy(cached)
+    ) {
       return cached;
     }
   }

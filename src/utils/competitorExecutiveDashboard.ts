@@ -277,16 +277,20 @@ export interface CostStructureChartItem {
 }
 
 function normalizeCostStructure(
-  view: ReturnType<typeof resolveStandardFinancialView>,
+  ratios: {
+    cogs_ratio?: number | null;
+    sga_ratio?: number | null;
+    operating_margin?: number | null;
+  },
 ): {
   cogsRatio: number;
   sgaRatio: number;
   operatingMargin: number;
   otherRatio: number;
 } {
-  const cogsRatio = Math.max(0, safeNumber(view.cogs_ratio));
-  const sgaRatio = Math.max(0, safeNumber(view.sga_ratio));
-  const operatingMarginRaw = safeNumber(view.operating_margin);
+  const cogsRatio = Math.max(0, safeNumber(ratios.cogs_ratio));
+  const sgaRatio = Math.max(0, safeNumber(ratios.sga_ratio));
+  const operatingMarginRaw = safeNumber(ratios.operating_margin);
   const positiveOp = Math.max(0, operatingMarginRaw);
   const positiveTotal = cogsRatio + sgaRatio + positiveOp;
 
@@ -318,6 +322,51 @@ function normalizeCostStructure(
   };
 }
 
+function averageSimpleRatio(values: (number | null | undefined)[]): number | null {
+  const valid = values.filter((value): value is number => value != null && Number.isFinite(value));
+  if (valid.length === 0) return null;
+  const average = valid.reduce((sum, value) => sum + value, 0) / valid.length;
+  return Math.round(average * 100) / 100;
+}
+
+function resolveCostStructureAverageRatios(
+  summary: CompetitorExecutiveMultiYearSummary,
+  companyKey: string,
+  chartYears: number[],
+): {
+  sourceCogsRatio: number | null;
+  sourceSgaRatio: number | null;
+  sourceOperatingMargin: number | null;
+} {
+  const cogsSamples: (number | null | undefined)[] = [];
+  const sgaSamples: (number | null | undefined)[] = [];
+  const operatingMarginSamples: (number | null | undefined)[] = [];
+
+  for (const year of chartYears) {
+    const yearRecords = summary.recordsByYear[String(year)] ?? [];
+    const dedupedYear = dedupeRecordsByCompany(yearRecords, summary.sector);
+    const record = dedupedYear.get(companyKey);
+    if (!record) continue;
+
+    const view = resolveStandardFinancialView(record);
+    cogsSamples.push(view.cogs_ratio);
+    sgaSamples.push(view.sga_ratio);
+    operatingMarginSamples.push(view.operating_margin);
+  }
+
+  return {
+    sourceCogsRatio: averageSimpleRatio(cogsSamples),
+    sourceSgaRatio: averageSimpleRatio(sgaSamples),
+    sourceOperatingMargin: averageSimpleRatio(operatingMarginSamples),
+  };
+}
+
+export function formatCostStructureAveragePeriodLabel(years: number[]): string {
+  if (years.length === 0) return '단순 평균';
+  if (years.length === 1) return `${years[0]}년`;
+  return `${years[0]}–${years[years.length - 1]}년 ${years.length}년 단순 평균`;
+}
+
 export function buildCostStructureChartData(
   summary: CompetitorExecutiveMultiYearSummary,
   revenueRanking: RevenueRankingChartItem[],
@@ -325,15 +374,15 @@ export function buildCostStructureChartData(
   if (revenueRanking.length === 0) return [];
 
   const rankYear = summary.effectiveToYear ?? summary.toYear;
-  const rankYearRecords = summary.recordsByYear[String(rankYear)] ?? [];
-  const dedupedRankYear = dedupeRecordsByCompany(rankYearRecords, summary.sector);
+  const chartYears = resolveRevenueRankingChartYears(summary.fromYear, summary.toYear, rankYear);
 
   return revenueRanking.map((company) => {
-    const record = dedupedRankYear.get(company.companyKey);
-    const view = record ? resolveStandardFinancialView(record) : null;
-    const hasRevenue = view != null && view.revenue != null && view.revenue > 0;
+    const { sourceCogsRatio, sourceSgaRatio, sourceOperatingMargin } =
+      resolveCostStructureAverageRatios(summary, company.companyKey, chartYears);
+    const hasRatioData =
+      sourceCogsRatio != null || sourceSgaRatio != null || sourceOperatingMargin != null;
 
-    if (!hasRevenue || !view) {
+    if (!hasRatioData || company.latestRevenue <= 0) {
       return {
         companyName: company.companyName,
         companyKey: company.companyKey,
@@ -342,26 +391,121 @@ export function buildCostStructureChartData(
         sgaRatio: 0,
         operatingMargin: 0,
         otherRatio: 100,
-        sourceCogsRatio: view?.cogs_ratio ?? null,
-        sourceSgaRatio: view?.sga_ratio ?? null,
-        sourceOperatingMargin: view?.operating_margin ?? null,
+        sourceCogsRatio,
+        sourceSgaRatio,
+        sourceOperatingMargin,
         hasRatioData: false,
       };
     }
 
-    const normalized = normalizeCostStructure(view);
-    const hasRatioData =
-      view.cogs_ratio != null || view.sga_ratio != null || view.operating_margin != null;
+    const normalized = normalizeCostStructure({
+      cogs_ratio: sourceCogsRatio,
+      sga_ratio: sourceSgaRatio,
+      operating_margin: sourceOperatingMargin,
+    });
 
     return {
       companyName: company.companyName,
       companyKey: company.companyKey,
       rank: company.rank,
       ...normalized,
-      sourceCogsRatio: view.cogs_ratio,
-      sourceSgaRatio: view.sga_ratio,
-      sourceOperatingMargin: view.operating_margin,
+      sourceCogsRatio,
+      sourceSgaRatio,
+      sourceOperatingMargin,
       hasRatioData,
+    };
+  });
+}
+
+export interface ProductivityChartItem {
+  companyName: string;
+  companyKey: string;
+  rank: number;
+  avgEmployees: number | null;
+  revenuePerEmployeeEok: number | null;
+  operatingProfitPerEmployeeEok: number | null;
+  hasProductivityData: boolean;
+}
+
+export function toProductivityPerEmployeeEok(
+  amountMillions: number | null,
+  employees: number | null,
+): number | null {
+  if (amountMillions == null || employees == null || employees <= 0) return null;
+  return Math.round((amountMillions / employees / 100) * 10) / 10;
+}
+
+export function formatProductivityPerEmployeeEok(value: number | null | undefined): string {
+  if (value == null || !Number.isFinite(value)) return '-';
+  return `${value.toLocaleString('ko-KR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}억/인`;
+}
+
+function resolveProductivityAverageInputs(
+  summary: CompetitorExecutiveMultiYearSummary,
+  companyKey: string,
+  chartYears: number[],
+): {
+  avgRevenue: number | null;
+  avgOperatingProfit: number | null;
+  avgEmployees: number | null;
+} {
+  const revenueSamples: (number | null | undefined)[] = [];
+  const operatingProfitSamples: (number | null | undefined)[] = [];
+  const employeeSamples: (number | null | undefined)[] = [];
+
+  for (const year of chartYears) {
+    const yearRecords = summary.recordsByYear[String(year)] ?? [];
+    const dedupedYear = dedupeRecordsByCompany(yearRecords, summary.sector);
+    const record = dedupedYear.get(companyKey);
+    if (!record) continue;
+
+    const view = resolveStandardFinancialView(record);
+    revenueSamples.push(view.revenue);
+    operatingProfitSamples.push(view.operating_profit);
+    employeeSamples.push(record.metadata.employees);
+  }
+
+  return {
+    avgRevenue: averageSimpleRatio(revenueSamples),
+    avgOperatingProfit: averageSimpleRatio(operatingProfitSamples),
+    avgEmployees: averageSimpleRatio(employeeSamples),
+  };
+}
+
+export function buildProductivityChartData(
+  summary: CompetitorExecutiveMultiYearSummary,
+  revenueRanking: RevenueRankingChartItem[],
+): ProductivityChartItem[] {
+  if (revenueRanking.length === 0) return [];
+
+  const rankYear = summary.effectiveToYear ?? summary.toYear;
+  const chartYears = resolveRevenueRankingChartYears(summary.fromYear, summary.toYear, rankYear);
+
+  return revenueRanking.map((company) => {
+    const { avgRevenue, avgOperatingProfit, avgEmployees } = resolveProductivityAverageInputs(
+      summary,
+      company.companyKey,
+      chartYears,
+    );
+    const revenuePerEmployeeEok = toProductivityPerEmployeeEok(avgRevenue, avgEmployees);
+    const operatingProfitPerEmployeeEok = toProductivityPerEmployeeEok(
+      avgOperatingProfit,
+      avgEmployees,
+    );
+    const hasProductivityData =
+      avgEmployees != null &&
+      avgEmployees > 0 &&
+      revenuePerEmployeeEok != null &&
+      company.latestRevenue > 0;
+
+    return {
+      companyName: company.companyName,
+      companyKey: company.companyKey,
+      rank: company.rank,
+      avgEmployees: avgEmployees != null ? Math.round(avgEmployees) : null,
+      revenuePerEmployeeEok,
+      operatingProfitPerEmployeeEok,
+      hasProductivityData,
     };
   });
 }
@@ -374,10 +518,8 @@ export interface StabilityRiskChartItem {
   isHighRisk: boolean;
 }
 
-/** 총차입금 없을 때 부채총계를 레버리지 규모 대용값으로 사용 */
-export function resolveLeverageAmount(
-  financials: ReturnType<typeof resolveStandardFinancialView>,
-): number {
+/** @deprecated 재무 안정성 리스크맵 대시보드 제거 — 생산성 분석으로 대체 */
+function resolveLeverageAmount(financials: ReturnType<typeof resolveStandardFinancialView>): number {
   const totalDebt = safeNumber(financials.total_debt, NaN);
   if (Number.isFinite(totalDebt) && totalDebt > 0) return totalDebt;
 
@@ -387,6 +529,7 @@ export function resolveLeverageAmount(
   return 0;
 }
 
+/** @deprecated 재무 안정성 리스크맵 대시보드 제거 — 생산성 분석으로 대체 */
 export function buildStabilityRiskChartData(
   records: CompetitorStandardRecord[],
   sector?: string,
@@ -429,7 +572,7 @@ export function buildExecutiveFromMultiYear(summary: CompetitorExecutiveMultiYea
   revenueRankingYears: number[];
   rankYear: number;
   costStructure: CostStructureChartItem[];
-  stabilityRisk: StabilityRiskChartItem[];
+  productivity: ProductivityChartItem[];
   timeline: TimelineChartItem[];
 } {
   const rankYear = summary.effectiveToYear ?? summary.toYear;
@@ -440,7 +583,7 @@ export function buildExecutiveFromMultiYear(summary: CompetitorExecutiveMultiYea
     revenueRankingYears: resolveRevenueRankingChartYears(summary.fromYear, summary.toYear, rankYear),
     rankYear,
     costStructure: buildCostStructureChartData(summary, revenueRanking),
-    stabilityRisk: buildStabilityRiskChartData(summary.records, summary.sector),
+    productivity: buildProductivityChartData(summary, revenueRanking),
     timeline: buildTimelineChartData(summary.timeline),
   };
 }

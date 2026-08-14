@@ -388,7 +388,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [personnelAuth, setPersonnelAuth] = useState<PersonnelAuthMap>(
     initialOrg.personnelAuth ?? {},
   );
-  const [orgReady, setOrgReady] = useState(false);
+  const [orgReady] = useState(true);
   const [executiveOffice, setExecutiveOffice] = useState<ExecutiveOffice>(
     initialOrg.executiveOffice,
   );
@@ -409,8 +409,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [historyEvents, setHistoryEvents] = useState<HistoryEvent[]>([]);
   const remoteOrgUpdatedAtRef = useRef<string | null>(null);
   const lastLocalOrgSaveAtRef = useRef(0);
+  const skipRemoteOrgSaveRef = useRef(true);
 
   const applyOrgStatePayload = useCallback((saved: StoredOrgState) => {
+    skipRemoteOrgSaveRef.current = true;
     const withAuth = buildOrgStateFromStored(saved);
     setExecutiveOffice(withAuth.executiveOffice);
     setDivisions(withAuth.divisions);
@@ -457,15 +459,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
     let cancelled = false;
 
     (async () => {
-      const { state: serverState, meta } = await fetchNexusOrgState();
-      if (cancelled) return;
+      try {
+        const { state: serverState, meta } = await fetchNexusOrgState();
+        if (cancelled) return;
 
-      if (serverState) {
-        applyOrgStatePayload(serverState);
-        remoteOrgUpdatedAtRef.current = meta?.updatedAt ?? null;
+        if (serverState) {
+          applyOrgStatePayload(serverState);
+          remoteOrgUpdatedAtRef.current = meta?.updatedAt ?? null;
+        }
+      } catch {
+        // localStorage 초기값으로 즉시 표시, 서버 동기화는 백그라운드
       }
-
-      setOrgReady(true);
     })();
 
     return () => {
@@ -514,6 +518,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
     saveOrgState(payload);
     lastLocalOrgSaveAtRef.current = Date.now();
+
+    if (skipRemoteOrgSaveRef.current) {
+      skipRemoteOrgSaveRef.current = false;
+      return;
+    }
+
     void saveNexusOrgState(payload).then((meta) => {
       if (meta?.updatedAt) {
         remoteOrgUpdatedAtRef.current = meta.updatedAt;

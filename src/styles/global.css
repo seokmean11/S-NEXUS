@@ -1728,6 +1728,59 @@ body {
   overflow: visible;
 }
 
+.exec-cost-structure-plot {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  margin: 0 6px;
+  overflow: visible;
+}
+
+.exec-cost-structure-plot__headroom {
+  overflow: visible;
+}
+
+.exec-stack-columns--cost-structure {
+  flex-shrink: 0;
+}
+
+.exec-stack-columns--cost-structure .exec-stack-column {
+  height: 260px;
+  justify-content: flex-end;
+}
+
+.exec-stack-columns--cost-structure .exec-stack-column__plot {
+  height: 260px;
+}
+
+.exec-chart-y-axis-wrap--cost-structure {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+}
+
+.competitor-executive-chart-card--cost-structure .exec-chart-frame--cost-structure {
+  overflow: visible;
+}
+
+.competitor-executive-chart-card--cost-structure .exec-chart-panel {
+  overflow-x: auto;
+  overflow-y: visible;
+  -webkit-overflow-scrolling: touch;
+}
+
+.competitor-executive-chart-card--cost-structure .exec-chart-scroll.exec-chart-scroll--stack {
+  overflow: visible;
+  padding-bottom: 6px;
+}
+
+.competitor-executive-chart-card--cost-structure .exec-chart-sheet,
+.competitor-executive-chart-card--cost-structure .exec-stack-columns--cost-structure,
+.competitor-executive-chart-card--cost-structure .exec-stack-column,
+.competitor-executive-chart-card--cost-structure .exec-stack-column__plot {
+  overflow: visible;
+}
+
 .exec-chart-scroll--stack {
   overflow-y: visible;
 }
@@ -1970,6 +2023,107 @@ body {
   background: linear-gradient(180deg, #3b82f6 0%, #1d4ed8 100%);
 }
 
+.exec-chart-frame--market-size .exec-chart-panel {
+  min-width: 0;
+}
+
+.exec-line-chart {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+}
+
+.exec-line-chart__plot {
+  position: relative;
+  overflow: visible;
+}
+
+.exec-line-chart__grid {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: rgba(148, 163, 184, 0.35);
+  pointer-events: none;
+}
+
+.exec-line-chart__svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.exec-line-chart__area {
+  fill: rgba(59, 130, 246, 0.12);
+}
+
+.exec-line-chart__line {
+  stroke: #2563eb;
+  stroke-width: 2.5;
+  vector-effect: non-scaling-stroke;
+}
+
+.exec-line-chart__point {
+  position: absolute;
+  z-index: 2;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
+
+.exec-line-chart__value {
+  position: absolute;
+  left: 0;
+  bottom: 8px;
+  transform: translate(-50%, -100%);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.2;
+  color: #1e3a8a;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.exec-line-chart__dot {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 10px;
+  height: 10px;
+  border: 2px solid #ffffff;
+  border-radius: 999px;
+  background: #2563eb;
+  box-shadow: 0 0 0 1px rgba(37, 99, 235, 0.35);
+  transform: translate(-50%, -50%);
+}
+
+.exec-line-chart__x-row {
+  display: grid;
+  gap: 2px;
+  height: 28px;
+  align-items: start;
+  padding-top: 6px;
+  border-top: 1px solid rgba(148, 163, 184, 0.35);
+}
+
+.exec-line-chart__x {
+  font-size: 11px;
+  line-height: 1.2;
+  color: var(--color-text-muted);
+  text-align: center;
+  white-space: nowrap;
+}
+
+.exec-chart-y-axis--market-size {
+  min-width: 52px;
+}
+
+.competitor-executive-chart-card--market-size .exec-chart-frame {
+  margin-top: 4px;
+}
+
 .exec-chart-column__bar--revenue {
   width: 56%;
   max-width: 42px;
@@ -2067,6 +2221,30 @@ body {
 
 .exec-chart-column__bar--leverage {
   background: linear-gradient(180deg, #38bdf8 0%, #0ea5e9 100%);
+}
+
+.exec-chart-column__bar--productivity-revenue {
+  background: linear-gradient(180deg, #3b82f6 0%, #2563eb 100%);
+}
+
+.exec-chart-column__bar--productivity-op {
+  background: linear-gradient(180deg, #ff9f43 0%, #ff7a00 100%);
+}
+
+.exec-chart-column__bar--productivity-op-negative {
+  opacity: 0.35;
+}
+
+.exec-chart-bar-cell--muted .exec-chart-column__x {
+  color: var(--color-text-muted);
+}
+
+.competitor-executive-chart__swatch--productivity-revenue {
+  background: #2563eb;
+}
+
+.competitor-executive-chart__swatch--productivity-op {
+  background: #ff7a00;
 }
 
 .exec-chart-column__bar--danger {
@@ -2173,18 +2351,55 @@ body {
 
 .exec-stack-segment__label-external {
   position: absolute;
-  left: 50%;
-  transform: translate(-50%, calc(-100% - 3px));
-  font-size: 10px;
+  font-size: 9px;
   font-weight: 700;
   white-space: nowrap;
   z-index: 2;
-  line-height: 1;
+  line-height: 1.15;
   pointer-events: none;
+  letter-spacing: -0.02em;
+  text-shadow:
+    0 0 2px #fff,
+    0 0 4px #fff,
+    0 1px 0 rgba(255, 255, 255, 0.85);
+}
+
+/* 판관·매출원가 — 구간 높이 부족 시 해당 색상 막대 우측, 구간 세로 중앙 */
+.exec-stack-segment--has-side-label {
+  position: relative;
+  overflow: visible;
+  z-index: 1;
+}
+
+.exec-stack-column__bar--side-labels {
+  overflow: visible;
+}
+
+.exec-stack-segment__label-external--side-in-segment {
+  top: 50%;
+  left: calc(100% + 3px);
+  bottom: auto;
+  transform: translateY(-50%);
+  text-align: left;
+}
+
+/* 영업이익 — 구간 높이 부족 시 막대 상단 위 */
+.exec-stack-segment__label-external--above {
+  left: 50%;
+  transform: translate(-50%, calc(-100% - 3px));
+  text-align: center;
+}
+
+.exec-stack-segment__label-external--cogs {
+  color: #475569;
+}
+
+.exec-stack-segment__label-external--sga {
+  color: #6d28d9;
 }
 
 .exec-stack-segment__label-external--margin {
-  color: #ff7a00;
+  color: #ea580c;
 }
 
 .exec-stack-segment__label-external--margin-negative {
@@ -3603,6 +3818,11 @@ body {
   gap: 16px;
 }
 
+.card__header > div:first-child {
+  flex: 1;
+  min-width: 0;
+}
+
 .card__title {
   font-size: 17px;
   font-weight: 700;
@@ -3612,6 +3832,25 @@ body {
   font-size: 13px;
   color: var(--color-text-muted);
   margin-top: 2px;
+}
+
+.card__subtitle-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 2px;
+}
+
+.card__subtitle-row .card__subtitle {
+  margin-top: 0;
+}
+
+.card__subtitle-aside {
+  font-size: 12px;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .card__body {

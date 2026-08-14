@@ -98,22 +98,36 @@ export function getServerOrgMeta(projectRoot: string): ServerOrgMeta {
 }
 
 export async function syncAndReadServerOrgState(projectRoot: string): Promise<StoredOrgState | null> {
+  const driveCachePath = getDriveCacheOrgFilePath(projectRoot);
+  const driveState = driveCachePath ? readJsonFile<StoredOrgState>(driveCachePath) : null;
+  const localState = readServerOrgState(projectRoot);
+  const existing = driveState ?? localState;
+
   const config = getNexusDriveConfig(projectRoot);
   if (config.enabled) {
+    const syncPromise = syncNexusDriveCache(projectRoot, { subfolderKey: 'organization' }).catch(
+      () => undefined,
+    );
+    if (existing) {
+      void syncPromise;
+      return existing;
+    }
     try {
-      await syncNexusDriveCache(projectRoot, { subfolderKey: 'organization' });
+      await Promise.race([
+        syncPromise,
+        new Promise<void>((resolve) => {
+          setTimeout(resolve, 12_000);
+        }),
+      ]);
     } catch {
       // Drive sync 실패 시 로컬 폴백
     }
-
-    const driveCachePath = getDriveCacheOrgFilePath(projectRoot);
-    const driveState = driveCachePath ? readJsonFile<StoredOrgState>(driveCachePath) : null;
-    if (driveState) {
-      return driveState;
-    }
+    const refreshedPath = getDriveCacheOrgFilePath(projectRoot);
+    const refreshed = refreshedPath ? readJsonFile<StoredOrgState>(refreshedPath) : null;
+    return refreshed ?? localState;
   }
 
-  return readServerOrgState(projectRoot);
+  return localState;
 }
 
 export async function writeServerOrgStateWithDriveSync(
@@ -134,13 +148,11 @@ export async function writeServerOrgStateWithDriveSync(
     }
 
     if (isNexusDriveUploadConfigured(projectRoot)) {
-      try {
-        await uploadOrUpdateNexusDriveFile(projectRoot, ORG_STATE_FILENAME, buffer, 'application/json', {
-          subfolderKey: 'organization',
-        });
-      } catch {
+      void uploadOrUpdateNexusDriveFile(projectRoot, ORG_STATE_FILENAME, buffer, 'application/json', {
+        subfolderKey: 'organization',
+      }).catch(() => {
         // 로컬·캐시 저장은 유지. Drive 업로드 실패는 meta로만 표시.
-      }
+      });
     }
   }
 

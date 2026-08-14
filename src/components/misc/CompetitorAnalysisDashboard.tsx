@@ -38,6 +38,9 @@ import {
   saveAnalysisSelection,
   loadUploadSelection,
   saveUploadSelection,
+  loadCachedPeriodAnalysis,
+  saveCachedPeriodAnalysis,
+  type CompetitorPeriodAnalysisCache,
 } from '@/utils/competitorAnalysisStorage';
 
 interface UploadResultItem {
@@ -127,9 +130,54 @@ function formatAnalysisPeriodLabel(fromYear: number, toYear: number): string {
   return from === to ? `${to}년` : `${from}–${to}년`;
 }
 
+function normalizeAnalysisPeriod(fromYear: number, toYear: number): { fromYear: number; toYear: number } {
+  return {
+    fromYear: Math.min(fromYear, toYear),
+    toYear: Math.max(fromYear, toYear),
+  };
+}
+
+function createEmptyAnalysisResults() {
+  return {
+    analysis: null as CompetitorAnalysisSummary | null,
+    executiveSummary: null as CompetitorExecutiveMultiYearSummary | null,
+    analysisWarnings: [] as CompetitorAnalysisPeriodWarning[],
+    analysisSummaryYear: null as number | null,
+    analysisHasResult: false,
+  };
+}
+
+function analysisResultsFromPeriodCache(cache: CompetitorPeriodAnalysisCache) {
+  return {
+    analysis: cache.analysis,
+    executiveSummary: cache.executive,
+    analysisWarnings: cache.warnings ?? [],
+    analysisSummaryYear: cache.summaryYear,
+    analysisHasResult: Boolean(cache.executive || cache.analysis),
+  };
+}
+
+function loadInitialAnalysisResults(
+  sector: CompetitorSector | null,
+  fromYear: number,
+  toYear: number,
+) {
+  if (!sector) return createEmptyAnalysisResults();
+  const cached = loadCachedPeriodAnalysis(sector, fromYear, toYear);
+  if (!cached) return createEmptyAnalysisResults();
+  return analysisResultsFromPeriodCache(cached);
+}
+
 export function CompetitorAnalysisDashboard() {
   const uploadInitial = loadUploadSelection();
   const analysisInitial = loadAnalysisSelection();
+  const initialAnalysisFromYear = analysisInitial.fromYear ?? EXECUTIVE_YEAR_MIN;
+  const initialAnalysisToYear = analysisInitial.toYear ?? EXECUTIVE_YEAR_MAX;
+  const initialAnalysisResults = loadInitialAnalysisResults(
+    analysisInitial.sector,
+    initialAnalysisFromYear,
+    initialAnalysisToYear,
+  );
 
   const [uploadSector, setUploadSector] = useState<CompetitorSector | null>(uploadInitial.sector);
   const [uploadYear, setUploadYear] = useState<number | null>(uploadInitial.year);
@@ -138,15 +186,19 @@ export function CompetitorAnalysisDashboard() {
   );
 
   const [analysisSector, setAnalysisSector] = useState<CompetitorSector | null>(analysisInitial.sector);
-  const [analysisFromYear, setAnalysisFromYear] = useState(
-    analysisInitial.fromYear ?? EXECUTIVE_YEAR_MIN,
+  const [analysisFromYear, setAnalysisFromYear] = useState(initialAnalysisFromYear);
+  const [analysisToYear, setAnalysisToYear] = useState(initialAnalysisToYear);
+  const [analysis, setAnalysis] = useState<CompetitorAnalysisSummary | null>(initialAnalysisResults.analysis);
+  const [executiveSummary, setExecutiveSummary] = useState<CompetitorExecutiveMultiYearSummary | null>(
+    initialAnalysisResults.executiveSummary,
   );
-  const [analysisToYear, setAnalysisToYear] = useState(analysisInitial.toYear ?? EXECUTIVE_YEAR_MAX);
-  const [analysis, setAnalysis] = useState<CompetitorAnalysisSummary | null>(null);
-  const [executiveSummary, setExecutiveSummary] = useState<CompetitorExecutiveMultiYearSummary | null>(null);
-  const [analysisWarnings, setAnalysisWarnings] = useState<CompetitorAnalysisPeriodWarning[]>([]);
-  const [analysisSummaryYear, setAnalysisSummaryYear] = useState<number | null>(null);
-  const [analysisHasResult, setAnalysisHasResult] = useState(false);
+  const [analysisWarnings, setAnalysisWarnings] = useState<CompetitorAnalysisPeriodWarning[]>(
+    initialAnalysisResults.analysisWarnings,
+  );
+  const [analysisSummaryYear, setAnalysisSummaryYear] = useState<number | null>(
+    initialAnalysisResults.analysisSummaryYear,
+  );
+  const [analysisHasResult, setAnalysisHasResult] = useState(initialAnalysisResults.analysisHasResult);
 
   const [driveStatus, setDriveStatus] = useState<CompetitorDriveStatus | null>(null);
   const [analysisLoading, setAnalysisLoading] = useState(false);
@@ -181,11 +233,37 @@ export function CompetitorAnalysisDashboard() {
   };
 
   const resetAnalysisResults = () => {
-    setAnalysis(null);
-    setExecutiveSummary(null);
-    setAnalysisWarnings([]);
-    setAnalysisSummaryYear(null);
-    setAnalysisHasResult(false);
+    const empty = createEmptyAnalysisResults();
+    setAnalysis(empty.analysis);
+    setExecutiveSummary(empty.executiveSummary);
+    setAnalysisWarnings(empty.analysisWarnings);
+    setAnalysisSummaryYear(empty.analysisSummaryYear);
+    setAnalysisHasResult(empty.analysisHasResult);
+    setAnalysisError(null);
+  };
+
+  const restoreAnalysisResultsForSelection = (
+    sector: CompetitorSector | null,
+    fromYear: number,
+    toYear: number,
+  ) => {
+    if (!sector) {
+      resetAnalysisResults();
+      return;
+    }
+
+    const cached = loadCachedPeriodAnalysis(sector, fromYear, toYear);
+    if (!cached) {
+      resetAnalysisResults();
+      return;
+    }
+
+    const restored = analysisResultsFromPeriodCache(cached);
+    setAnalysis(restored.analysis);
+    setExecutiveSummary(restored.executiveSummary);
+    setAnalysisWarnings(restored.analysisWarnings);
+    setAnalysisSummaryYear(restored.analysisSummaryYear);
+    setAnalysisHasResult(restored.analysisHasResult);
     setAnalysisError(null);
   };
 
@@ -216,6 +294,13 @@ export function CompetitorAnalysisDashboard() {
       setAnalysisWarnings(result.warnings);
       setAnalysisSummaryYear(result.summaryYear);
       setAnalysisHasResult(true);
+
+      saveCachedPeriodAnalysis(analysisSector, fromYear, toYear, {
+        summaryYear: result.summaryYear,
+        warnings: result.warnings,
+        analysis: result.analysis,
+        executive: result.executive,
+      });
 
       saveAnalysisSelection({
         sector: analysisSector,
@@ -261,7 +346,7 @@ export function CompetitorAnalysisDashboard() {
   const handleAnalysisSectorSelect = (nextSector: CompetitorSector) => {
     if (nextSector === analysisSector) return;
     setAnalysisSector(nextSector);
-    resetAnalysisResults();
+    restoreAnalysisResultsForSelection(nextSector, analysisFromYear, analysisToYear);
     saveAnalysisSelection({
       sector: nextSector,
       fromYear: analysisFromYear,
@@ -270,11 +355,10 @@ export function CompetitorAnalysisDashboard() {
   };
 
   const handleAnalysisPeriodChange = (from: number, to: number) => {
-    const nextFrom = Math.min(from, to);
-    const nextTo = Math.max(from, to);
+    const { fromYear: nextFrom, toYear: nextTo } = normalizeAnalysisPeriod(from, to);
     setAnalysisFromYear(nextFrom);
     setAnalysisToYear(nextTo);
-    resetAnalysisResults();
+    restoreAnalysisResultsForSelection(analysisSector, nextFrom, nextTo);
     if (analysisSector) {
       saveAnalysisSelection({
         sector: analysisSector,

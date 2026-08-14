@@ -28,7 +28,10 @@ export async function fetchNexusOrgState(): Promise<{
   meta: NexusOrgMeta | null;
 }> {
   try {
-    const response = await fetch('/api/nexus-org/state');
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 15_000);
+    const response = await fetch('/api/nexus-org/state', { signal: controller.signal });
+    window.clearTimeout(timeout);
     if (!response.ok) return { state: null, meta: null };
     const payload = (await response.json()) as {
       state?: StoredOrgState | null;

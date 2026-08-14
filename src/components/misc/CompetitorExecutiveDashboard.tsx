@@ -10,9 +10,9 @@ import { getClaudeModelName } from '@/services/claudeAnalysis';
 import {
   buildExecutiveFromMultiYear,
   COST_STRUCTURE_CHART_COLORS,
-  EXECUTIVE_DEBT_RATIO_WARNING,
+  formatCostStructureAveragePeriodLabel,
   formatPercentLabel,
-  safePercent,
+  formatProductivityPerEmployeeEok,
 } from '@/utils/competitorExecutiveDashboard';
 import {
   buildExecutiveInsightsBySection,
@@ -29,7 +29,17 @@ import {
 } from '@/utils/competitorExecutiveClaudeInsightCache';
 import { getClaudeApiKey, hasClaudeApiKey } from '@/utils/claudeApiKey';
 import { recordClaudeUsage } from '@/utils/claudeUsage';
-import { formatExecutiveKRW, formatExecutiveKRWCompact } from '@/utils/formatKRW';
+import { formatExecutiveKRW, formatExecutiveKRWCompact, formatExecutiveKRWRankingLabel } from '@/utils/formatKRW';
+import {
+  buildMarketSizeChartScale,
+  formatMarketSizeTrillion,
+  formatMarketSizeTrillionAxis,
+  MARKET_SIZE_TREND_DISPLAY,
+  MARKET_SIZE_TREND_FROM_YEAR,
+  MARKET_SIZE_TREND_SOURCE,
+  MARKET_SIZE_TREND_TO_YEAR,
+  type MarketSizeTrendPoint,
+} from '@/utils/marketSizeTrend';
 
 interface CompetitorExecutiveDashboardProps {
   summary: CompetitorExecutiveMultiYearSummary | null;
@@ -43,9 +53,15 @@ interface CompetitorExecutiveDashboardProps {
 
 const CHART_COLUMN_MIN_WIDTH = 88;
 const CHART_PLOT_HEIGHT = 260;
+const COST_STRUCTURE_LABEL_HEADROOM = 30;
 const CHART_META_HEIGHT = 52;
 const RANKING_LABEL_RESERVE = 26;
 const RANKING_BAR_AREA_RATIO = (CHART_PLOT_HEIGHT - RANKING_LABEL_RESERVE) / CHART_PLOT_HEIGHT;
+const MARKET_SIZE_X_AXIS_HEIGHT = 28;
+const MARKET_SIZE_VALUE_LABEL_HEIGHT = 34;
+const MARKET_SIZE_PLOT_AREA_HEIGHT = CHART_PLOT_HEIGHT - MARKET_SIZE_X_AXIS_HEIGHT;
+const MARKET_SIZE_LINE_AREA_HEIGHT =
+  MARKET_SIZE_PLOT_AREA_HEIGHT - MARKET_SIZE_VALUE_LABEL_HEIGHT;
 
 function toRankingBarHeightPct(revenue: number, scaleMax: number): number {
   if (scaleMax <= 0 || revenue <= 0) return 0;
@@ -60,10 +76,12 @@ function ChartYAxis({
   ticks,
   unit,
   reverse = true,
+  formatTick,
 }: {
   ticks: number[];
   unit: string;
   reverse?: boolean;
+  formatTick?: (value: number) => string;
 }) {
   const ordered = reverse ? [...ticks].reverse() : ticks;
   return (
@@ -71,9 +89,117 @@ function ChartYAxis({
       <span className="exec-chart-y-axis__unit">{unit}</span>
       {ordered.map((tick) => (
         <span key={tick} className="exec-chart-y-axis__tick">
-          {formatExecutiveKRWCompact(tick)}
+          {formatTick ? formatTick(tick) : formatExecutiveKRWCompact(tick)}
         </span>
       ))}
+    </div>
+  );
+}
+
+function MarketSizeYAxis({ ticks }: { ticks: number[] }) {
+  const ordered = [...ticks].reverse();
+  return (
+    <div className="exec-chart-y-axis exec-chart-y-axis--market-size" style={{ height: CHART_PLOT_HEIGHT }}>
+      <span className="exec-chart-y-axis__unit">시장규모</span>
+      {ordered.map((tick) => (
+        <span key={tick} className="exec-chart-y-axis__tick">
+          {formatMarketSizeTrillionAxis(tick)}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function marketSizeValueToPlotY(value: number, scaleMax: number): number {
+  if (scaleMax <= 0) return MARKET_SIZE_VALUE_LABEL_HEIGHT + MARKET_SIZE_LINE_AREA_HEIGHT;
+  const ratio = value / scaleMax;
+  return MARKET_SIZE_VALUE_LABEL_HEIGHT + (1 - ratio) * MARKET_SIZE_LINE_AREA_HEIGHT;
+}
+
+function marketSizeIndexToPlotX(index: number, count: number): number {
+  if (count <= 0) return 50;
+  return ((index + 0.5) / count) * 100;
+}
+
+function MarketSizeLineChart({
+  points,
+  scaleMax,
+  ticks,
+}: {
+  points: MarketSizeTrendPoint[];
+  scaleMax: number;
+  ticks: number[];
+}) {
+  const linePoints = points
+    .map((point, index) => {
+      const x = marketSizeIndexToPlotX(index, points.length);
+      const y = marketSizeValueToPlotY(point.sizeTrillion, scaleMax);
+      return `${x},${y}`;
+    })
+    .join(' ');
+
+  const areaPoints = (() => {
+    const bottomY = MARKET_SIZE_VALUE_LABEL_HEIGHT + MARKET_SIZE_LINE_AREA_HEIGHT;
+    const firstX = marketSizeIndexToPlotX(0, points.length);
+    const lastX = marketSizeIndexToPlotX(points.length - 1, points.length);
+    return [
+      `${firstX},${bottomY}`,
+      ...points.map((point, index) => {
+        const x = marketSizeIndexToPlotX(index, points.length);
+        const y = marketSizeValueToPlotY(point.sizeTrillion, scaleMax);
+        return `${x},${y}`;
+      }),
+      `${lastX},${bottomY}`,
+    ].join(' ');
+  })();
+
+  return (
+    <div className="exec-line-chart" style={{ height: CHART_PLOT_HEIGHT }}>
+      <div className="exec-line-chart__plot" style={{ height: MARKET_SIZE_PLOT_AREA_HEIGHT }}>
+        {ticks.map((tick) => (
+          <div
+            key={`market-grid-${tick}`}
+            className="exec-line-chart__grid"
+            style={{
+              top: `${marketSizeValueToPlotY(tick, scaleMax)}px`,
+            }}
+          />
+        ))}
+        <svg
+          className="exec-line-chart__svg"
+          viewBox={`0 0 100 ${MARKET_SIZE_PLOT_AREA_HEIGHT}`}
+          preserveAspectRatio="none"
+          aria-hidden
+        >
+          <polygon className="exec-line-chart__area" points={areaPoints} />
+          <polyline className="exec-line-chart__line" points={linePoints} fill="none" />
+        </svg>
+        {points.map((point, index) => {
+          const leftPct = marketSizeIndexToPlotX(index, points.length);
+          const topPx = marketSizeValueToPlotY(point.sizeTrillion, scaleMax);
+          return (
+            <div
+              key={point.year}
+              className="exec-line-chart__point"
+              style={{ left: `${leftPct}%`, top: `${topPx}px` }}
+              title={`${point.year}년 · ${formatMarketSizeTrillion(point.sizeTrillion)}`}
+            >
+              <span className="exec-line-chart__value">{formatMarketSizeTrillion(point.sizeTrillion)}</span>
+              <span className="exec-line-chart__dot" />
+            </div>
+          );
+        })}
+      </div>
+      <div
+        className="exec-line-chart__x-row"
+        style={{ gridTemplateColumns: `repeat(${points.length}, minmax(0, 1fr))` }}
+      >
+        {points.map((point) => (
+          <span key={point.year} className="exec-line-chart__x">
+            {point.year}년
+          </span>
+        ))}
+      </div>
     </div>
   );
 }
@@ -131,35 +257,114 @@ function formatSourcePercent(value: number | null | undefined): string {
   return `${value.toFixed(1)}%`;
 }
 
-function SegmentLabel({ value }: { value: number }) {
-  if (value < 5) return null;
-  return <span className="exec-stack-segment__label">{formatPercentLabel(value)}</span>;
+const SEGMENT_LABEL_INSIDE_MIN = 5;
+
+function CostStructureInsideLabel({
+  chartRatio,
+  sourceRatio,
+}: {
+  chartRatio: number;
+  sourceRatio: number | null | undefined;
+}) {
+  if (chartRatio < SEGMENT_LABEL_INSIDE_MIN) return null;
+  const text = formatSegmentLabel(chartRatio, sourceRatio);
+  if (text === '-') return null;
+  return <span className="exec-stack-segment__label">{text}</span>;
 }
 
-const MARGIN_LABEL_INSIDE_MIN = 5;
-
-function resolveMarginDisplayRatio(
+function resolveSegmentDisplayRatio(
   chartRatio: number,
-  sourceRatio: number | null,
+  sourceRatio: number | null | undefined,
 ): number | null {
-  if (sourceRatio != null && Number.isFinite(sourceRatio) && sourceRatio !== 0) {
-    return sourceRatio;
-  }
+  if (sourceRatio != null && Number.isFinite(sourceRatio)) return sourceRatio;
   if (chartRatio > 0 && Number.isFinite(chartRatio)) return chartRatio;
   return null;
 }
 
-function shouldShowExternalMarginLabel(chartRatio: number, sourceRatio: number | null): boolean {
-  const displayRatio = resolveMarginDisplayRatio(chartRatio, sourceRatio);
-  if (displayRatio == null) return false;
-  return chartRatio < MARGIN_LABEL_INSIDE_MIN;
+function formatSegmentLabel(chartRatio: number, sourceRatio: number | null | undefined): string {
+  const displayRatio = resolveSegmentDisplayRatio(chartRatio, sourceRatio);
+  if (displayRatio == null) return '-';
+  return formatPercentLabel(displayRatio);
 }
 
-function formatMarginLabel(chartRatio: number, sourceRatio: number | null): string {
-  if (chartRatio > 0) return formatPercentLabel(chartRatio);
-  const fallback = resolveMarginDisplayRatio(chartRatio, sourceRatio);
-  if (fallback == null) return '-';
-  return formatPercentLabel(fallback);
+function CostStructureSideLabel({
+  chartRatio,
+  sourceRatio,
+  tone,
+}: {
+  chartRatio: number;
+  sourceRatio: number | null | undefined;
+  tone: 'cogs' | 'sga';
+}) {
+  if (!shouldShowCostStructureExternalLabel(chartRatio, sourceRatio)) return null;
+  const text = formatSegmentLabel(chartRatio, sourceRatio);
+  if (text === '-') return null;
+  return (
+    <span
+      className={`exec-stack-segment__label-external exec-stack-segment__label-external--${tone} exec-stack-segment__label-external--side-in-segment`}
+    >
+      {text}
+    </span>
+  );
+}
+
+function hasCostStructureSideLabel(
+  chartRatio: number,
+  sourceRatio: number | null | undefined,
+): boolean {
+  return shouldShowCostStructureExternalLabel(chartRatio, sourceRatio);
+}
+
+function shouldShowCostStructureExternalLabel(
+  chartRatio: number,
+  sourceRatio: number | null | undefined,
+): boolean {
+  if (resolveSegmentDisplayRatio(chartRatio, sourceRatio) == null) return false;
+  return chartRatio < SEGMENT_LABEL_INSIDE_MIN;
+}
+
+function resolveMarginExternalLabelPosition(item: {
+  cogsRatio: number;
+  sgaRatio: number;
+  operatingMargin: number;
+  sourceOperatingMargin: number | null;
+}): {
+  bottomPct: number;
+  chartRatio: number;
+  sourceRatio: number | null;
+  tone: 'margin' | 'margin-negative';
+} | null {
+  if (!shouldShowCostStructureExternalLabel(item.operatingMargin, item.sourceOperatingMargin)) {
+    return null;
+  }
+  return {
+    bottomPct: item.cogsRatio + item.sgaRatio + item.operatingMargin,
+    chartRatio: item.operatingMargin,
+    sourceRatio: item.sourceOperatingMargin,
+    tone: (item.sourceOperatingMargin ?? 0) < 0 ? 'margin-negative' : 'margin',
+  };
+}
+
+function renderCostStructureMarginExternalLabel(
+  companyKey: string,
+  item: {
+    cogsRatio: number;
+    sgaRatio: number;
+    operatingMargin: number;
+    sourceOperatingMargin: number | null;
+  },
+) {
+  const label = resolveMarginExternalLabelPosition(item);
+  if (!label) return null;
+  return (
+    <span
+      key={`${companyKey}-margin`}
+      className={`exec-stack-segment__label-external exec-stack-segment__label-external--${label.tone} exec-stack-segment__label-external--above`}
+      style={{ bottom: `${label.bottomPct}%` }}
+    >
+      {formatSegmentLabel(label.chartRatio, label.sourceRatio)}
+    </span>
+  );
 }
 
 function ExecutiveInsightList({
@@ -358,7 +563,11 @@ export function CompetitorExecutiveDashboard({
         timeline: result.insights.timeline as ExecutiveInsightItem[],
         revenueRanking: result.insights.revenueRanking as ExecutiveInsightItem[],
         costStructure: result.insights.costStructure as ExecutiveInsightItem[],
-        stabilityRisk: result.insights.stabilityRisk as ExecutiveInsightItem[],
+        productivity:
+          ((result.insights as { productivity?: ExecutiveInsightItem[]; stabilityRisk?: ExecutiveInsightItem[] })
+            .productivity ??
+            (result.insights as { stabilityRisk?: ExecutiveInsightItem[] }).stabilityRisk ??
+            []) as ExecutiveInsightItem[],
       };
 
       setClaudeInsights(normalized);
@@ -384,22 +593,18 @@ export function CompetitorExecutiveDashboard({
     return buildLinearChartScale(maxRevenue);
   }, [dashboard]);
 
-  const timelineScale = useMemo(() => {
-    if (!dashboard?.timeline.length) return buildLinearChartScale(0);
-    const maxTotal = Math.max(...dashboard.timeline.map((item) => item.totalRevenue ?? 0));
-    return buildLinearChartScale(maxTotal);
-  }, [dashboard]);
+  const marketSizeScale = useMemo(() => buildMarketSizeChartScale(), []);
 
-  const debtAmountScale = useMemo(() => {
-    if (!dashboard?.stabilityRisk.length) return buildLinearChartScale(0);
-    const maxAmount = Math.max(...dashboard.stabilityRisk.map((item) => item.leverageAmount));
-    return buildLinearChartScale(maxAmount);
-  }, [dashboard]);
-
-  const debtRatioScaleMax = useMemo(() => {
-    if (!dashboard?.stabilityRisk.length) return EXECUTIVE_DEBT_RATIO_WARNING;
-    const maxRatio = Math.max(...dashboard.stabilityRisk.map((item) => item.debtRatio));
-    return Math.max(EXECUTIVE_DEBT_RATIO_WARNING, Math.ceil(maxRatio / 50) * 50);
+  const productivityScale = useMemo(() => {
+    if (!dashboard?.productivity.length) return buildLinearChartScale(0);
+    const maxValue = Math.max(
+      ...dashboard.productivity.flatMap((item) => [
+        item.revenuePerEmployeeEok ?? 0,
+        Math.max(0, item.operatingProfitPerEmployeeEok ?? 0),
+      ]),
+      0,
+    );
+    return buildLinearChartScale(maxValue);
   }, [dashboard]);
 
   if (loading) {
@@ -430,10 +635,8 @@ export function CompetitorExecutiveDashboard({
     );
   }
 
-  const periodFromYear = summary.fromYear;
-  const periodToYear = summary.toYear;
-  const { revenueRanking, revenueRankingYears, rankYear, costStructure, stabilityRisk, timeline } =
-    dashboard;
+  const { revenueRanking, revenueRankingYears, rankYear, costStructure, productivity } = dashboard;
+  const productivityChartItems = productivity.filter((item) => item.hasProductivityData);
 
   return (
     <div className="competitor-executive">
@@ -471,51 +674,23 @@ export function CompetitorExecutiveDashboard({
       </div>
 
       <Card
-        title="다년도 매출 추이"
-        subtitle={`${periodFromYear}–${periodToYear}년 · 업종 합산 매출액`}
-        className="competitor-executive-chart-card"
+        title="시장규모 추이"
+        subtitle={`${MARKET_SIZE_TREND_FROM_YEAR}–${MARKET_SIZE_TREND_TO_YEAR}년 · 인테리어 업종 시장규모`}
+        subtitleAside={MARKET_SIZE_TREND_SOURCE}
+        className="competitor-executive-chart-card competitor-executive-chart-card--market-size"
       >
-        {timeline.every((point) => (point.totalRevenue ?? 0) === 0) ? (
-          <p className="competitor-executive__empty">선택 기간에 매출 시계열 데이터가 없습니다.</p>
-        ) : (
-          <div className="exec-chart-frame">
-            <div className="exec-chart-y-axis-wrap">
-              <div className="exec-chart-y-axis-spacer" style={{ height: CHART_META_HEIGHT }} />
-              <ChartYAxis ticks={timelineScale.ticks} unit="합산 매출" />
-            </div>
-            <div className="exec-chart-panel">
-              <ColumnChart
-                items={timeline}
-                scaleMax={timelineScale.scaleMax}
-                ticks={timelineScale.ticks}
-                getKey={(point) => String(point.year)}
-                getTitle={(point) =>
-                  `${point.year}년 · ${formatExecutiveKRW(point.totalRevenue ?? 0)} · ${point.companyCount}개사 · 평균 영업이익률 ${safePercent(point.avgOperatingMargin)}`
-                }
-                renderMeta={(point) => (
-                  <>
-                    <span className="exec-chart-column__amount">{formatExecutiveKRW(point.totalRevenue ?? 0)}</span>
-                    <span className="exec-chart-column__sub">
-                      {point.companyCount}개사 · {safePercent(point.avgOperatingMargin)}
-                    </span>
-                  </>
-                )}
-                renderBar={(point) => {
-                  const amount = point.totalRevenue ?? 0;
-                  const heightPct =
-                    timelineScale.scaleMax > 0 ? (amount / timelineScale.scaleMax) * 100 : 0;
-                  return (
-                    <div
-                      className="exec-chart-column__bar exec-chart-column__bar--timeline"
-                      style={{ height: `${Math.max(heightPct, amount > 0 ? 4 : 0)}%` }}
-                    />
-                  );
-                }}
-                renderX={(point) => `${point.year}년`}
-              />
-            </div>
+        <div className="exec-chart-frame exec-chart-frame--market-size">
+          <div className="exec-chart-y-axis-wrap">
+            <MarketSizeYAxis ticks={marketSizeScale.ticks} />
           </div>
-        )}
+          <div className="exec-chart-panel">
+            <MarketSizeLineChart
+              points={MARKET_SIZE_TREND_DISPLAY}
+              scaleMax={marketSizeScale.scaleMax}
+              ticks={marketSizeScale.ticks}
+            />
+          </div>
+        </div>
         <ExecutiveInsightList
           items={displayInsights?.timeline ?? []}
           source={insightSource}
@@ -587,7 +762,7 @@ export function CompetitorExecutiveDashboard({
                                 className="exec-grouped-column__amount"
                                 style={{ bottom: `${peakHeightPct}%` }}
                               >
-                                {formatExecutiveKRW(item.latestRevenue)}
+                                {formatExecutiveKRWRankingLabel(item.latestRevenue)}
                               </span>
                               {item.revenuesByYear.map((point, yearIndex) => {
                                 const heightPct = barHeightPcts[yearIndex] ?? 0;
@@ -630,7 +805,7 @@ export function CompetitorExecutiveDashboard({
 
       <Card
         title="원가 구조 분석"
-        subtitle={`${rankYear}년 · 매출액 순위와 동일 순서 · 매출원가율 + 판관비율 + 영업이익률 = 100%`}
+        subtitle={`${rankYear}년 매출 순위 동일 · ${formatCostStructureAveragePeriodLabel(revenueRankingYears)} · 매출원가율 + 판관비율 + 영업이익률 = 100%`}
         className="competitor-executive-chart-card competitor-executive-chart-card--cost-structure"
       >
         {costStructure.length === 0 ? (
@@ -661,74 +836,92 @@ export function CompetitorExecutiveDashboard({
           </span>
         </div>
 
-        <div className="exec-chart-frame">
-          <div className="exec-chart-y-axis-wrap">
+        <div className="exec-chart-frame exec-chart-frame--cost-structure">
+          <div
+            className="exec-chart-y-axis-wrap exec-chart-y-axis-wrap--cost-structure"
+            style={{ height: CHART_PLOT_HEIGHT + COST_STRUCTURE_LABEL_HEADROOM }}
+          >
             <ChartPercentAxis max={100} />
           </div>
           <div className="exec-chart-panel">
             <div className="exec-chart-scroll exec-chart-scroll--stack">
               <div className="exec-chart-sheet" style={{ minWidth: chartScrollWidth(costStructure.length) }}>
-                <div className="exec-stack-columns" style={{ height: CHART_PLOT_HEIGHT }}>
+                <div
+                  className="exec-cost-structure-plot"
+                  style={{ height: CHART_PLOT_HEIGHT + COST_STRUCTURE_LABEL_HEADROOM }}
+                >
+                  <div
+                    className="exec-cost-structure-plot__headroom"
+                    style={{
+                      flex: `0 0 ${COST_STRUCTURE_LABEL_HEADROOM}px`,
+                      minHeight: COST_STRUCTURE_LABEL_HEADROOM,
+                    }}
+                    aria-hidden="true"
+                  />
+                  <div className="exec-stack-columns exec-stack-columns--cost-structure" style={{ height: CHART_PLOT_HEIGHT }}>
                   {costStructure.map((item) => {
-                    const showExternalMarginLabel = shouldShowExternalMarginLabel(
-                      item.operatingMargin,
-                      item.sourceOperatingMargin,
-                    );
-                    const marginStackTop =
-                      item.cogsRatio + item.sgaRatio + Math.max(item.operatingMargin, 0.8);
+                    const isNegativeMargin = (item.sourceOperatingMargin ?? 0) < 0;
+                    const hasSideLabel =
+                      hasCostStructureSideLabel(item.cogsRatio, item.sourceCogsRatio) ||
+                      hasCostStructureSideLabel(item.sgaRatio, item.sourceSgaRatio);
 
                     return (
                     <div key={item.companyKey} className="exec-stack-column">
                       <div className="exec-stack-column__plot">
-                        {showExternalMarginLabel && (
-                          <span
-                            className={`exec-stack-segment__label-external exec-stack-segment__label-external--margin${(item.sourceOperatingMargin ?? 0) < 0 ? ' exec-stack-segment__label-external--margin-negative' : ''}`}
-                            style={{
-                              bottom: `${marginStackTop}%`,
-                              color:
-                                (item.sourceOperatingMargin ?? 0) < 0
-                                  ? '#dc2626'
-                                  : COST_STRUCTURE_CHART_COLORS.marginLegend,
-                            }}
-                          >
-                            {formatMarginLabel(item.operatingMargin, item.sourceOperatingMargin)}
-                          </span>
-                        )}
-                      <div className="exec-stack-column__bar">
+                        {renderCostStructureMarginExternalLabel(item.companyKey, item)}
+                      <div
+                        className={`exec-stack-column__bar${hasSideLabel ? ' exec-stack-column__bar--side-labels' : ''}`}
+                      >
                         <div
-                          className="exec-stack-segment exec-stack-segment--cogs"
+                          className={`exec-stack-segment exec-stack-segment--cogs${hasCostStructureSideLabel(item.cogsRatio, item.sourceCogsRatio) ? ' exec-stack-segment--has-side-label' : ''}`}
                           style={{
                             height: `${item.cogsRatio}%`,
                             backgroundColor: COST_STRUCTURE_CHART_COLORS.cogs,
                           }}
                           title={`매출원가율 ${formatSourcePercent(item.sourceCogsRatio)} (차트 ${formatPercentLabel(item.cogsRatio)})`}
                         >
-                          <SegmentLabel value={item.cogsRatio} />
+                          <CostStructureInsideLabel
+                            chartRatio={item.cogsRatio}
+                            sourceRatio={item.sourceCogsRatio}
+                          />
+                          <CostStructureSideLabel
+                            chartRatio={item.cogsRatio}
+                            sourceRatio={item.sourceCogsRatio}
+                            tone="cogs"
+                          />
                         </div>
                         <div
-                          className="exec-stack-segment exec-stack-segment--sga"
+                          className={`exec-stack-segment exec-stack-segment--sga${hasCostStructureSideLabel(item.sgaRatio, item.sourceSgaRatio) ? ' exec-stack-segment--has-side-label' : ''}`}
                           style={{
                             height: `${item.sgaRatio}%`,
                             backgroundColor: COST_STRUCTURE_CHART_COLORS.sga,
                           }}
                           title={`판관비율 ${formatSourcePercent(item.sourceSgaRatio)} (차트 ${formatPercentLabel(item.sgaRatio)})`}
                         >
-                          <SegmentLabel value={item.sgaRatio} />
+                          <CostStructureInsideLabel
+                            chartRatio={item.sgaRatio}
+                            sourceRatio={item.sourceSgaRatio}
+                          />
+                          <CostStructureSideLabel
+                            chartRatio={item.sgaRatio}
+                            sourceRatio={item.sourceSgaRatio}
+                            tone="sga"
+                          />
                         </div>
                         <div
-                          className={`exec-stack-segment exec-stack-segment--margin${(item.sourceOperatingMargin ?? 0) < 0 ? ' exec-stack-segment--margin-negative' : ''}`}
+                          className={`exec-stack-segment exec-stack-segment--margin${isNegativeMargin ? ' exec-stack-segment--margin-negative' : ''}`}
                           style={{
                             height: `${item.operatingMargin}%`,
-                            backgroundColor:
-                              (item.sourceOperatingMargin ?? 0) < 0
+                            backgroundColor: isNegativeMargin
                                 ? COST_STRUCTURE_CHART_COLORS.marginNegative
                                 : COST_STRUCTURE_CHART_COLORS.margin,
                           }}
                           title={`영업이익률 ${formatSourcePercent(item.sourceOperatingMargin)} (차트 ${formatPercentLabel(item.operatingMargin)})`}
                         >
-                          {item.operatingMargin >= MARGIN_LABEL_INSIDE_MIN && (
-                            <SegmentLabel value={item.operatingMargin} />
-                          )}
+                          <CostStructureInsideLabel
+                            chartRatio={item.operatingMargin}
+                            sourceRatio={item.sourceOperatingMargin}
+                          />
                         </div>
                         {item.otherRatio > 0.5 && (
                           <div
@@ -739,7 +932,7 @@ export function CompetitorExecutiveDashboard({
                             }}
                             title={`기타 ${formatPercentLabel(item.otherRatio)}`}
                           >
-                            <SegmentLabel value={item.otherRatio} />
+                            <CostStructureInsideLabel chartRatio={item.otherRatio} sourceRatio={item.otherRatio} />
                           </div>
                         )}
                       </div>
@@ -747,6 +940,7 @@ export function CompetitorExecutiveDashboard({
                     </div>
                     );
                   })}
+                </div>
                 </div>
 
                 <div className="exec-chart-x-row">
@@ -761,7 +955,7 @@ export function CompetitorExecutiveDashboard({
           </div>
         </div>
         <p className="competitor-executive-risk__note">
-          막대는 100% 스택 기준 · 합계 100% 미만/초과 시 기타 구간 표시
+          막대는 100% 스택 기준 · 비율은 {formatCostStructureAveragePeriodLabel(revenueRankingYears)} · 합계 100% 미만/초과 시 기타 구간 표시
         </p>
           </>
         )}
@@ -773,98 +967,116 @@ export function CompetitorExecutiveDashboard({
       </Card>
 
       <Card
-        title="재무 안정성 리스크 맵"
-        subtitle={`${summary?.baseYear}년 · 부채비율(%) + 레버리지(억원) · ${EXECUTIVE_DEBT_RATIO_WARNING}% 초과 경고`}
-        className="competitor-executive-chart-card"
+        title="생산성 분석"
+        subtitle={`${rankYear}년 매출 순위 동일 · ${formatCostStructureAveragePeriodLabel(revenueRankingYears)} · 종업원 대비 인당 매출·영업이익`}
+        className="competitor-executive-chart-card competitor-executive-chart-card--productivity"
       >
-        {stabilityRisk.length === 0 ? (
-          <p className="competitor-executive__empty">부채비율 또는 부채 규모 데이터가 있는 기업이 없습니다.</p>
+        {productivityChartItems.length === 0 ? (
+          <p className="competitor-executive__empty">
+            종업원 수와 매출이 함께 추출된 기업이 없어 생산성 분석을 표시할 수 없습니다.
+          </p>
         ) : (
           <>
             <div className="competitor-executive-chart__legend">
               <span>
-                <i className="competitor-executive-chart__swatch competitor-executive-chart__swatch--ratio" />
-                부채비율 (%)
+                <i className="competitor-executive-chart__swatch competitor-executive-chart__swatch--productivity-revenue" />
+                인당 매출 (억/인)
               </span>
               <span>
-                <i className="competitor-executive-chart__swatch competitor-executive-chart__swatch--leverage" />
-                레버리지 규모 (억원)
+                <i className="competitor-executive-chart__swatch competitor-executive-chart__swatch--productivity-op" />
+                인당 영업이익 (억/인)
               </span>
             </div>
 
             <div className="exec-chart-frame exec-chart-frame--dual">
               <div className="exec-chart-y-axis-wrap">
                 <div className="exec-chart-y-axis-spacer" style={{ height: CHART_META_HEIGHT }} />
-                <ChartYAxis ticks={debtAmountScale.ticks} unit="레버리지" />
+                <ChartYAxis
+                  ticks={productivityScale.ticks}
+                  unit="생산성"
+                  formatTick={(tick) =>
+                    tick.toLocaleString('ko-KR', { maximumFractionDigits: 1 })
+                  }
+                />
               </div>
               <div className="exec-chart-panel">
-                <div className="exec-chart-y-axis-wrap exec-chart-y-axis-wrap--overlay">
-                  <div className="exec-chart-y-axis-spacer" style={{ height: CHART_META_HEIGHT }} />
-                  <ChartPercentAxis max={debtRatioScaleMax} midLabel={`${EXECUTIVE_DEBT_RATIO_WARNING}%`} />
-                </div>
                 <ColumnChart
-                  items={stabilityRisk}
-                  scaleMax={debtAmountScale.scaleMax}
-                  ticks={debtAmountScale.ticks}
-                  getKey={(item) => item.companyName}
+                  items={productivity}
+                  scaleMax={productivityScale.scaleMax}
+                  ticks={productivityScale.ticks}
+                  getKey={(item) => item.companyKey}
                   getColumnClassName={(item) =>
-                    item.isHighRisk ? 'exec-chart-bar-cell--risk-danger' : undefined
+                    !item.hasProductivityData ? 'exec-chart-bar-cell--muted' : undefined
                   }
-                  getXClassName={(item) => (item.isHighRisk ? 'exec-chart-column__x--danger' : undefined)}
-                  getTitle={(item) => {
-                    const debtLabel =
-                      item.totalDebt > 0
-                        ? formatExecutiveKRW(item.totalDebt)
-                        : `${formatExecutiveKRW(item.leverageAmount)} (부채)`;
-                    return `${item.companyName} · 부채비율 ${safePercent(item.debtRatio)} · ${debtLabel}`;
-                  }}
+                  getTitle={(item) =>
+                    item.hasProductivityData
+                      ? `${item.rank}. ${item.companyName} · 평균 ${item.avgEmployees ?? '-'}명 · 인당 매출 ${formatProductivityPerEmployeeEok(item.revenuePerEmployeeEok)} · 인당 영업이익 ${formatProductivityPerEmployeeEok(item.operatingProfitPerEmployeeEok)}`
+                      : `${item.rank}. ${item.companyName} · 종업원/매출 데이터 부족`
+                  }
                   renderMeta={(item) => (
                     <>
+                      <span className="exec-chart-column__badge exec-chart-column__badge--ratio">
+                        {formatProductivityPerEmployeeEok(item.revenuePerEmployeeEok)}
+                      </span>
                       <span
-                        className={`exec-chart-column__badge exec-chart-column__badge--ratio ${item.isHighRisk ? 'exec-chart-column__badge--danger' : ''}`}
+                        className={`exec-chart-column__badge ${
+                          (item.operatingProfitPerEmployeeEok ?? 0) < 0
+                            ? 'exec-chart-column__badge--negative'
+                            : 'exec-chart-column__badge--positive'
+                        }`}
                       >
-                        {formatPercentLabel(item.debtRatio)}
+                        {formatProductivityPerEmployeeEok(item.operatingProfitPerEmployeeEok)}
                       </span>
-                      <span className="exec-chart-column__amount exec-chart-column__amount--sm">
-                        {item.totalDebt > 0 ? formatExecutiveKRW(item.totalDebt) : formatExecutiveKRW(item.leverageAmount)}
-                      </span>
+                      {item.avgEmployees != null && item.avgEmployees > 0 ? (
+                        <span className="exec-chart-column__sub">평균 {item.avgEmployees}명</span>
+                      ) : null}
                     </>
                   )}
                   renderBar={(item) => {
-                    const leverageHeight =
-                      debtAmountScale.scaleMax > 0
-                        ? (item.leverageAmount / debtAmountScale.scaleMax) * 100
+                    const revenueHeight =
+                      item.hasProductivityData && productivityScale.scaleMax > 0
+                        ? ((item.revenuePerEmployeeEok ?? 0) / productivityScale.scaleMax) * 100
                         : 0;
-                    const ratioHeight =
-                      debtRatioScaleMax > 0 ? (item.debtRatio / debtRatioScaleMax) * 100 : 0;
+                    const operatingHeight =
+                      item.hasProductivityData && productivityScale.scaleMax > 0
+                        ? (Math.max(0, item.operatingProfitPerEmployeeEok ?? 0) /
+                            productivityScale.scaleMax) *
+                          100
+                        : 0;
                     return (
                       <div className="exec-chart-column__body--pair">
                         <div
-                          className={`exec-chart-column__bar exec-chart-column__bar--ratio ${item.isHighRisk ? 'exec-chart-column__bar--danger' : ''}`}
-                          style={{ height: `${Math.max(ratioHeight, item.debtRatio > 0 ? 4 : 0)}%` }}
+                          className="exec-chart-column__bar exec-chart-column__bar--productivity-revenue"
+                          style={{
+                            height: `${Math.max(revenueHeight, item.revenuePerEmployeeEok ? 4 : 0)}%`,
+                          }}
                         />
                         <div
-                          className={`exec-chart-column__bar exec-chart-column__bar--leverage ${item.isHighRisk ? 'exec-chart-column__bar--danger' : ''}`}
+                          className={`exec-chart-column__bar exec-chart-column__bar--productivity-op ${
+                            (item.operatingProfitPerEmployeeEok ?? 0) < 0
+                              ? 'exec-chart-column__bar--productivity-op-negative'
+                              : ''
+                          }`}
                           style={{
-                            height: `${Math.max(leverageHeight, item.leverageAmount > 0 ? 4 : 0)}%`,
+                            height: `${Math.max(operatingHeight, item.operatingProfitPerEmployeeEok ? 4 : 0)}%`,
                           }}
                         />
                       </div>
                     );
                   }}
-                  renderX={(item) => item.companyName}
+                  renderX={(item) => `${item.rank}. ${item.companyName}`}
                 />
               </div>
             </div>
 
             <p className="competitor-executive-risk__note">
-              좌측 막대=부채비율(%) · 우측 막대=총차입금(없으면 부채총계, 억원) ·{' '}
-              {EXECUTIVE_DEBT_RATIO_WARNING}% 초과 시 빨간색
+              좌측 막대=인당 매출 · 우측 막대=인당 영업이익 ·{' '}
+              {formatCostStructureAveragePeriodLabel(revenueRankingYears)} · 종업원·매출·영업이익 단순 평균
             </p>
           </>
         )}
         <ExecutiveInsightList
-          items={displayInsights?.stabilityRisk ?? []}
+          items={displayInsights?.productivity ?? []}
           source={insightSource}
           usedFallback={insightUsedFallback}
         />

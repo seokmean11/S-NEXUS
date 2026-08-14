@@ -210,7 +210,7 @@ export function fetchCompetitorExecutiveClaudeInsights(options: {
     timeline: Array<{ severity: string; title: string; detail: string }>;
     revenueRanking: Array<{ severity: string; title: string; detail: string }>;
     costStructure: Array<{ severity: string; title: string; detail: string }>;
-    stabilityRisk: Array<{ severity: string; title: string; detail: string }>;
+    productivity: Array<{ severity: string; title: string; detail: string }>;
   };
   usage?: { input_tokens: number; output_tokens: number };
   usedFallback?: boolean;

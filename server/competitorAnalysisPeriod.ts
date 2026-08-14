@@ -9,6 +9,7 @@ import {
   getCompetitorFolderPath,
   getCompetitorSyncMeta,
   listCachedCompetitorFiles,
+  ensureCompetitorYearCacheReady,
   syncCompetitorDriveCache,
 } from './competitorDrive';
 import { buildExecutiveSummaryFromStructured, buildExecutiveMultiYearSummary } from './competitorExecutiveData';
@@ -36,18 +37,13 @@ export interface CompetitorPeriodAnalysisResult {
   folderPath: string;
 }
 
-async function syncYearFromDrive(
+async function ensureYearSyncedFromDrive(
   root: string,
   year: number,
   sector: CompetitorSector,
-  force: boolean,
+  options: { force?: boolean },
 ): Promise<void> {
-  if (!force) return;
-  try {
-    await syncCompetitorDriveCache(root, year, sector, { force: true });
-  } catch (error) {
-    console.warn(`[competitor] period sync failed for ${year}/${sector}:`, error);
-  }
+  await ensureCompetitorYearCacheReady(root, year, sector, options);
 }
 
 async function loadYearRecords(
@@ -87,14 +83,15 @@ async function buildYearRecordsMap(
   years: number[],
   options: { force: boolean; uploadConfigured: boolean },
 ): Promise<Map<number, CompetitorStandardRecord[]>> {
-  const map = new Map<number, CompetitorStandardRecord[]>();
+  const entries = await Promise.all(
+    years.map(async (year) => {
+      await ensureYearSyncedFromDrive(root, year, sector, { force: options.force });
+      const records = await loadYearRecords(root, year, sector, options);
+      return [year, records] as const;
+    }),
+  );
 
-  for (const year of years) {
-    await syncYearFromDrive(root, year, sector, options.force);
-    map.set(year, await loadYearRecords(root, year, sector, options));
-  }
-
-  return map;
+  return new Map(entries);
 }
 
 function yearHasRecords(map: Map<number, CompetitorStandardRecord[]>, year: number): boolean {

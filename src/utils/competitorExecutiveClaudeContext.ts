@@ -32,10 +32,12 @@ export interface ExecutiveInsightClaudeContext {
     sgaRatio: number | null;
     operatingMargin: number | null;
   }>;
-  stabilityRisk: Array<{
+  productivity: Array<{
+    rank: number;
     name: string;
-    debtRatio: number;
-    leverageAmount: number;
+    avgEmployees: number | null;
+    revenuePerEmployeeEok: number | null;
+    operatingProfitPerEmployeeEok: number | null;
   }>;
   dataQualityHints?: string[];
 }
@@ -51,7 +53,7 @@ export function buildExecutiveInsightClaudeContext(
     ...ruleHints.timeline,
     ...ruleHints.revenueRanking,
     ...ruleHints.costStructure,
-    ...ruleHints.stabilityRisk,
+    ...ruleHints.productivity,
   ]
     .filter((item) => item.severity !== 'info')
     .map((item) => `${item.title}: ${item.detail}`)
@@ -86,10 +88,12 @@ export function buildExecutiveInsightClaudeContext(
       sgaRatio: item.sourceSgaRatio,
       operatingMargin: item.sourceOperatingMargin,
     })),
-    stabilityRisk: dashboard.stabilityRisk.map((item) => ({
+    productivity: dashboard.productivity.map((item) => ({
+      rank: item.rank,
       name: item.companyName,
-      debtRatio: item.debtRatio,
-      leverageAmount: item.leverageAmount,
+      avgEmployees: item.avgEmployees,
+      revenuePerEmployeeEok: item.revenuePerEmployeeEok,
+      operatingProfitPerEmployeeEok: item.operatingProfitPerEmployeeEok,
     })),
     dataQualityHints,
   };

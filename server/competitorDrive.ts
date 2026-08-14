@@ -38,6 +38,11 @@ import {
 import {
   COMPETITOR_STRUCTURED_DATA_FILE,
   rebuildCompetitorStructuredData,
+  tryHydrateStructuredCacheFromDrive,
+  buildCompetitorSourceSignature,
+  competitorSourceSignaturesMatch,
+  isStructuredDataTrustworthy,
+  loadStructuredDataFromCache,
 } from './competitorStructuredData';
 import {
   drivePathSegments,
@@ -255,6 +260,95 @@ function localFileMatchesDrive(
   return true;
 }
 
+function isStructuredCacheReady(cacheDir: string): boolean {
+  const sourceSignature = buildCompetitorSourceSignature(cacheDir);
+  if (!sourceSignature) return false;
+  const cached = loadStructuredDataFromCache(cacheDir);
+  if (!cached) return false;
+  return (
+    competitorSourceSignaturesMatch(sourceSignature, cached.sourceSignature) &&
+    isStructuredDataTrustworthy(cached)
+  );
+}
+
+async function tryHydrateStructuredFromDriveForYear(
+  projectRoot: string,
+  year: number,
+  sector: CompetitorSector,
+  cacheDir: string,
+): Promise<boolean> {
+  const config = getNexusDriveConfig(projectRoot);
+  if (!config.enabled || !config.folderId || !config.keyPath) return false;
+
+  try {
+    const drive = await createDriveClient(config.keyPath);
+    const folderId =
+      getCompetitorSyncMeta(projectRoot, year, sector)?.folderId ??
+      (await resolveCompetitorFolderIdWithDrive(drive, config, year, sector));
+    return await tryHydrateStructuredCacheFromDrive(drive, folderId, cacheDir);
+  } catch (error) {
+    console.warn(`[competitor] Drive structured hydrate failed for ${year}/${sector}:`, error);
+    return false;
+  }
+}
+
+async function ensureStructuredCacheForFolder(
+  projectRoot: string,
+  year: number,
+  sector: CompetitorSector,
+  cacheDir: string,
+  folderId: string,
+  drive: drive_v3.Drive,
+): Promise<void> {
+  if (isStructuredCacheReady(cacheDir)) return;
+
+  const hydrated = await tryHydrateStructuredCacheFromDrive(drive, folderId, cacheDir);
+  if (hydrated) return;
+  if (isStructuredCacheReady(cacheDir)) return;
+
+  try {
+    await rebuildCompetitorStructuredData(projectRoot, year, sector, cacheDir, {
+      uploadToDrive: isNexusDriveUploadConfigured(projectRoot),
+      folderId,
+      forceReparse: false,
+    });
+  } catch (error) {
+    console.warn('[competitor] structured data sync rebuild failed:', error);
+  }
+}
+
+/** Drive PDF·structured 캐시가 없을 때만 동기화 (분석 로직·결과는 기존 v1.10 유지) */
+export async function ensureCompetitorYearCacheReady(
+  projectRoot: string,
+  year: number,
+  sector: CompetitorSector,
+  options?: { force?: boolean },
+): Promise<void> {
+  const config = getNexusDriveConfig(projectRoot);
+  const cacheDir = getCompetitorCacheDir(config, year, sector);
+  const hasPdfCache = listCachedCompetitorFiles(projectRoot, year, sector).length > 0;
+  const hasStructured = hasPdfCache && isStructuredCacheReady(cacheDir);
+
+  if (!options?.force && hasPdfCache && hasStructured) return;
+
+  // structured 캐시가 없거나 신뢰할 수 없을 때만 Drive JSON hydrate
+  if (hasPdfCache && !hasStructured) {
+    await tryHydrateStructuredFromDriveForYear(projectRoot, year, sector, cacheDir);
+  }
+
+  const hasStructuredAfterHydrate = hasPdfCache && isStructuredCacheReady(cacheDir);
+
+  if (!options?.force && hasPdfCache && hasStructuredAfterHydrate) return;
+
+  try {
+    await syncCompetitorDriveCache(projectRoot, year, sector, {
+      force: options?.force === true || !hasPdfCache,
+    });
+  } catch (error) {
+    console.warn(`[competitor] year cache sync failed for ${year}/${sector}:`, error);
+  }
+}
+
 export async function listCompetitorDriveFiles(
   projectRoot: string,
   year: number,
@@ -300,9 +394,20 @@ export async function syncCompetitorDriveCache(
 
   const cacheDir = getCompetitorCacheDir(config, year, sector);
   const previous = loadSyncMeta(cacheDir);
-  if (!options?.force && previous?.syncedAt) {
+  const hasLocalDataFiles =
+    fs.existsSync(cacheDir) &&
+    fs.readdirSync(cacheDir).some((name) => !name.startsWith('.') && isCompetitorDataFile(name));
+
+  if (!options?.force && previous?.syncedAt && hasLocalDataFiles) {
     const elapsed = Date.now() - new Date(previous.syncedAt).getTime();
-    if (elapsed < SYNC_MIN_INTERVAL_MS) return previous;
+    if (elapsed < SYNC_MIN_INTERVAL_MS) {
+      if (isStructuredCacheReady(cacheDir)) return previous;
+
+      const drive = await createDriveClient(config.keyPath);
+      const folderId = await resolveCompetitorFolderIdWithDrive(drive, config, year, sector);
+      await ensureStructuredCacheForFolder(projectRoot, year, sector, cacheDir, folderId, drive);
+      return previous;
+    }
   }
 
   const drive = await createDriveClient(config.keyPath);
@@ -351,8 +456,6 @@ export async function syncCompetitorDriveCache(
     downloads.push({ file, targetPath });
   }
 
-  let cacheDirty = downloads.length > 0;
-
   await runWithConcurrency(downloads, DRIVE_DOWNLOAD_CONCURRENCY, async ({ file, targetPath }) => {
     await downloadDriveFile(drive, file, targetPath);
     syncedFiles.push({ name: file.name, modifiedTime: file.modifiedTime });
@@ -367,7 +470,6 @@ export async function syncCompetitorDriveCache(
     if (!isCompetitorDataFile(entry)) continue;
     if (!remoteNames.has(entry) && fs.statSync(path.join(cacheDir, entry)).isFile()) {
       fs.unlinkSync(path.join(cacheDir, entry));
-      cacheDirty = true;
     }
   }
 
@@ -380,21 +482,7 @@ export async function syncCompetitorDriveCache(
     files: syncedFiles,
   };
   saveSyncMeta(cacheDir, meta);
-
-  if (!cacheDirty) {
-    return meta;
-  }
-
-  try {
-    await rebuildCompetitorStructuredData(projectRoot, year, sector, cacheDir, {
-      uploadToDrive: isNexusDriveUploadConfigured(projectRoot),
-      folderId,
-      forceReparse: true,
-      runValidation: false,
-    });
-  } catch (error) {
-    console.warn('[competitor] structured data sync rebuild failed:', error);
-  }
+  await ensureStructuredCacheForFolder(projectRoot, year, sector, cacheDir, folderId, drive);
 
   return meta;
 }

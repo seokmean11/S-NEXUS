@@ -1,12 +1,21 @@
 import type { CompetitorExecutiveMultiYearSummary } from '@/types/competitorStandard';
 import {
+  buildProductivityChartData,
   buildRevenueRankingChartData,
-  EXECUTIVE_DEBT_RATIO_WARNING,
+  formatCostStructureAveragePeriodLabel,
+  formatProductivityPerEmployeeEok,
+  resolveRevenueRankingChartYears,
   safeNumber,
 } from '@/utils/competitorExecutiveDashboard';
 import { formatCompetitorDisplayCompanyName } from '@/utils/competitorCompanyName';
 import { resolveStandardFinancialView } from '@/utils/competitorStandardView';
-import { formatExecutiveKRW } from '@/utils/formatKRW';
+import {
+  computeMarketSizeCagr,
+  formatMarketSizeTrillion,
+  MARKET_SIZE_TREND_DISPLAY,
+  MARKET_SIZE_TREND_FROM_YEAR,
+  MARKET_SIZE_TREND_TO_YEAR,
+} from '@/utils/marketSizeTrend';
 
 function displayName(r: { company_name: string; metadata: { source_file?: string | null } }): string {
   return formatCompetitorDisplayCompanyName(r.company_name, r.metadata.source_file);
@@ -22,7 +31,7 @@ export interface ExecutiveInsightsBySection {
   timeline: ExecutiveInsightItem[];
   revenueRanking: ExecutiveInsightItem[];
   costStructure: ExecutiveInsightItem[];
-  stabilityRisk: ExecutiveInsightItem[];
+  productivity: ExecutiveInsightItem[];
 }
 
 const UNIT_ANOMALY_MILLION = 1_000_000;
@@ -34,7 +43,7 @@ export function buildExecutiveInsightsBySection(
     timeline: [],
     revenueRanking: [],
     costStructure: [],
-    stabilityRisk: [],
+    productivity: [],
   };
 
   const records = summary.records;
@@ -50,15 +59,17 @@ export function buildExecutiveInsightsBySection(
     return result;
   }
 
-  const avgMargin =
-    records.reduce((s, r) => s + safeNumber(resolveStandardFinancialView(r).operating_margin), 0) /
-    records.length;
-  const totalRev = records.reduce((s, r) => s + safeNumber(resolveStandardFinancialView(r).revenue), 0);
+  const marketCagr = computeMarketSizeCagr();
+  const marketFirst = MARKET_SIZE_TREND_DISPLAY[0];
+  const marketLast = MARKET_SIZE_TREND_DISPLAY[MARKET_SIZE_TREND_DISPLAY.length - 1];
 
   result.timeline.push({
     severity: 'info',
-    title: '매출 추이 요약',
-    detail: `${summary.fromYear}–${summary.toYear}년 · ${records.length}개사 · 합산 매출 ${formatExecutiveKRW(totalRev)} · 평균 영업이익률 ${avgMargin.toFixed(1)}%`,
+    title: '시장규모 추이 요약',
+    detail:
+      marketCagr != null && marketFirst && marketLast
+        ? `${MARKET_SIZE_TREND_FROM_YEAR}–${MARKET_SIZE_TREND_TO_YEAR}년 시장규모 ${formatMarketSizeTrillion(marketFirst.sizeTrillion)} → ${formatMarketSizeTrillion(marketLast.sizeTrillion)} · 연평균 ${marketCagr.toFixed(1)}% 성장`
+        : `${MARKET_SIZE_TREND_FROM_YEAR}–${MARKET_SIZE_TREND_TO_YEAR}년 인테리어 업종 시장규모 추이`,
   });
 
   const unitAnomalies = records.filter(
@@ -119,14 +130,40 @@ export function buildExecutiveInsightsBySection(
     });
   }
 
-  const highDebt = records.filter(
-    (r) => safeNumber(resolveStandardFinancialView(r).debt_ratio) > EXECUTIVE_DEBT_RATIO_WARNING,
+  const productivityItems = buildProductivityChartData(summary, revenueRanking);
+  const productivityReady = productivityItems.filter((item) => item.hasProductivityData);
+  const productivityPeriod = formatCostStructureAveragePeriodLabel(
+    resolveRevenueRankingChartYears(summary.fromYear, summary.toYear, rankYear),
   );
-  if (highDebt.length > 0) {
-    result.stabilityRisk.push({
-      severity: 'risk',
-      title: '부채비율 고위험',
-      detail: `${highDebt.map((r) => `${displayName(r)}(${safeNumber(resolveStandardFinancialView(r).debt_ratio).toFixed(0)}%)`).join(', ')} — ${EXECUTIVE_DEBT_RATIO_WARNING}% 초과.`,
+
+  if (productivityReady.length > 0) {
+    const topRevenuePerEmployee = [...productivityReady].sort(
+      (a, b) => (b.revenuePerEmployeeEok ?? 0) - (a.revenuePerEmployeeEok ?? 0),
+    )[0];
+    result.productivity.push({
+      severity: 'info',
+      title: '생산성 요약',
+      detail: `${productivityPeriod} · 인당 매출 1위 ${topRevenuePerEmployee.companyName} · ${formatProductivityPerEmployeeEok(topRevenuePerEmployee.revenuePerEmployeeEok)}`,
+    });
+  }
+
+  const missingEmployees = productivityItems.filter((item) => !item.hasProductivityData);
+  if (missingEmployees.length > 0) {
+    result.productivity.push({
+      severity: 'warning',
+      title: '종업원 수 미추출',
+      detail: `${missingEmployees.map((item) => item.companyName).join(', ')} — 인당 생산성 산출 불가.`,
+    });
+  }
+
+  const lowProductivity = productivityReady.filter(
+    (item) => (item.revenuePerEmployeeEok ?? 0) > 0 && (item.revenuePerEmployeeEok ?? 0) < 1,
+  );
+  if (lowProductivity.length > 0) {
+    result.productivity.push({
+      severity: 'warning',
+      title: '인당 매출 저조',
+      detail: `${lowProductivity.map((item) => `${item.companyName}(${formatProductivityPerEmployeeEok(item.revenuePerEmployeeEok)})`).join(', ')}`,
     });
   }
 
@@ -142,6 +179,6 @@ export function buildExecutiveInsights(
     ...bySection.timeline,
     ...bySection.revenueRanking,
     ...bySection.costStructure,
-    ...bySection.stabilityRisk,
+    ...bySection.productivity,
   ];
 }
