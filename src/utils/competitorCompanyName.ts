@@ -1,9 +1,9 @@
-import type { CompetitorMetric, CompetitorParsedDocument, CompetitorSector } from '@/types/competitorAnalysis';
+import type { CompetitorMetric, CompetitorParsedDocument, CompetitorSector } from '../types/competitorAnalysis';
 import {
   applyCompetitorCompanyAlias,
   resolveCanonicalCompanyKey,
   resolveCanonicalCompanyName,
-} from '@/utils/competitorCompanyAliases';
+} from './competitorCompanyAliases';
 export function isBoilerplateCompetitorCompanyName(name: string): boolean {
   return /신용정보|보호에\s*관한|법률|report\s*no|이용\s*및/i.test(name);
 }

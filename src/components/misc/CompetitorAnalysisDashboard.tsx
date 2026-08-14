@@ -42,6 +42,10 @@ import {
   saveCachedPeriodAnalysis,
   type CompetitorPeriodAnalysisCache,
 } from '@/utils/competitorAnalysisStorage';
+import {
+  countProductivityOverlayEntries,
+  enrichExecutiveSummaryWithProductivityOverlay,
+} from '@/utils/competitorProductivityOverlayClient';
 
 interface UploadResultItem {
   id: string;
@@ -168,6 +172,25 @@ function loadInitialAnalysisResults(
   return analysisResultsFromPeriodCache(cached);
 }
 
+function saveExecutiveOnlyPeriodCache(
+  sector: CompetitorSector,
+  fromYear: number,
+  toYear: number,
+  executive: CompetitorExecutiveMultiYearSummary,
+): void {
+  const from = Math.min(fromYear, toYear);
+  const to = Math.max(fromYear, toYear);
+  const existing = loadCachedPeriodAnalysis(sector, from, to);
+  if (!existing) return;
+
+  saveCachedPeriodAnalysis(sector, from, to, {
+    summaryYear: existing.summaryYear,
+    warnings: existing.warnings,
+    analysis: existing.analysis,
+    executive,
+  });
+}
+
 export function CompetitorAnalysisDashboard() {
   const uploadInitial = loadUploadSelection();
   const analysisInitial = loadAnalysisSelection();
@@ -290,7 +313,16 @@ export function CompetitorAnalysisDashboard() {
       });
 
       setAnalysis(result.analysis);
-      setExecutiveSummary(result.executive);
+      const enrichedExecutive = result.executive
+        ? await enrichExecutiveSummaryWithProductivityOverlay(
+            result.executive,
+            analysisSector,
+            fromYear,
+            toYear,
+            { force: countProductivityOverlayEntries(result.executive) === 0 },
+          )
+        : null;
+      setExecutiveSummary(enrichedExecutive);
       setAnalysisWarnings(result.warnings);
       setAnalysisSummaryYear(result.summaryYear);
       setAnalysisHasResult(true);
@@ -299,7 +331,7 @@ export function CompetitorAnalysisDashboard() {
         summaryYear: result.summaryYear,
         warnings: result.warnings,
         analysis: result.analysis,
-        executive: result.executive,
+        executive: enrichedExecutive,
       });
 
       saveAnalysisSelection({
@@ -323,6 +355,46 @@ export function CompetitorAnalysisDashboard() {
       .then(setDriveStatus)
       .catch(() => setDriveStatus(null));
   }, []);
+
+  useEffect(() => {
+    if (!analysisSector || !executiveSummary || !analysisHasResult) return;
+
+    const fromYear = Math.min(analysisFromYear, analysisToYear);
+    const toYear = Math.max(analysisFromYear, analysisToYear);
+
+    let cancelled = false;
+
+    void enrichExecutiveSummaryWithProductivityOverlay(
+      executiveSummary,
+      analysisSector,
+      fromYear,
+      toYear,
+      { force: countProductivityOverlayEntries(executiveSummary) === 0 },
+    ).then((enriched) => {
+      if (cancelled) return;
+      if (
+        countProductivityOverlayEntries(enriched) <= countProductivityOverlayEntries(executiveSummary)
+      ) {
+        return;
+      }
+
+      setExecutiveSummary(enriched);
+      saveExecutiveOnlyPeriodCache(analysisSector, fromYear, toYear, enriched);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    analysis,
+    analysisFromYear,
+    analysisHasResult,
+    analysisSector,
+    analysisSummaryYear,
+    analysisToYear,
+    analysisWarnings,
+    executiveSummary,
+  ]);
 
   const handleUploadSectorSelect = (nextSector: CompetitorSector) => {
     if (nextSector === uploadSector) return;
@@ -739,6 +811,13 @@ export function CompetitorAnalysisDashboard() {
           loading={analysisLoading && !executiveSummary}
           refreshing={chartRefreshing && analysisHasResult}
           hasResult={analysisHasResult}
+          onSummaryEnriched={(enriched) => {
+            setExecutiveSummary(enriched);
+            if (!analysisSector) return;
+            const fromYear = Math.min(analysisFromYear, analysisToYear);
+            const toYear = Math.max(analysisFromYear, analysisToYear);
+            saveExecutiveOnlyPeriodCache(analysisSector, fromYear, toYear, enriched);
+          }}
         />
 
         <Card

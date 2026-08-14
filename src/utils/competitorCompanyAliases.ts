@@ -1,4 +1,4 @@
-import type { CompetitorSector } from '@/types/competitorAnalysis';
+import type { CompetitorSector } from '../types/competitorAnalysis';
 
 const CORPORATE_LABEL_PATTERN =
   /(?:주식회사|식회사|유한회사|유한공사|\(주\)|\(유\)|㈜|（주）|（유）|\(株\))/gu;

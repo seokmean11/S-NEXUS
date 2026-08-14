@@ -1,10 +1,11 @@
 import type { CompetitorExecutiveMultiYearSummary } from '@/types/competitorStandard';
 import {
   buildProductivityChartData,
+  buildProductivityRevenueRanking,
   buildRevenueRankingChartData,
-  formatCostStructureAveragePeriodLabel,
   formatProductivityPerEmployeeEok,
-  resolveRevenueRankingChartYears,
+  resolveExecutiveRankYear,
+  resolveProductivityAnalysisYear,
   safeNumber,
 } from '@/utils/competitorExecutiveDashboard';
 import { formatCompetitorDisplayCompanyName } from '@/utils/competitorCompanyName';
@@ -47,7 +48,7 @@ export function buildExecutiveInsightsBySection(
   };
 
   const records = summary.records;
-  const rankYear = summary.effectiveToYear ?? summary.toYear;
+  const rankYear = resolveExecutiveRankYear(summary);
 
   if (records.length === 0) {
     const emptyItem: ExecutiveInsightItem = {
@@ -130,20 +131,27 @@ export function buildExecutiveInsightsBySection(
     });
   }
 
-  const productivityItems = buildProductivityChartData(summary, revenueRanking);
-  const productivityReady = productivityItems.filter((item) => item.hasProductivityData);
-  const productivityPeriod = formatCostStructureAveragePeriodLabel(
-    resolveRevenueRankingChartYears(summary.fromYear, summary.toYear, rankYear),
+  const productivityItems = buildProductivityChartData(
+    summary,
+    buildProductivityRevenueRanking(summary),
   );
+  const productivityReady = productivityItems.filter((item) => item.hasProductivityData);
+  const productivityYear = resolveProductivityAnalysisYear(summary);
+  const productivityPeriod = `${productivityYear}년`;
 
   if (productivityReady.length > 0) {
+    const creditBasedCount = productivityReady.filter((item) => item.employeesSource === 'credit-report').length;
     const topRevenuePerEmployee = [...productivityReady].sort(
       (a, b) => (b.revenuePerEmployeeEok ?? 0) - (a.revenuePerEmployeeEok ?? 0),
     )[0];
+    const employeeBasis =
+      creditBasedCount > 0
+        ? `신용분석보고서 종업원 ${creditBasedCount}社`
+        : '추출 종업원';
     result.productivity.push({
       severity: 'info',
       title: '생산성 요약',
-      detail: `${productivityPeriod} · 인당 매출 1위 ${topRevenuePerEmployee.companyName} · ${formatProductivityPerEmployeeEok(topRevenuePerEmployee.revenuePerEmployeeEok)}`,
+      detail: `${productivityPeriod} · ${employeeBasis} · 인당 매출 1위 ${topRevenuePerEmployee.companyName} · ${formatProductivityPerEmployeeEok(topRevenuePerEmployee.revenuePerEmployeeEok)}`,
     });
   }
 

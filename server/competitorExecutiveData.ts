@@ -14,6 +14,7 @@ import { getNexusDriveConfig } from './nexusGoogleDrive';
 import { rebuildMasterCompetitorData } from './competitorMasterData';
 import { dedupeStructuredCompaniesForSummary } from './competitorSummaryDedup';
 import { buildStandardRecord } from './competitorStandardSchema';
+import { buildProductivityEmployeesByYear } from './competitorProductivityEmployees';
 import {
   buildCompanyFiscalDedupKey,
   documentToSelectionMeta,
@@ -228,6 +229,14 @@ export async function buildExecutiveMultiYearSummary(
     }
   }
 
+  const productivityEmployeesByYear = await buildProductivityEmployeesByYear(
+    root,
+    sector,
+    options.fromYear,
+    options.toYear,
+    { force: options.force },
+  );
+
   return {
     sector,
     fromYear: options.fromYear,
@@ -242,5 +251,6 @@ export async function buildExecutiveMultiYearSummary(
     records: baseRecords,
     recordsByYear,
     timeline,
+    productivityEmployeesByYear,
   };
 }

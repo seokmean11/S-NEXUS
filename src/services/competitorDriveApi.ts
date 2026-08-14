@@ -140,6 +140,29 @@ export function fetchCompetitorPeriodAnalysis(options: {
   return readJson(`/api/competitor/period-analysis?${params.toString()}`);
 }
 
+export function fetchProductivityEmployeesOverlay(options: {
+  sector: CompetitorSector;
+  fromYear: number;
+  toYear: number;
+  force?: boolean;
+}): Promise<{
+  sector: CompetitorSector;
+  fromYear: number;
+  toYear: number;
+  productivityEmployeesByYear: Record<
+    string,
+    Record<string, import('@/types/competitorStandard').ProductivityEmployeeEntry>
+  >;
+}> {
+  const params = new URLSearchParams({
+    sector: options.sector,
+    fromYear: String(Math.min(options.fromYear, options.toYear)),
+    toYear: String(Math.max(options.fromYear, options.toYear)),
+  });
+  if (options.force) params.set('force', '1');
+  return readJson(`/api/competitor/productivity-employees?${params.toString()}`);
+}
+
 export function fetchCompetitorExecutive(options: {
   sector: CompetitorSector;
   baseYear: number;

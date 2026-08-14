@@ -12,7 +12,7 @@ const ANALYSIS_SELECTION_STORAGE_KEY = 'perf-dashboard-competitor-analysis-selec
 const ANALYSIS_CACHE_PREFIX = 'perf-dashboard-competitor-analysis:';
 const ANALYSIS_CACHE_VERSION = '2';
 const PERIOD_ANALYSIS_CACHE_PREFIX = 'perf-dashboard-competitor-period-analysis:';
-const PERIOD_ANALYSIS_CACHE_VERSION = '1';
+const PERIOD_ANALYSIS_CACHE_VERSION = '3';
 
 export interface CompetitorSelectionState {
   sector: CompetitorSector | null;
@@ -165,6 +165,38 @@ function periodAnalysisCacheKey(
   return `${PERIOD_ANALYSIS_CACHE_PREFIX}${sector}:${from}:${to}`;
 }
 
+function isPeriodAnalysisCacheCompatible(
+  cache: CompetitorPeriodAnalysisCache,
+  sector: CompetitorSector,
+  fromYear: number,
+  toYear: number,
+): boolean {
+  const from = Math.min(fromYear, toYear);
+  const to = Math.max(fromYear, toYear);
+  if (cache.sector !== sector || cache.fromYear !== from || cache.toYear !== to) {
+    return false;
+  }
+
+  const executive = cache.executive;
+  if (!executive) return Boolean(cache.analysis);
+
+  const requestedFrom = executive.requestedFromYear ?? executive.fromYear;
+  const requestedTo = executive.requestedToYear ?? executive.toYear;
+  if (requestedFrom !== from || requestedTo !== to) {
+    return false;
+  }
+
+  if (cache.summaryYear != null && cache.summaryYear > to) {
+    return false;
+  }
+
+  if (cache.analysis && cache.analysis.year > to) {
+    return false;
+  }
+
+  return true;
+}
+
 export function loadCachedPeriodAnalysis(
   sector: CompetitorSector,
   fromYear: number,
@@ -174,10 +206,12 @@ export function loadCachedPeriodAnalysis(
     const raw = localStorage.getItem(periodAnalysisCacheKey(sector, fromYear, toYear));
     if (!raw) return null;
     const parsed = JSON.parse(raw) as CompetitorPeriodAnalysisCache;
-    if (parsed.cacheVersion !== PERIOD_ANALYSIS_CACHE_VERSION) return null;
+    if (parsed.cacheVersion !== PERIOD_ANALYSIS_CACHE_VERSION && parsed.cacheVersion !== '1') {
+      return null;
+    }
     const from = Math.min(fromYear, toYear);
     const to = Math.max(fromYear, toYear);
-    if (parsed.sector !== sector || parsed.fromYear !== from || parsed.toYear !== to) return null;
+    if (!isPeriodAnalysisCacheCompatible(parsed, sector, from, to)) return null;
     if (!parsed.executive && !parsed.analysis) return null;
     return parsed;
   } catch {

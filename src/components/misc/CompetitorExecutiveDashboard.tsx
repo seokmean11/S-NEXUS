@@ -8,11 +8,17 @@ import type { CompetitorSector } from '@/types/competitorAnalysis';
 import { fetchCompetitorExecutiveClaudeInsights } from '@/services/competitorDriveApi';
 import { getClaudeModelName } from '@/services/claudeAnalysis';
 import {
+  countProductivityOverlayEntries,
+  useProductivityEnrichedSummary,
+} from '@/utils/competitorProductivityOverlayClient';
+import {
   buildExecutiveFromMultiYear,
   COST_STRUCTURE_CHART_COLORS,
   formatCostStructureAveragePeriodLabel,
   formatPercentLabel,
+  formatProductivityEmployeesBasisLabel,
   formatProductivityPerEmployeeEok,
+  resolveProductivityAnalysisYear,
 } from '@/utils/competitorExecutiveDashboard';
 import {
   buildExecutiveInsightsBySection,
@@ -49,6 +55,7 @@ interface CompetitorExecutiveDashboardProps {
   loading?: boolean;
   refreshing?: boolean;
   hasResult?: boolean;
+  onSummaryEnriched?: (summary: CompetitorExecutiveMultiYearSummary) => void;
 }
 
 const CHART_COLUMN_MIN_WIDTH = 88;
@@ -485,26 +492,42 @@ function ColumnChart<T>({
 
 export function CompetitorExecutiveDashboard({
   summary,
-  sector: _sector,
-  fromYear: _fromYear,
-  toYear: _toYear,
+  sector,
+  fromYear,
+  toYear,
   loading = false,
   refreshing = false,
   hasResult = false,
+  onSummaryEnriched,
 }: CompetitorExecutiveDashboardProps) {
+  const { summary: resolvedSummary, overlayLoading } = useProductivityEnrichedSummary(
+    summary,
+    sector,
+    fromYear,
+    toYear,
+  );
+
+  useEffect(() => {
+    if (!resolvedSummary || !summary) return;
+    if (countProductivityOverlayEntries(resolvedSummary) <= countProductivityOverlayEntries(summary)) {
+      return;
+    }
+    onSummaryEnriched?.(resolvedSummary);
+  }, [resolvedSummary, summary, onSummaryEnriched]);
+
   const dashboard = useMemo(
-    () => (summary ? buildExecutiveFromMultiYear(summary) : null),
-    [summary],
+    () => (resolvedSummary ? buildExecutiveFromMultiYear(resolvedSummary) : null),
+    [resolvedSummary],
   );
 
   const ruleInsightsBySection = useMemo(
-    () => (summary ? buildExecutiveInsightsBySection(summary) : null),
-    [summary],
+    () => (resolvedSummary ? buildExecutiveInsightsBySection(resolvedSummary) : null),
+    [resolvedSummary],
   );
 
   const insightCacheKey = useMemo(
-    () => (summary ? buildExecutiveInsightCacheKey(summary) : null),
-    [summary],
+    () => (resolvedSummary ? buildExecutiveInsightCacheKey(resolvedSummary) : null),
+    [resolvedSummary],
   );
 
   const [claudeInsights, setClaudeInsights] = useState<ExecutiveInsightsBySection | null>(null);
@@ -533,7 +556,7 @@ export function CompetitorExecutiveDashboard({
     claudeInsights ?? (insightSource === 'local' ? ruleInsightsBySection : null);
 
   const handleGenerateExecutiveInsights = useCallback(async () => {
-    if (!summary || !insightCacheKey) return;
+    if (!resolvedSummary || !insightCacheKey) return;
 
     const apiKey = getClaudeApiKey();
     if (!apiKey) {
@@ -545,7 +568,7 @@ export function CompetitorExecutiveDashboard({
     setInsightError(null);
 
     try {
-      const context = buildExecutiveInsightClaudeContext(summary);
+      const context = buildExecutiveInsightClaudeContext(resolvedSummary);
       const result = await fetchCompetitorExecutiveClaudeInsights({
         context: context as unknown as Record<string, unknown>,
         apiKey,
@@ -583,7 +606,7 @@ export function CompetitorExecutiveDashboard({
     } finally {
       setInsightLoading(false);
     }
-  }, [insightCacheKey, summary]);
+  }, [insightCacheKey, resolvedSummary]);
 
   const revenueScale = useMemo(() => {
     if (!dashboard?.revenueRanking.length) return buildLinearChartScale(0);
@@ -625,7 +648,7 @@ export function CompetitorExecutiveDashboard({
     );
   }
 
-  if (!dashboard || !summary || summary.records.length === 0) {
+  if (!dashboard || !resolvedSummary || resolvedSummary.records.length === 0) {
     return (
       <div className="competitor-executive">
         <p className="competitor-executive__empty">
@@ -635,12 +658,17 @@ export function CompetitorExecutiveDashboard({
     );
   }
 
-  const { revenueRanking, revenueRankingYears, rankYear, costStructure, productivity } = dashboard;
+  const { revenueRanking, revenueRankingYears, rankYear, productivityYear, costStructure, productivity } =
+    dashboard;
   const productivityChartItems = productivity.filter((item) => item.hasProductivityData);
 
   return (
     <div className="competitor-executive">
-      {refreshing && <p className="competitor-executive__refreshing">최신 데이터 반영 중…</p>}
+      {(refreshing || overlayLoading) && (
+        <p className="competitor-executive__refreshing">
+          {overlayLoading ? '생산성 분석용 종업원 데이터를 불러오는 중…' : '최신 데이터 반영 중…'}
+        </p>
+      )}
 
       <div className="competitor-executive-insight-actions">
         <Button
@@ -968,12 +996,16 @@ export function CompetitorExecutiveDashboard({
 
       <Card
         title="생산성 분석"
-        subtitle={`${rankYear}년 매출 순위 동일 · ${formatCostStructureAveragePeriodLabel(revenueRankingYears)} · 종업원 대비 인당 매출·영업이익`}
+        subtitle={`${productivityYear}년 매출 순위 · ${formatProductivityEmployeesBasisLabel(resolvedSummary, productivityYear)} · 인당 매출·영업이익`}
         className="competitor-executive-chart-card competitor-executive-chart-card--productivity"
       >
         {productivityChartItems.length === 0 ? (
           <p className="competitor-executive__empty">
-            종업원 수와 매출이 함께 추출된 기업이 없어 생산성 분석을 표시할 수 없습니다.
+            {overlayLoading
+              ? '신용분석보고서 종업원 데이터를 불러오는 중입니다.'
+              : countProductivityOverlayEntries(resolvedSummary) === 0
+                ? `${resolveProductivityAnalysisYear(resolvedSummary)}년 기준 생산성 분석에 필요한 종업원 데이터(신용분석보고서)가 없습니다. 인테리어 2024년 Drive 폴더에 신용분석보고서가 있는지 확인한 뒤 「분석 실행」을 다시 눌러 주세요.`
+                : '선택 기간 최신 연도 매출과 종업원 수가 함께 있는 기업이 없어 생산성 분석을 표시할 수 없습니다.'}
           </p>
         ) : (
           <>
@@ -1070,8 +1102,8 @@ export function CompetitorExecutiveDashboard({
             </div>
 
             <p className="competitor-executive-risk__note">
-              좌측 막대=인당 매출 · 우측 막대=인당 영업이익 ·{' '}
-              {formatCostStructureAveragePeriodLabel(revenueRankingYears)} · 종업원·매출·영업이익 단순 평균
+              좌측 막대=인당 매출 · 우측 막대=인당 영업이익 · {productivityYear}년 실적 ·{' '}
+              {formatProductivityEmployeesBasisLabel(resolvedSummary, productivityYear)}
             </p>
           </>
         )}

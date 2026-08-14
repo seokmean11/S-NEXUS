@@ -78,6 +78,18 @@ export interface CompetitorAnalysisPeriodWarning {
   fallbackYear?: number;
 }
 
+/** 생산성 분석 전용 — 신용분석보고서에서 별도 추출, competitor-data.json과 분리 */
+export interface ProductivityEmployeeEntry {
+  companyKey: string;
+  companyName: string;
+  biz_no?: string | null;
+  employees: number;
+  employees_prior: number | null;
+  referenceYear: number;
+  source_file: string;
+  source_type: 'credit-report';
+}
+
 export interface CompetitorExecutiveMultiYearSummary {
   sector: string;
   fromYear: number;
@@ -92,4 +104,6 @@ export interface CompetitorExecutiveMultiYearSummary {
   records: CompetitorStandardRecord[];
   recordsByYear: Record<string, CompetitorStandardRecord[]>;
   timeline: ExecutiveTimelinePoint[];
+  /** Drive 폴더 연도별 신용분석보고서 종업원 추출 (기존 structured 데이터 비변경) */
+  productivityEmployeesByYear?: Record<string, Record<string, ProductivityEmployeeEntry>>;
 }

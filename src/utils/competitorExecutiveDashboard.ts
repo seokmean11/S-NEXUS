@@ -2,10 +2,13 @@ import type {
   CompetitorExecutiveMultiYearSummary,
   CompetitorStandardRecord,
   ExecutiveTimelinePoint,
+  ProductivityEmployeeEntry,
 } from '@/types/competitorStandard';
 import { formatExecutiveKRW } from '@/utils/formatKRW';
 import {
   formatCompetitorDisplayCompanyName,
+  normalizeCompetitorBizNo,
+  normalizeCompetitorCompanyKey,
   resolveCompetitorRecordGroupKey,
 } from '@/utils/competitorCompanyName';
 import { resolveStandardFinancialView } from '@/utils/competitorStandardView';
@@ -216,11 +219,27 @@ export function resolveRevenueRankingChartYears(
   return years;
 }
 
+export function resolveExecutiveRankYear(summary: CompetitorExecutiveMultiYearSummary): number {
+  const periodStart = summary.requestedFromYear ?? summary.fromYear;
+  const periodEnd = summary.requestedToYear ?? summary.toYear;
+  const effectiveEnd = summary.effectiveToYear;
+
+  if (
+    effectiveEnd != null &&
+    effectiveEnd >= periodStart &&
+    effectiveEnd <= periodEnd
+  ) {
+    return effectiveEnd;
+  }
+
+  return periodEnd;
+}
+
 export function buildRevenueRankingChartData(
   summary: CompetitorExecutiveMultiYearSummary,
   limit = REVENUE_RANKING_CHART_LIMIT,
 ): RevenueRankingChartItem[] {
-  const rankYear = summary.effectiveToYear ?? summary.toYear;
+  const rankYear = resolveExecutiveRankYear(summary);
   const chartYears = resolveRevenueRankingChartYears(summary.fromYear, summary.toYear, rankYear);
   const rankYearRecords = summary.recordsByYear[String(rankYear)] ?? [];
   const dedupedRankYear = dedupeRecordsByCompany(rankYearRecords, summary.sector);
@@ -373,7 +392,7 @@ export function buildCostStructureChartData(
 ): CostStructureChartItem[] {
   if (revenueRanking.length === 0) return [];
 
-  const rankYear = summary.effectiveToYear ?? summary.toYear;
+  const rankYear = resolveExecutiveRankYear(summary);
   const chartYears = resolveRevenueRankingChartYears(summary.fromYear, summary.toYear, rankYear);
 
   return revenueRanking.map((company) => {
@@ -425,6 +444,8 @@ export interface ProductivityChartItem {
   revenuePerEmployeeEok: number | null;
   operatingProfitPerEmployeeEok: number | null;
   hasProductivityData: boolean;
+  employeesReferenceYear: number | null;
+  employeesSource: 'credit-report' | 'metadata' | null;
 }
 
 export function toProductivityPerEmployeeEok(
@@ -435,68 +456,255 @@ export function toProductivityPerEmployeeEok(
   return Math.round((amountMillions / employees / 100) * 10) / 10;
 }
 
+export function resolveProductivityAnalysisYear(
+  summary: CompetitorExecutiveMultiYearSummary,
+): number {
+  const periodStart = summary.requestedFromYear ?? summary.fromYear;
+  const periodEnd = summary.requestedToYear ?? summary.toYear;
+
+  const hasRecords = (year: number): boolean =>
+    (summary.recordsByYear[String(year)] ?? []).some(
+      (record) => safeNumber(resolveStandardFinancialView(record).revenue) > 0,
+    );
+
+  if (hasRecords(periodEnd)) return periodEnd;
+
+  const effectiveEnd = summary.effectiveToYear;
+  if (
+    effectiveEnd != null &&
+    effectiveEnd >= periodStart &&
+    effectiveEnd <= periodEnd &&
+    hasRecords(effectiveEnd)
+  ) {
+    return effectiveEnd;
+  }
+
+  for (let year = periodEnd; year >= periodStart; year -= 1) {
+    if (hasRecords(year)) return year;
+  }
+
+  return periodEnd;
+}
+
+export function resolveProductivityOverlaySearchYears(
+  summary: CompetitorExecutiveMultiYearSummary,
+  productivityYear: number,
+): number[] {
+  const periodStart = summary.requestedFromYear ?? summary.fromYear;
+  const periodEnd = summary.requestedToYear ?? summary.toYear;
+  const years: number[] = [];
+
+  for (let year = periodEnd; year >= periodStart; year -= 1) {
+    years.push(year);
+  }
+
+  if (years.length === 0) {
+    return [productivityYear];
+  }
+
+  return years;
+}
+
+export function buildProductivityRevenueRanking(
+  summary: CompetitorExecutiveMultiYearSummary,
+  limit = REVENUE_RANKING_CHART_LIMIT,
+): RevenueRankingChartItem[] {
+  const productivityYear = resolveProductivityAnalysisYear(summary);
+  const yearRecords = summary.recordsByYear[String(productivityYear)] ?? [];
+  const dedupedYear = dedupeRecordsByCompany(yearRecords, summary.sector);
+
+  const topCompanies = [...dedupedYear.entries()]
+    .map(([companyKey, record]) => ({
+      companyKey,
+      companyName: formatCompetitorDisplayCompanyName(
+        record.company_name,
+        record.metadata.source_file,
+        summary.sector,
+      ),
+      latestRevenue: safeNumber(resolveStandardFinancialView(record).revenue),
+    }))
+    .filter((item) => item.latestRevenue > 0)
+    .sort((a, b) => b.latestRevenue - a.latestRevenue)
+    .slice(0, limit);
+
+  return topCompanies.map((company, index) => ({
+    rank: index + 1,
+    companyName: company.companyName,
+    companyKey: company.companyKey,
+    latestRevenue: company.latestRevenue,
+    revenuesByYear: [{ year: productivityYear, revenue: company.latestRevenue }],
+  }));
+}
+
+export function formatProductivityEmployeesBasisLabel(
+  summary: CompetitorExecutiveMultiYearSummary,
+  productivityYear: number,
+): string {
+  const overlayYears = resolveProductivityOverlaySearchYears(summary, productivityYear);
+  for (const year of overlayYears) {
+    const count = Object.keys(summary.productivityEmployeesByYear?.[String(year)] ?? {}).length;
+    if (count > 0) {
+      return `${productivityYear}년 실적 · ${year}년 신용분석보고서 종업원`;
+    }
+  }
+
+  return `${productivityYear}년 실적 · 종업원 기준`;
+}
+
 export function formatProductivityPerEmployeeEok(value: number | null | undefined): string {
   if (value == null || !Number.isFinite(value)) return '-';
   return `${value.toLocaleString('ko-KR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}억/인`;
 }
 
-function resolveProductivityAverageInputs(
+function findProductivityEmployeeOverlay(
   summary: CompetitorExecutiveMultiYearSummary,
   companyKey: string,
-  chartYears: number[],
-): {
-  avgRevenue: number | null;
-  avgOperatingProfit: number | null;
-  avgEmployees: number | null;
-} {
-  const revenueSamples: (number | null | undefined)[] = [];
-  const operatingProfitSamples: (number | null | undefined)[] = [];
-  const employeeSamples: (number | null | undefined)[] = [];
+  companyName: string,
+  bizNo: string | null | undefined,
+  preferredYears: number[],
+): ProductivityEmployeeEntry | null {
+  const byYear = summary.productivityEmployeesByYear;
+  if (!byYear) return null;
 
-  for (const year of chartYears) {
-    const yearRecords = summary.recordsByYear[String(year)] ?? [];
-    const dedupedYear = dedupeRecordsByCompany(yearRecords, summary.sector);
-    const record = dedupedYear.get(companyKey);
-    if (!record) continue;
+  const normalizedBizNo = normalizeCompetitorBizNo(bizNo);
+  const normalizedName = normalizeCompetitorCompanyKey(companyName);
 
-    const view = resolveStandardFinancialView(record);
-    revenueSamples.push(view.revenue);
-    operatingProfitSamples.push(view.operating_profit);
-    employeeSamples.push(record.metadata.employees);
+  const matchesEntry = (entry: ProductivityEmployeeEntry): boolean => {
+    if (entry.employees <= 0) return false;
+    if (entry.companyKey === companyKey) return true;
+    if (normalizedBizNo && normalizeCompetitorBizNo(entry.biz_no) === normalizedBizNo) return true;
+    if (normalizeCompetitorCompanyKey(entry.companyName) === normalizedName) return true;
+    if (normalizeCompetitorCompanyKey(entry.companyKey) === normalizeCompetitorCompanyKey(companyKey)) {
+      return true;
+    }
+    return false;
+  };
+
+  for (const year of preferredYears) {
+    const yearMap = byYear[String(year)];
+    if (!yearMap) continue;
+    const direct = yearMap[companyKey];
+    if (direct && matchesEntry(direct)) return direct;
+    for (const entry of Object.values(yearMap)) {
+      if (matchesEntry(entry)) return entry;
+    }
   }
 
+  return null;
+}
+
+function resolveProductivityEmployeeCount(
+  summary: CompetitorExecutiveMultiYearSummary,
+  companyKey: string,
+  companyName: string,
+  bizNo: string | null | undefined,
+  productivityYear: number,
+  overlayYears: number[],
+): { employees: number | null; referenceYear: number | null; source: ProductivityChartItem['employeesSource'] } {
+  const overlay = findProductivityEmployeeOverlay(
+    summary,
+    companyKey,
+    companyName,
+    bizNo,
+    overlayYears,
+  );
+  if (overlay) {
+    return {
+      employees: overlay.employees,
+      referenceYear: overlay.referenceYear,
+      source: 'credit-report',
+    };
+  }
+
+  const yearRecords = summary.recordsByYear[String(productivityYear)] ?? [];
+  const dedupedYear = dedupeRecordsByCompany(yearRecords, summary.sector);
+  const record = dedupedYear.get(companyKey);
+  if (record?.metadata.employees != null && record.metadata.employees > 0) {
+    return {
+      employees: record.metadata.employees,
+      referenceYear: productivityYear,
+      source: 'metadata',
+    };
+  }
+
+  return { employees: null, referenceYear: null, source: null };
+}
+
+function resolveProductivityYearInputs(
+  summary: CompetitorExecutiveMultiYearSummary,
+  companyKey: string,
+  companyName: string,
+  bizNo: string | null | undefined,
+  productivityYear: number,
+  overlayYears: number[],
+): {
+  revenue: number | null;
+  operatingProfit: number | null;
+  avgEmployees: number | null;
+  employeesReferenceYear: number | null;
+  employeesSource: ProductivityChartItem['employeesSource'];
+} {
+  const yearRecords = summary.recordsByYear[String(productivityYear)] ?? [];
+  const dedupedYear = dedupeRecordsByCompany(yearRecords, summary.sector);
+  const record = dedupedYear.get(companyKey);
+  const view = record ? resolveStandardFinancialView(record) : null;
+
+  const employeeResolution = resolveProductivityEmployeeCount(
+    summary,
+    companyKey,
+    companyName,
+    bizNo ?? record?.biz_no,
+    productivityYear,
+    overlayYears,
+  );
+
   return {
-    avgRevenue: averageSimpleRatio(revenueSamples),
-    avgOperatingProfit: averageSimpleRatio(operatingProfitSamples),
-    avgEmployees: averageSimpleRatio(employeeSamples),
+    revenue: view?.revenue ?? null,
+    operatingProfit: view?.operating_profit ?? null,
+    avgEmployees: employeeResolution.employees,
+    employeesReferenceYear: employeeResolution.referenceYear,
+    employeesSource: employeeResolution.source,
   };
 }
 
 export function buildProductivityChartData(
   summary: CompetitorExecutiveMultiYearSummary,
-  revenueRanking: RevenueRankingChartItem[],
+  revenueRanking?: RevenueRankingChartItem[],
 ): ProductivityChartItem[] {
-  if (revenueRanking.length === 0) return [];
+  const productivityYear = resolveProductivityAnalysisYear(summary);
+  const overlayYears = resolveProductivityOverlaySearchYears(summary, productivityYear);
+  const ranking = revenueRanking ?? buildProductivityRevenueRanking(summary);
+  if (ranking.length === 0) return [];
 
-  const rankYear = summary.effectiveToYear ?? summary.toYear;
-  const chartYears = resolveRevenueRankingChartYears(summary.fromYear, summary.toYear, rankYear);
+  const yearRecords = summary.recordsByYear[String(productivityYear)] ?? [];
+  const dedupedYear = dedupeRecordsByCompany(yearRecords, summary.sector);
 
-  return revenueRanking.map((company) => {
-    const { avgRevenue, avgOperatingProfit, avgEmployees } = resolveProductivityAverageInputs(
+  return ranking.map((company) => {
+    const record = dedupedYear.get(company.companyKey);
+    const {
+      revenue,
+      operatingProfit,
+      avgEmployees,
+      employeesReferenceYear,
+      employeesSource,
+    } = resolveProductivityYearInputs(
       summary,
       company.companyKey,
-      chartYears,
+      company.companyName,
+      record?.biz_no,
+      productivityYear,
+      overlayYears,
     );
-    const revenuePerEmployeeEok = toProductivityPerEmployeeEok(avgRevenue, avgEmployees);
+    const revenuePerEmployeeEok = toProductivityPerEmployeeEok(revenue, avgEmployees);
     const operatingProfitPerEmployeeEok = toProductivityPerEmployeeEok(
-      avgOperatingProfit,
+      operatingProfit,
       avgEmployees,
     );
     const hasProductivityData =
       avgEmployees != null &&
       avgEmployees > 0 &&
       revenuePerEmployeeEok != null &&
-      company.latestRevenue > 0;
+      safeNumber(revenue) > 0;
 
     return {
       companyName: company.companyName,
@@ -506,6 +714,8 @@ export function buildProductivityChartData(
       revenuePerEmployeeEok,
       operatingProfitPerEmployeeEok,
       hasProductivityData,
+      employeesReferenceYear,
+      employeesSource,
     };
   });
 }
@@ -571,19 +781,23 @@ export function buildExecutiveFromMultiYear(summary: CompetitorExecutiveMultiYea
   revenueRanking: RevenueRankingChartItem[];
   revenueRankingYears: number[];
   rankYear: number;
+  productivityYear: number;
   costStructure: CostStructureChartItem[];
   productivity: ProductivityChartItem[];
   timeline: TimelineChartItem[];
 } {
-  const rankYear = summary.effectiveToYear ?? summary.toYear;
+  const rankYear = resolveExecutiveRankYear(summary);
+  const productivityYear = resolveProductivityAnalysisYear(summary);
   const revenueRanking = buildRevenueRankingChartData(summary);
+  const productivityRanking = buildProductivityRevenueRanking(summary);
 
   return {
     revenueRanking,
     revenueRankingYears: resolveRevenueRankingChartYears(summary.fromYear, summary.toYear, rankYear),
     rankYear,
+    productivityYear,
     costStructure: buildCostStructureChartData(summary, revenueRanking),
-    productivity: buildProductivityChartData(summary, revenueRanking),
+    productivity: buildProductivityChartData(summary, productivityRanking),
     timeline: buildTimelineChartData(summary.timeline),
   };
 }

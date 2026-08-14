@@ -92,6 +92,7 @@ export function buildExecutiveInsightClaudeContext(
       rank: item.rank,
       name: item.companyName,
       avgEmployees: item.avgEmployees,
+      employeesSource: item.employeesSource,
       revenuePerEmployeeEok: item.revenuePerEmployeeEok,
       operatingProfitPerEmployeeEok: item.operatingProfitPerEmployeeEok,
     })),
@@ -115,6 +116,11 @@ export function buildExecutiveInsightCacheKey(summary: CompetitorExecutiveMultiY
     .join('|')
     .slice(0, 500);
 
+  const overlayFingerprint = Object.entries(summary.productivityEmployeesByYear ?? {})
+    .map(([year, entries]) => `${year}:${Object.keys(entries).length}`)
+    .sort()
+    .join(',');
+
   return [
     summary.sector,
     summary.fromYear,
@@ -122,6 +128,7 @@ export function buildExecutiveInsightCacheKey(summary: CompetitorExecutiveMultiY
     summary.baseYear,
     summary.updatedAt,
     summary.records.length,
+    overlayFingerprint,
     fingerprint,
   ].join('::');
 }

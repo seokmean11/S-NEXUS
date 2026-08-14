@@ -57,7 +57,7 @@ export function scoreStructuredCompanyQuality(company: CompetitorStructuredCompa
   return score;
 }
 
-function normalizeSummaryBizNo(value: string | null | undefined): string | null {
+export function normalizeSummaryBizNo(value: string | null | undefined): string | null {
   if (!value) return null;
   const digits = value.replace(/\D/g, '');
   return digits.length >= 10 ? digits : null;
