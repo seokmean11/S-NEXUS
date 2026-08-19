@@ -163,6 +163,7 @@ export async function buildExecutiveMultiYearSummary(
     uploadConfigured?: boolean;
     preloadedRecordsByYear?: Map<number, CompetitorStandardRecord[]>;
     skipMasterRebuild?: boolean;
+    overlayCacheOnly?: boolean;
   },
 ): Promise<CompetitorExecutiveMultiYearSummary> {
   const config = getNexusDriveConfig(root);
@@ -230,21 +231,14 @@ export async function buildExecutiveMultiYearSummary(
     }
   }
 
-  const productivityEmployeesByYear = await buildProductivityEmployeesByYear(
-    root,
-    sector,
-    options.fromYear,
-    options.toYear,
-    { force: options.force },
-  );
+  const overlayLoadOptions = options.overlayCacheOnly
+    ? { cacheOnly: true as const }
+    : { force: options.force };
 
-  const industryAnalysisByYear = await buildIndustryAnalysisByYear(
-    root,
-    sector,
-    options.fromYear,
-    options.toYear,
-    { force: options.force },
-  );
+  const [productivityEmployeesByYear, industryAnalysisByYear] = await Promise.all([
+    buildProductivityEmployeesByYear(root, sector, options.fromYear, options.toYear, overlayLoadOptions),
+    buildIndustryAnalysisByYear(root, sector, options.fromYear, options.toYear, overlayLoadOptions),
+  ]);
 
   return {
     sector,

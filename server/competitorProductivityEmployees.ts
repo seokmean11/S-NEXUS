@@ -14,6 +14,7 @@ import {
   extractCreditReportEmployees,
   isProductivityEmployeeSourceText,
 } from './competitorProductivityEmployeesExtract';
+import { readCreditReportPdfTextsParallel } from './competitorCreditReportPdfText';
 import { getNexusDriveConfig } from './nexusGoogleDrive';
 
 export const PRODUCTIVITY_EMPLOYEES_FILE = 'productivity-employees.json';
@@ -54,19 +55,6 @@ function buildFolderPdfSignature(cacheDir: string, fileNames: string[]): string 
     .join('|');
 }
 
-async function readPdfText(filePath: string): Promise<string> {
-  try {
-    const { PDFParse } = await import('pdf-parse');
-    const buffer = fs.readFileSync(filePath);
-    const parser = new PDFParse({ data: buffer });
-    const textResult = await parser.getText();
-    await parser.destroy();
-    return textResult.text?.replace(/\r/g, '') ?? '';
-  } catch {
-    return '';
-  }
-}
-
 function resolveOverlayCompanyKey(
   fileName: string,
   companyName: string | undefined,
@@ -104,9 +92,13 @@ export async function buildProductivityEmployeesOverlay(
   const entries: ProductivityEmployeeEntry[] = [];
   let referenceYear = folderYear;
 
+  const textsByPath = await readCreditReportPdfTextsParallel(
+    pdfNames.map((fileName) => path.join(cacheDir, fileName)),
+  );
+
   for (const fileName of pdfNames) {
     const filePath = path.join(cacheDir, fileName);
-    const text = await readPdfText(filePath);
+    const text = textsByPath.get(filePath) ?? '';
     if (!isProductivityEmployeeSourceText(text)) continue;
 
     const extracted = extractCreditReportEmployees(text, folderYear);
@@ -185,7 +177,7 @@ export async function loadOrBuildProductivityEmployeesOverlay(
   projectRoot: string,
   folderYear: number,
   sector: DriveSector,
-  options?: { force?: boolean },
+  options?: { force?: boolean; cacheOnly?: boolean },
 ): Promise<ProductivityEmployeesOverlay | null> {
   const config = getNexusDriveConfig(projectRoot);
   const cacheDir = getCompetitorCacheDir(config, folderYear, sector);
@@ -198,6 +190,10 @@ export async function loadOrBuildProductivityEmployeesOverlay(
 
   if (!options?.force && cached && cached.sourceSignature === nextSignature) {
     return cached;
+  }
+
+  if (options?.cacheOnly) {
+    return null;
   }
 
   const built = await buildProductivityEmployeesOverlay(cacheDir, folderYear, sector);
@@ -223,15 +219,16 @@ export async function buildProductivityEmployeesByYear(
   sector: CompetitorSector,
   fromYear: number,
   toYear: number,
-  options?: { force?: boolean },
+  options?: { force?: boolean; cacheOnly?: boolean },
 ): Promise<Record<string, Record<string, ProductivityEmployeeEntry>>> {
-  const byYear: Record<string, Record<string, ProductivityEmployeeEntry>> = {};
+  const years = Array.from({ length: toYear - fromYear + 1 }, (_, index) => fromYear + index);
+  const entries = await Promise.all(
+    years.map(async (year) => {
+      const overlay = await loadOrBuildProductivityEmployeesOverlay(projectRoot, year, sector, options);
+      if (!overlay || overlay.entries.length === 0) return null;
+      return [String(year), overlayEntriesToMap(overlay)] as const;
+    }),
+  );
 
-  for (let year = fromYear; year <= toYear; year += 1) {
-    const overlay = await loadOrBuildProductivityEmployeesOverlay(projectRoot, year, sector, options);
-    if (!overlay || overlay.entries.length === 0) continue;
-    byYear[String(year)] = overlayEntriesToMap(overlay);
-  }
-
-  return byYear;
+  return Object.fromEntries(entries.filter((entry): entry is [string, Record<string, ProductivityEmployeeEntry>] => entry != null));
 }

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
@@ -42,10 +42,6 @@ import {
   saveCachedPeriodAnalysis,
   type CompetitorPeriodAnalysisCache,
 } from '@/utils/competitorAnalysisStorage';
-import {
-  enrichExecutiveSummaryWithAllOverlays,
-  executiveNeedsOverlayRefresh,
-} from '@/utils/competitorExecutiveOverlayClient';
 import { countIndustryAnalysisOverlayEntries } from '@/utils/competitorIndustryAnalysisOverlayClient';
 import { countProductivityOverlayEntries } from '@/utils/competitorProductivityOverlayClient';
 
@@ -244,6 +240,7 @@ export function CompetitorAnalysisDashboard() {
   const [analysisError, setAnalysisError] = useState<string | null>(null);
   const [uploadResults, setUploadResults] = useState<UploadResultItem[]>([]);
   const [uploadComplete, setUploadComplete] = useState(false);
+  const analysisRunIdRef = useRef(0);
 
   const uploadReady = Boolean(uploadSector && uploadYear);
   const analysisFormReady = Boolean(analysisSector);
@@ -309,6 +306,7 @@ export function CompetitorAnalysisDashboard() {
 
     const fromYear = Math.min(analysisFromYear, analysisToYear);
     const toYear = Math.max(analysisFromYear, analysisToYear);
+    const runId = ++analysisRunIdRef.current;
 
     setAnalysisLoading(true);
     setChartRefreshing(true);
@@ -319,20 +317,15 @@ export function CompetitorAnalysisDashboard() {
         sector: analysisSector,
         fromYear,
         toYear,
-        force: true,
+        force: false,
       });
 
+      if (runId !== analysisRunIdRef.current) return;
+
       setAnalysis(result.analysis);
-      const enrichedExecutive = result.executive
-        ? await enrichExecutiveSummaryWithAllOverlays(
-            result.executive,
-            analysisSector,
-            fromYear,
-            toYear,
-            { force: executiveNeedsOverlayRefresh(result.executive, fromYear, toYear) },
-          )
-        : null;
-      setExecutiveSummary(enrichedExecutive);
+      if (runId !== analysisRunIdRef.current) return;
+
+      setExecutiveSummary(result.executive);
       setAnalysisWarnings(result.warnings);
       setAnalysisSummaryYear(result.summaryYear);
       setAnalysisHasResult(true);
@@ -341,7 +334,7 @@ export function CompetitorAnalysisDashboard() {
         summaryYear: result.summaryYear,
         warnings: result.warnings,
         analysis: result.analysis,
-        executive: enrichedExecutive,
+        executive: result.executive,
       });
 
       saveAnalysisSelection({
@@ -350,13 +343,16 @@ export function CompetitorAnalysisDashboard() {
         toYear,
       });
     } catch (refreshError) {
+      if (runId !== analysisRunIdRef.current) return;
       resetAnalysisResults();
       setAnalysisError(
         refreshError instanceof Error ? refreshError.message : '분석 데이터를 불러오지 못했습니다.',
       );
     } finally {
-      setAnalysisLoading(false);
-      setChartRefreshing(false);
+      if (runId === analysisRunIdRef.current) {
+        setAnalysisLoading(false);
+        setChartRefreshing(false);
+      }
     }
   }, [analysisSector, analysisFromYear, analysisToYear]);
 
@@ -366,45 +362,23 @@ export function CompetitorAnalysisDashboard() {
       .catch(() => setDriveStatus(null));
   }, []);
 
-  useEffect(() => {
-    if (!analysisSector || !executiveSummary || !analysisHasResult) return;
-
-    const fromYear = Math.min(analysisFromYear, analysisToYear);
-    const toYear = Math.max(analysisFromYear, analysisToYear);
-
-    let cancelled = false;
-
-    void enrichExecutiveSummaryWithAllOverlays(
-      executiveSummary,
-      analysisSector,
-      fromYear,
-      toYear,
-      { force: executiveNeedsOverlayRefresh(executiveSummary, fromYear, toYear) },
-    ).then((enriched) => {
-      if (cancelled) return;
-      if (
-        countExecutiveOverlayEntries(enriched) <= countExecutiveOverlayEntries(executiveSummary)
-      ) {
-        return;
-      }
-
-      setExecutiveSummary(enriched);
+  const handleExecutiveSummaryEnriched = useCallback(
+    (enriched: CompetitorExecutiveMultiYearSummary) => {
+      setExecutiveSummary((current) => {
+        if (
+          countExecutiveOverlayEntries(enriched) <= countExecutiveOverlayEntries(current)
+        ) {
+          return current;
+        }
+        return enriched;
+      });
+      if (!analysisSector) return;
+      const fromYear = Math.min(analysisFromYear, analysisToYear);
+      const toYear = Math.max(analysisFromYear, analysisToYear);
       saveExecutiveOnlyPeriodCache(analysisSector, fromYear, toYear, enriched);
-    });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    analysis,
-    analysisFromYear,
-    analysisHasResult,
-    analysisSector,
-    analysisSummaryYear,
-    analysisToYear,
-    analysisWarnings,
-    executiveSummary,
-  ]);
+    },
+    [analysisFromYear, analysisSector, analysisToYear],
+  );
 
   const handleUploadSectorSelect = (nextSector: CompetitorSector) => {
     if (nextSector === uploadSector) return;
@@ -821,13 +795,7 @@ export function CompetitorAnalysisDashboard() {
           loading={analysisLoading && !executiveSummary}
           refreshing={chartRefreshing && analysisHasResult}
           hasResult={analysisHasResult}
-          onSummaryEnriched={(enriched) => {
-            setExecutiveSummary(enriched);
-            if (!analysisSector) return;
-            const fromYear = Math.min(analysisFromYear, analysisToYear);
-            const toYear = Math.max(analysisFromYear, analysisToYear);
-            saveExecutiveOnlyPeriodCache(analysisSector, fromYear, toYear, enriched);
-          }}
+          onSummaryEnriched={handleExecutiveSummaryEnriched}
         />
 
         <Card

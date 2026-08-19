@@ -14,6 +14,7 @@ import {
 } from './competitorIndustryAnalysisExtract';
 import { inferBizNoFromText } from './competitorStandardSchema';
 import { normalizeSummaryBizNo } from './competitorSummaryDedup';
+import { readCreditReportPdfTextsParallel } from './competitorCreditReportPdfText';
 import { getNexusDriveConfig } from './nexusGoogleDrive';
 
 export const INDUSTRY_ANALYSIS_FILE = 'industry-analysis.json';
@@ -51,19 +52,6 @@ function buildFolderPdfSignature(cacheDir: string, fileNames: string[]): string 
     })
     .sort()
     .join('|');
-}
-
-async function readPdfText(filePath: string): Promise<string> {
-  try {
-    const { PDFParse } = await import('pdf-parse');
-    const buffer = fs.readFileSync(filePath);
-    const parser = new PDFParse({ data: buffer });
-    const textResult = await parser.getText();
-    await parser.destroy();
-    return textResult.text?.replace(/\r/g, '') ?? '';
-  } catch {
-    return '';
-  }
 }
 
 function resolveOverlayCompanyKey(
@@ -116,9 +104,13 @@ export async function buildIndustryAnalysisOverlay(
   const entries: IndustryAnalysisEntry[] = [];
   let referenceYear = folderYear;
 
+  const textsByPath = await readCreditReportPdfTextsParallel(
+    pdfNames.map((fileName) => path.join(cacheDir, fileName)),
+  );
+
   for (const fileName of pdfNames) {
     const filePath = path.join(cacheDir, fileName);
-    const text = await readPdfText(filePath);
+    const text = textsByPath.get(filePath) ?? '';
     if (!isIndustryAnalysisSourceText(text)) continue;
 
     const extracted = extractCreditReportIndustryAnalysis(text, folderYear);
@@ -224,7 +216,7 @@ export async function loadOrBuildIndustryAnalysisOverlay(
   projectRoot: string,
   folderYear: number,
   sector: DriveSector,
-  options?: { force?: boolean },
+  options?: { force?: boolean; cacheOnly?: boolean },
 ): Promise<IndustryAnalysisOverlay | null> {
   const config = getNexusDriveConfig(projectRoot);
   const cacheDir = getCompetitorCacheDir(config, folderYear, sector);
@@ -237,6 +229,10 @@ export async function loadOrBuildIndustryAnalysisOverlay(
 
   if (!options?.force && cached && cached.sourceSignature === nextSignature) {
     return cached;
+  }
+
+  if (options?.cacheOnly) {
+    return null;
   }
 
   const built = await buildIndustryAnalysisOverlay(cacheDir, folderYear, sector);
@@ -262,15 +258,16 @@ export async function buildIndustryAnalysisByYear(
   sector: CompetitorSector,
   fromYear: number,
   toYear: number,
-  options?: { force?: boolean },
+  options?: { force?: boolean; cacheOnly?: boolean },
 ): Promise<Record<string, Record<string, IndustryAnalysisEntry>>> {
-  const byYear: Record<string, Record<string, IndustryAnalysisEntry>> = {};
+  const years = Array.from({ length: toYear - fromYear + 1 }, (_, index) => fromYear + index);
+  const entries = await Promise.all(
+    years.map(async (year) => {
+      const overlay = await loadOrBuildIndustryAnalysisOverlay(projectRoot, year, sector, options);
+      if (!overlay || overlay.entries.length === 0) return null;
+      return [String(year), industryOverlayEntriesToMap(overlay)] as const;
+    }),
+  );
 
-  for (let year = fromYear; year <= toYear; year += 1) {
-    const overlay = await loadOrBuildIndustryAnalysisOverlay(projectRoot, year, sector, options);
-    if (!overlay || overlay.entries.length === 0) continue;
-    byYear[String(year)] = industryOverlayEntriesToMap(overlay);
-  }
-
-  return byYear;
+  return Object.fromEntries(entries.filter((entry): entry is [string, Record<string, IndustryAnalysisEntry>] => entry != null));
 }

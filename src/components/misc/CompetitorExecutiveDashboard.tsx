@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
@@ -9,9 +9,9 @@ import { fetchCompetitorExecutiveClaudeInsights } from '@/services/competitorDri
 import { getClaudeModelName } from '@/services/claudeAnalysis';
 import {
   countProductivityOverlayEntries,
-  useProductivityEnrichedSummary,
 } from '@/utils/competitorProductivityOverlayClient';
-import { useIndustryAnalysisEnrichedSummary, countIndustryAnalysisOverlayEntries, industryAnalysisOverlayNeedsRefresh } from '@/utils/competitorIndustryAnalysisOverlayClient';
+import { countIndustryAnalysisOverlayEntries } from '@/utils/competitorIndustryAnalysisOverlayClient';
+import { useExecutiveOverlayEnrichedSummary } from '@/utils/competitorExecutiveOverlayClient';
 import {
   buildExecutiveFromMultiYear,
   COST_STRUCTURE_CHART_COLORS,
@@ -550,26 +550,31 @@ export function CompetitorExecutiveDashboard({
   hasResult = false,
   onSummaryEnriched,
 }: CompetitorExecutiveDashboardProps) {
-  const { summary: productivitySummary, overlayLoading: productivityOverlayLoading } =
-    useProductivityEnrichedSummary(summary, sector, fromYear, toYear);
-  const { summary: resolvedSummary, overlayLoading: industryOverlayLoading } =
-    useIndustryAnalysisEnrichedSummary(productivitySummary, sector, fromYear, toYear);
-  const overlayLoading = productivityOverlayLoading || industryOverlayLoading;
+  const { summary: resolvedSummary, overlayLoading } = useExecutiveOverlayEnrichedSummary(
+    summary,
+    sector,
+    fromYear,
+    toYear,
+  );
+  const lastReportedOverlayCountRef = useRef<number | null>(null);
 
   useEffect(() => {
-    if (!resolvedSummary || !summary || fromYear == null || toYear == null) return;
+    lastReportedOverlayCountRef.current = null;
+  }, [summary, fromYear, toYear, sector]);
+
+  useEffect(() => {
+    if (!resolvedSummary || !summary || !onSummaryEnriched || fromYear == null || toYear == null) return;
+
     const prevOverlays =
       countProductivityOverlayEntries(summary) + countIndustryAnalysisOverlayEntries(summary);
     const nextOverlays =
       countProductivityOverlayEntries(resolvedSummary) +
       countIndustryAnalysisOverlayEntries(resolvedSummary);
-    const industryOverlayRefreshed =
-      industryAnalysisOverlayNeedsRefresh(summary, fromYear, toYear) &&
-      !industryAnalysisOverlayNeedsRefresh(resolvedSummary, fromYear, toYear);
-    if (nextOverlays <= prevOverlays && !industryOverlayRefreshed) {
-      return;
-    }
-    onSummaryEnriched?.(resolvedSummary);
+    if (nextOverlays <= prevOverlays) return;
+    if (lastReportedOverlayCountRef.current === nextOverlays) return;
+
+    lastReportedOverlayCountRef.current = nextOverlays;
+    onSummaryEnriched(resolvedSummary);
   }, [resolvedSummary, summary, fromYear, toYear, onSummaryEnriched]);
 
   const dashboard = useMemo(

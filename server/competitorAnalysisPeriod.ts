@@ -1,5 +1,4 @@
 import fs from 'node:fs';
-import path from 'node:path';
 
 import type { CompetitorAnalysisSummary, CompetitorSector } from '../src/types/competitorAnalysis';
 import type { CompetitorAnalysisPeriodWarning, CompetitorStandardRecord } from '../src/types/competitorStandard';
@@ -14,6 +13,7 @@ import {
 } from './competitorDrive';
 import { buildExecutiveSummaryFromStructured, buildExecutiveMultiYearSummary } from './competitorExecutiveData';
 import { rebuildMasterCompetitorData, scanCompetitorCacheTree } from './competitorMasterData';
+import type { CompetitorStructuredData } from './competitorStructuredData';
 import { loadCompetitorAnalysisData } from './competitorStructuredData';
 import { buildDedupedSummaryAnalysis } from './competitorSummaryDedup';
 import { getNexusDriveConfig } from './nexusGoogleDrive';
@@ -43,20 +43,30 @@ async function ensureYearSyncedFromDrive(
   sector: CompetitorSector,
   options: { force?: boolean },
 ): Promise<void> {
-  await ensureCompetitorYearCacheReady(root, year, sector, options);
+  if (options.force) {
+    await ensureCompetitorYearCacheReady(root, year, sector, { force: true });
+    return;
+  }
+
+  try {
+    await syncCompetitorDriveCache(root, year, sector, { force: false });
+  } catch (error) {
+    console.warn(`[competitor] lightweight sync failed for ${year}/${sector}:`, error);
+    await ensureCompetitorYearCacheReady(root, year, sector, { force: false });
+  }
 }
 
-async function loadYearRecords(
+async function loadYearStructuredAndRecords(
   root: string,
   year: number,
   sector: CompetitorSector,
   options: { force: boolean; uploadConfigured: boolean },
-): Promise<CompetitorStandardRecord[]> {
+): Promise<{ records: CompetitorStandardRecord[]; structured: CompetitorStructuredData | null }> {
   const config = getNexusDriveConfig(root);
   const cacheDir = getCompetitorCacheDir(config, year, sector);
 
   if (!fs.existsSync(cacheDir) || listCachedCompetitorFiles(root, year, sector).length === 0) {
-    return [];
+    return { records: [], structured: null };
   }
 
   const structured = await loadCompetitorAnalysisData(root, year, sector, cacheDir, {
@@ -64,9 +74,14 @@ async function loadYearRecords(
     uploadToDrive: options.uploadConfigured,
   });
 
-  if (!structured || structured.companies.length === 0) return [];
+  if (!structured || structured.companies.length === 0) {
+    return { records: [], structured: null };
+  }
 
-  return buildExecutiveSummaryFromStructured(structured, sector).records.filter((record) => record.has_data);
+  return {
+    records: buildExecutiveSummaryFromStructured(structured, sector).records.filter((record) => record.has_data),
+    structured,
+  };
 }
 
 function listCachedYearsForSector(root: string, sector: CompetitorSector): number[] {
@@ -81,17 +96,32 @@ async function buildYearRecordsMap(
   root: string,
   sector: CompetitorSector,
   years: number[],
-  options: { force: boolean; uploadConfigured: boolean },
-): Promise<Map<number, CompetitorStandardRecord[]>> {
+  options: { force: boolean; uploadConfigured: boolean; syncYears: number[] },
+): Promise<{
+  recordsByYear: Map<number, CompetitorStandardRecord[]>;
+  structuredByYear: Map<number, CompetitorStructuredData>;
+}> {
+  const syncYearSet = new Set(options.syncYears);
+  const structuredByYear = new Map<number, CompetitorStructuredData>();
+
   const entries = await Promise.all(
     years.map(async (year) => {
-      await ensureYearSyncedFromDrive(root, year, sector, { force: options.force });
-      const records = await loadYearRecords(root, year, sector, options);
-      return [year, records] as const;
+      if (options.force || syncYearSet.has(year)) {
+        await ensureYearSyncedFromDrive(root, year, sector, { force: options.force });
+      }
+
+      const loaded = await loadYearStructuredAndRecords(root, year, sector, options);
+      if (loaded.structured) {
+        structuredByYear.set(year, loaded.structured);
+      }
+      return [year, loaded.records] as const;
     }),
   );
 
-  return new Map(entries);
+  return {
+    recordsByYear: new Map(entries),
+    structuredByYear,
+  };
 }
 
 function yearHasRecords(map: Map<number, CompetitorStandardRecord[]>, year: number): boolean {
@@ -252,10 +282,16 @@ export async function runCompetitorPeriodAnalysis(
     }
   }
 
-  const dataByYear = await buildYearRecordsMap(root, sector, [...probeYears].sort((a, b) => a - b), {
-    force,
-    uploadConfigured,
-  });
+  const { recordsByYear: dataByYear, structuredByYear } = await buildYearRecordsMap(
+    root,
+    sector,
+    [...probeYears].sort((a, b) => a - b),
+    {
+      force,
+      uploadConfigured,
+      syncYears: yearsInRange,
+    },
+  );
 
   let effectiveFromYear = resolveEffectiveFromYear(fromYear, toYear, dataByYear);
   let effectiveToYear = resolveEffectiveToYear(fromYear, toYear, dataByYear);
@@ -290,10 +326,10 @@ export async function runCompetitorPeriodAnalysis(
     warnings,
     preloadedRecordsByYear: dataByYear,
     skipMasterRebuild: true,
+    overlayCacheOnly: true,
   });
 
   let analysis: CompetitorAnalysisSummary | null = null;
-  const config = getNexusDriveConfig(root);
 
   /** 요약·파일 내역: 분석 기간 내 최신 연도 Drive 폴더만 사용 */
   let summaryYear: number | null = null;
@@ -308,23 +344,17 @@ export async function runCompetitorPeriodAnalysis(
   }
 
   if (summaryYear != null && yearHasRecords(dataByYear, summaryYear)) {
-    const cacheDir = getCompetitorCacheDir(config, summaryYear, sector);
-    if (fs.existsSync(cacheDir)) {
-      const structured = await loadCompetitorAnalysisData(root, summaryYear, sector, cacheDir, {
-        rebuild: false,
-        uploadToDrive: uploadConfigured,
-      });
+    const structured = structuredByYear.get(summaryYear);
 
-      if (structured) {
-        analysis = buildDedupedSummaryAnalysis(structured, {
-          configured: true,
-          driveConnected: true,
-          uploadConfigured,
-          folderPath: getCompetitorFolderPath(summaryYear, sector),
-          syncedAt: getCompetitorSyncMeta(root, summaryYear, sector)?.syncedAt,
-          dataSource: 'structured-json',
-        });
-      }
+    if (structured) {
+      analysis = buildDedupedSummaryAnalysis(structured, {
+        configured: true,
+        driveConnected: true,
+        uploadConfigured,
+        folderPath: getCompetitorFolderPath(summaryYear, sector),
+        syncedAt: getCompetitorSyncMeta(root, summaryYear, sector)?.syncedAt,
+        dataSource: 'structured-json',
+      });
     }
   }
 
