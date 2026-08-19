@@ -11,10 +11,22 @@ import {
   countProductivityOverlayEntries,
   useProductivityEnrichedSummary,
 } from '@/utils/competitorProductivityOverlayClient';
+import { useIndustryAnalysisEnrichedSummary, countIndustryAnalysisOverlayEntries, industryAnalysisOverlayNeedsRefresh } from '@/utils/competitorIndustryAnalysisOverlayClient';
 import {
   buildExecutiveFromMultiYear,
   COST_STRUCTURE_CHART_COLORS,
+  EXECUTIVE_DEBT_RATIO_WARNING,
+  EXECUTIVE_DEBT_RATIO_CAUTION,
+  EXECUTIVE_DEBT_RATIO_WATCH,
+  FINANCIAL_HEALTH_DEBT_RATIO_TIER_ORDER,
   formatCostStructureAveragePeriodLabel,
+  formatFinancialHealthDebtRatioCriteria,
+  formatFinancialHealthDebtRatioTierLabel,
+  formatFinancialHealthGradeCriteria,
+  formatFinancialHealthGradeLabel,
+  resolveDebtRatioRiskTier,
+  resolveIndustryDebtRatioBenchmark,
+  type FinancialHealthChartItem,
   formatPercentLabel,
   formatProductivityEmployeesBasisLabel,
   formatProductivityPerEmployeeEok,
@@ -69,6 +81,24 @@ const MARKET_SIZE_VALUE_LABEL_HEIGHT = 34;
 const MARKET_SIZE_PLOT_AREA_HEIGHT = CHART_PLOT_HEIGHT - MARKET_SIZE_X_AXIS_HEIGHT;
 const MARKET_SIZE_LINE_AREA_HEIGHT =
   MARKET_SIZE_PLOT_AREA_HEIGHT - MARKET_SIZE_VALUE_LABEL_HEIGHT;
+
+function toDebtRatioBarHeightPct(debtRatio: number, scaleMax: number): number {
+  if (scaleMax <= 0 || debtRatio <= 0) return 0;
+  return (debtRatio / scaleMax) * RANKING_BAR_AREA_RATIO * 100;
+}
+
+function resolveFinancialHealthScaleMax(
+  items: { metricsByYear: Array<{ debtRatio: number | null }> }[],
+): number {
+  const peak = items.reduce((max, item) => {
+    const localMax = item.metricsByYear.reduce(
+      (inner, point) => Math.max(inner, point.debtRatio ?? 0),
+      0,
+    );
+    return Math.max(max, localMax);
+  }, EXECUTIVE_DEBT_RATIO_WARNING);
+  return Math.max(EXECUTIVE_DEBT_RATIO_WARNING, Math.ceil(peak / 50) * 50);
+}
 
 function toRankingBarHeightPct(revenue: number, scaleMax: number): number {
   if (scaleMax <= 0 || revenue <= 0) return 0;
@@ -256,6 +286,26 @@ function ChartGrid({
         />
       ))}
     </>
+  );
+}
+
+function FinancialHealthMetaCell({ item }: { item: FinancialHealthChartItem }) {
+  return (
+    <div className="exec-chart-meta-cell exec-chart-meta-cell--financial-health">
+      <span className={`exec-health-grade exec-health-grade--${item.riskLevel}`}>
+        {formatFinancialHealthGradeLabel(item.riskLevel)}
+      </span>
+      <div className="exec-health-reason-tags">
+        {item.reasonTags.map((tag) => (
+          <span
+            key={tag.key}
+            className={`exec-health-reason-tag exec-health-reason-tag--${tag.tone}`}
+          >
+            {tag.label}
+          </span>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -500,20 +550,27 @@ export function CompetitorExecutiveDashboard({
   hasResult = false,
   onSummaryEnriched,
 }: CompetitorExecutiveDashboardProps) {
-  const { summary: resolvedSummary, overlayLoading } = useProductivityEnrichedSummary(
-    summary,
-    sector,
-    fromYear,
-    toYear,
-  );
+  const { summary: productivitySummary, overlayLoading: productivityOverlayLoading } =
+    useProductivityEnrichedSummary(summary, sector, fromYear, toYear);
+  const { summary: resolvedSummary, overlayLoading: industryOverlayLoading } =
+    useIndustryAnalysisEnrichedSummary(productivitySummary, sector, fromYear, toYear);
+  const overlayLoading = productivityOverlayLoading || industryOverlayLoading;
 
   useEffect(() => {
-    if (!resolvedSummary || !summary) return;
-    if (countProductivityOverlayEntries(resolvedSummary) <= countProductivityOverlayEntries(summary)) {
+    if (!resolvedSummary || !summary || fromYear == null || toYear == null) return;
+    const prevOverlays =
+      countProductivityOverlayEntries(summary) + countIndustryAnalysisOverlayEntries(summary);
+    const nextOverlays =
+      countProductivityOverlayEntries(resolvedSummary) +
+      countIndustryAnalysisOverlayEntries(resolvedSummary);
+    const industryOverlayRefreshed =
+      industryAnalysisOverlayNeedsRefresh(summary, fromYear, toYear) &&
+      !industryAnalysisOverlayNeedsRefresh(resolvedSummary, fromYear, toYear);
+    if (nextOverlays <= prevOverlays && !industryOverlayRefreshed) {
       return;
     }
     onSummaryEnriched?.(resolvedSummary);
-  }, [resolvedSummary, summary, onSummaryEnriched]);
+  }, [resolvedSummary, summary, fromYear, toYear, onSummaryEnriched]);
 
   const dashboard = useMemo(
     () => (resolvedSummary ? buildExecutiveFromMultiYear(resolvedSummary) : null),
@@ -552,8 +609,18 @@ export function CompetitorExecutiveDashboard({
       ? 'pending'
       : 'local';
 
-  const displayInsights =
-    claudeInsights ?? (insightSource === 'local' ? ruleInsightsBySection : null);
+  const displayInsights = useMemo(() => {
+    if (claudeInsights) {
+      return {
+        ...claudeInsights,
+        financialHealth:
+          claudeInsights.financialHealth?.length > 0
+            ? claudeInsights.financialHealth
+            : (ruleInsightsBySection?.financialHealth ?? []),
+      };
+    }
+    return insightSource === 'local' ? ruleInsightsBySection : null;
+  }, [claudeInsights, insightSource, ruleInsightsBySection]);
 
   const handleGenerateExecutiveInsights = useCallback(async () => {
     if (!resolvedSummary || !insightCacheKey) return;
@@ -591,6 +658,7 @@ export function CompetitorExecutiveDashboard({
             .productivity ??
             (result.insights as { stabilityRisk?: ExecutiveInsightItem[] }).stabilityRisk ??
             []) as ExecutiveInsightItem[],
+        financialHealth: ruleInsightsBySection?.financialHealth ?? [],
       };
 
       setClaudeInsights(normalized);
@@ -606,7 +674,7 @@ export function CompetitorExecutiveDashboard({
     } finally {
       setInsightLoading(false);
     }
-  }, [insightCacheKey, resolvedSummary]);
+  }, [insightCacheKey, resolvedSummary, ruleInsightsBySection]);
 
   const revenueScale = useMemo(() => {
     if (!dashboard?.revenueRanking.length) return buildLinearChartScale(0);
@@ -629,6 +697,21 @@ export function CompetitorExecutiveDashboard({
     );
     return buildLinearChartScale(maxValue);
   }, [dashboard]);
+
+  const financialHealthScaleMax = useMemo(
+    () => (dashboard?.financialHealth.length ? resolveFinancialHealthScaleMax(dashboard.financialHealth) : EXECUTIVE_DEBT_RATIO_WARNING),
+    [dashboard],
+  );
+
+  const industryDebtBenchmark = useMemo(
+    () =>
+      resolvedSummary && dashboard?.financialHealthYears.length
+        ? resolveIndustryDebtRatioBenchmark(resolvedSummary, dashboard.financialHealthYears)
+        : null,
+    [resolvedSummary, dashboard?.financialHealthYears],
+  );
+
+  const hasIndustryDebtBenchmark = industryDebtBenchmark != null;
 
   if (loading) {
     return (
@@ -658,7 +741,7 @@ export function CompetitorExecutiveDashboard({
     );
   }
 
-  const { revenueRanking, revenueRankingYears, rankYear, productivityYear, costStructure, productivity } =
+  const { revenueRanking, revenueRankingYears, rankYear, productivityYear, costStructure, productivity, financialHealth, financialHealthYears } =
     dashboard;
   const productivityChartItems = productivity.filter((item) => item.hasProductivityData);
 
@@ -666,7 +749,7 @@ export function CompetitorExecutiveDashboard({
     <div className="competitor-executive">
       {(refreshing || overlayLoading) && (
         <p className="competitor-executive__refreshing">
-          {overlayLoading ? '생산성 분석용 종업원 데이터를 불러오는 중…' : '최신 데이터 반영 중…'}
+          {overlayLoading ? '생산성·소속산업 보조 데이터를 불러오는 중…' : '최신 데이터 반영 중…'}
         </p>
       )}
 
@@ -1109,6 +1192,178 @@ export function CompetitorExecutiveDashboard({
         )}
         <ExecutiveInsightList
           items={displayInsights?.productivity ?? []}
+          source={insightSource}
+          usedFallback={insightUsedFallback}
+        />
+      </Card>
+
+      <Card
+        title="재무 건전성"
+        subtitle={`${rankYear}년 기준 건전성 등급 · ${financialHealthYears.join(', ')}년 부채비율 추이 · 등급+사유 태그`}
+        className="competitor-executive-chart-card competitor-executive-chart-card--financial-health"
+      >
+        {financialHealth.length === 0 ? (
+          <p className="competitor-executive__empty">
+            부채비율 등 재무 건전성 공통 지표가 추출된 기업이 없습니다.
+          </p>
+        ) : (
+          <>
+            <div className="competitor-executive-health-criteria">
+              <p>
+                <strong>부채비율</strong> {formatFinancialHealthDebtRatioCriteria()}
+              </p>
+              <p>
+                <strong>건전성 등급</strong> {formatFinancialHealthGradeCriteria()}
+              </p>
+            </div>
+
+            <div className="competitor-executive-chart__legend competitor-executive-chart__legend--financial-health">
+              {FINANCIAL_HEALTH_DEBT_RATIO_TIER_ORDER.map((tier) => (
+                <span key={tier}>
+                  <i
+                    className={`competitor-executive-chart__swatch competitor-executive-chart__swatch--debt-${tier}`}
+                  />
+                  {tier === 'healthy'
+                    ? `${EXECUTIVE_DEBT_RATIO_WATCH}% 미만 양호`
+                    : tier === 'watch'
+                      ? `${EXECUTIVE_DEBT_RATIO_WATCH}%↑ 주의`
+                      : tier === 'caution'
+                        ? `${EXECUTIVE_DEBT_RATIO_CAUTION}%↑ 경계`
+                        : `${EXECUTIVE_DEBT_RATIO_WARNING}%↑ 고위험`}
+                </span>
+              ))}
+              <span className="competitor-executive-chart__legend-note">
+                막대 좌→우 {financialHealthYears.join(' → ')}년 · 등급 양호/주의/위험
+              </span>
+              {hasIndustryDebtBenchmark ? (
+                <span>
+                  <i className="competitor-executive-chart__swatch competitor-executive-chart__swatch--industry-benchmark" />
+                  소속산업 업종평균 부채비율(점선)
+                </span>
+              ) : null}
+            </div>
+
+            <div className="exec-chart-frame exec-chart-frame--ranking">
+              <div className="exec-chart-y-axis-wrap">
+                <ChartPercentAxis
+                  max={financialHealthScaleMax}
+                  midLabel={`${EXECUTIVE_DEBT_RATIO_WARNING}%`}
+                />
+              </div>
+              <div className="exec-chart-panel">
+                <div className="exec-chart-scroll">
+                  <div
+                    className="exec-chart-sheet"
+                    style={{ minWidth: chartScrollWidth(financialHealth.length) }}
+                  >
+                    <div className="exec-chart-meta-row exec-chart-meta-row--financial-health">
+                      {financialHealth.map((item) => (
+                        <FinancialHealthMetaCell
+                          key={`health-meta-${item.companyKey}`}
+                          item={item}
+                        />
+                      ))}
+                    </div>
+
+                    <div
+                      className="exec-chart-plot exec-chart-plot--grouped-rank exec-chart-plot--financial-health"
+                      style={{
+                        height: CHART_PLOT_HEIGHT,
+                        paddingTop: RANKING_LABEL_RESERVE,
+                      }}
+                    >
+                      <ChartGrid
+                        scaleMax={financialHealthScaleMax}
+                        ticks={[
+                          financialHealthScaleMax,
+                          EXECUTIVE_DEBT_RATIO_WARNING,
+                          EXECUTIVE_DEBT_RATIO_CAUTION,
+                          EXECUTIVE_DEBT_RATIO_WATCH,
+                          0,
+                        ]}
+                        barAreaRatio={RANKING_BAR_AREA_RATIO}
+                      />
+                      {industryDebtBenchmark ? (
+                        <div
+                          className="exec-chart-industry-benchmark"
+                          style={{
+                            bottom: `${toDebtRatioBarHeightPct(industryDebtBenchmark.value, financialHealthScaleMax)}%`,
+                          }}
+                          title={`${industryDebtBenchmark.referenceYear}년 소속산업 분석 업종평균 부채비율 ${formatPercentLabel(industryDebtBenchmark.value, 1)}`}
+                        >
+                          <span className="exec-chart-industry-benchmark__label">
+                            소속산업 평균 {formatPercentLabel(industryDebtBenchmark.value, 0)}
+                          </span>
+                        </div>
+                      ) : null}
+                      <div className="exec-grouped-columns">
+                        {financialHealth.map((item) => {
+                          const latestDebtTier = resolveDebtRatioRiskTier(item.latestDebtRatio);
+                          const barHeightPcts = item.metricsByYear.map((point) =>
+                            toDebtRatioBarHeightPct(point.debtRatio ?? 0, financialHealthScaleMax),
+                          );
+                          const peakHeightPct = Math.max(...barHeightPcts, 0);
+
+                          return (
+                            <div
+                              key={`health-bars-${item.companyKey}`}
+                              className={`exec-grouped-column exec-grouped-column--debt-${latestDebtTier}`}
+                              title={`${item.rank}위 ${item.companyName} · ${formatFinancialHealthGradeLabel(item.riskLevel)} · ${item.reasonTags.map((tag) => tag.label).join(', ')}`}
+                            >
+                              <span
+                                className="exec-grouped-column__amount"
+                                style={{ bottom: `${peakHeightPct}%` }}
+                              >
+                                {formatPercentLabel(item.latestDebtRatio, 0)}
+                              </span>
+                              {item.metricsByYear.map((point, yearIndex) => {
+                                const heightPct = barHeightPcts[yearIndex] ?? 0;
+                                const pointTier = resolveDebtRatioRiskTier(point.debtRatio);
+                                return (
+                                  <div
+                                    key={`${item.companyKey}-${point.year}`}
+                                    className={`exec-grouped-bar exec-grouped-bar--debt-${pointTier} exec-grouped-bar--year-${yearIndex}`}
+                                    style={{
+                                      height: `${Math.max(heightPct, point.debtRatio ? 4 : 0)}%`,
+                                    }}
+                                    title={`${item.companyName} · ${point.year}년 · 부채비율 ${formatPercentLabel(point.debtRatio)} (${formatFinancialHealthDebtRatioTierLabel(pointTier)})${point.isNetLoss ? ' · 순손실' : ''}`}
+                                  />
+                                );
+                              })}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    <div className="exec-chart-x-row">
+                      {financialHealth.map((item) => {
+                        const latestDebtTier = resolveDebtRatioRiskTier(item.latestDebtRatio);
+                        return (
+                        <span
+                          key={`health-x-${item.companyKey}`}
+                          className={`exec-chart-column__x exec-chart-column__x--debt-${latestDebtTier}`}
+                        >
+                          {item.rank}. {item.companyName}
+                        </span>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <p className="competitor-executive-risk__note">
+              막대 색=해당 연도 부채비율 구간 · 좌→우 연도순 · 상단=등급·사유 태그 · 하단 숫자=부채비율
+              {hasIndustryDebtBenchmark
+                ? ' · 점선=소속산업 분석 업종평균 부채비율(분석기간 최신연도)'
+                : ''}
+            </p>
+          </>
+        )}
+        <ExecutiveInsightList
+          items={displayInsights?.financialHealth ?? []}
           source={insightSource}
           usedFallback={insightUsedFallback}
         />

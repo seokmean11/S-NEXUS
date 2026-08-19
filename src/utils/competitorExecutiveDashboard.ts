@@ -2,6 +2,7 @@ import type {
   CompetitorExecutiveMultiYearSummary,
   CompetitorStandardRecord,
   ExecutiveTimelinePoint,
+  IndustryAnalysisEntry,
   ProductivityEmployeeEntry,
 } from '@/types/competitorStandard';
 import { formatExecutiveKRW } from '@/utils/formatKRW';
@@ -16,6 +17,10 @@ import { resolveStandardFinancialView } from '@/utils/competitorStandardView';
 export { formatKRW, formatKRWCompact, formatExecutiveKRW, formatExecutiveKRWCompact } from '@/utils/formatKRW';
 
 export const EXECUTIVE_DEBT_RATIO_WARNING = 200;
+export const EXECUTIVE_DEBT_RATIO_CAUTION = 150;
+export const EXECUTIVE_DEBT_RATIO_WATCH = 100;
+export const EXECUTIVE_SOUNDNESS_SCORE_HEALTHY = 70;
+export const EXECUTIVE_SOUNDNESS_SCORE_CAUTION = 45;
 export const EXECUTIVE_YEAR_MIN = 2021;
 export const EXECUTIVE_YEAR_MAX = 2025;
 
@@ -184,7 +189,7 @@ function pickBestStandardRecord(records: CompetitorStandardRecord[]): Competitor
   });
 }
 
-function dedupeRecordsByCompany(
+export function dedupeRecordsByCompany(
   records: CompetitorStandardRecord[],
   sector?: string,
 ): Map<string, CompetitorStandardRecord> {
@@ -720,6 +725,313 @@ export function buildProductivityChartData(
   });
 }
 
+export interface FinancialHealthYearPoint {
+  year: number;
+  debtRatio: number | null;
+  operatingMargin: number | null;
+  netIncomeEok: number | null;
+  isOperatingLoss: boolean;
+  isNetLoss: boolean;
+}
+
+export interface FinancialHealthChartItem {
+  companyName: string;
+  companyKey: string;
+  rank: number;
+  revenueRank: number;
+  soundnessScore: number;
+  riskLevel: 'low' | 'medium' | 'high';
+  reasonTags: FinancialHealthReasonTag[];
+  metricsByYear: FinancialHealthYearPoint[];
+  latestDebtRatio: number | null;
+  latestOperatingMargin: number | null;
+  debtRatioTrend: 'improving' | 'worsening' | 'stable' | null;
+  hasFinancialHealthData: boolean;
+}
+
+export type FinancialHealthReasonTagTone = 'risk' | 'warning' | 'positive' | 'neutral';
+
+export interface FinancialHealthReasonTag {
+  key: string;
+  label: string;
+  tone: FinancialHealthReasonTagTone;
+}
+
+const FINANCIAL_HEALTH_REASON_TAG_LIMIT = 3;
+
+function round1(value: number): number {
+  return Math.round(value * 10) / 10;
+}
+
+function resolveDebtRatioTrend(
+  points: FinancialHealthYearPoint[],
+): 'improving' | 'worsening' | 'stable' | null {
+  const valid = points.filter((point) => point.debtRatio != null && point.debtRatio > 0);
+  if (valid.length < 2) return null;
+  const delta = valid[valid.length - 1].debtRatio! - valid[0].debtRatio!;
+  if (delta >= 10) return 'worsening';
+  if (delta <= -10) return 'improving';
+  return 'stable';
+}
+
+function computeSoundnessScore(
+  latest: FinancialHealthYearPoint | undefined,
+  debtRatioTrend: FinancialHealthChartItem['debtRatioTrend'],
+): number {
+  if (!latest) return 0;
+
+  let score = 100;
+  const debtRatio = latest.debtRatio ?? 0;
+
+  if (debtRatio >= EXECUTIVE_DEBT_RATIO_WARNING) score -= 35;
+  else if (debtRatio >= EXECUTIVE_DEBT_RATIO_CAUTION) score -= 20;
+  else if (debtRatio >= EXECUTIVE_DEBT_RATIO_WATCH) score -= 10;
+
+  if (latest.isOperatingLoss) score -= 25;
+  if (latest.isNetLoss) score -= 20;
+  if (debtRatioTrend === 'worsening') score -= 10;
+  if (debtRatioTrend === 'improving') score += 5;
+
+  return Math.max(0, Math.min(100, score));
+}
+
+function resolveFinancialHealthRiskLevel(score: number): FinancialHealthChartItem['riskLevel'] {
+  if (score >= EXECUTIVE_SOUNDNESS_SCORE_HEALTHY) return 'low';
+  if (score >= EXECUTIVE_SOUNDNESS_SCORE_CAUTION) return 'medium';
+  return 'high';
+}
+
+/** 재무 건전성 대시보드 — 부채비율·종합점수 기준 안내 (짧은 문구) */
+export function formatFinancialHealthDebtRatioCriteria(): string {
+  return `총부채÷자본×100(%) · ${EXECUTIVE_DEBT_RATIO_WATCH}%↑ 주의 · ${EXECUTIVE_DEBT_RATIO_CAUTION}%↑ 경계 · ${EXECUTIVE_DEBT_RATIO_WARNING}%↑ 고위험(빨간 막대)`;
+}
+
+export function formatFinancialHealthGradeCriteria(): string {
+  return `부채·적자·부채 추세로 양호/주의/위험 분류 · 옆 태그=판단 사유(최대 ${FINANCIAL_HEALTH_REASON_TAG_LIMIT}개)`;
+}
+
+export function formatFinancialHealthGradeLabel(
+  riskLevel: FinancialHealthChartItem['riskLevel'],
+): string {
+  if (riskLevel === 'high') return '위험';
+  if (riskLevel === 'medium') return '주의';
+  return '양호';
+}
+
+export function buildFinancialHealthReasonTags(
+  latestPoint: FinancialHealthYearPoint | undefined,
+  debtRatioTrend: FinancialHealthChartItem['debtRatioTrend'],
+  latestDebtRatio: number | null,
+): FinancialHealthReasonTag[] {
+  const tags: FinancialHealthReasonTag[] = [];
+  const debtRatio = latestDebtRatio ?? latestPoint?.debtRatio ?? 0;
+
+  if (debtRatio >= EXECUTIVE_DEBT_RATIO_WARNING) {
+    tags.push({ key: 'debt-danger', label: '고부채', tone: 'risk' });
+  } else if (debtRatio >= EXECUTIVE_DEBT_RATIO_CAUTION) {
+    tags.push({ key: 'debt-caution', label: '부채 많음', tone: 'warning' });
+  } else if (debtRatio >= EXECUTIVE_DEBT_RATIO_WATCH) {
+    tags.push({ key: 'debt-watch', label: '부채 주의', tone: 'warning' });
+  }
+
+  if (latestPoint?.isOperatingLoss) {
+    tags.push({ key: 'op-loss', label: '영업적자', tone: 'risk' });
+  }
+
+  if (latestPoint?.isNetLoss) {
+    tags.push({ key: 'net-loss', label: '순손실', tone: 'risk' });
+  }
+
+  if (debtRatioTrend === 'worsening') {
+    tags.push({ key: 'debt-up', label: '부채 증가', tone: 'warning' });
+  } else if (debtRatioTrend === 'improving' && tags.length === 0) {
+    tags.push({ key: 'debt-down', label: '부채 개선', tone: 'positive' });
+  }
+
+  if (tags.length === 0) {
+    tags.push({ key: 'ok', label: '특이사항 없음', tone: 'neutral' });
+  }
+
+  return tags.slice(0, FINANCIAL_HEALTH_REASON_TAG_LIMIT);
+}
+
+/** @deprecated 등급 기준 안내는 formatFinancialHealthGradeCriteria 사용 */
+export function formatFinancialHealthScoreCriteria(_rankYear?: number): string {
+  return formatFinancialHealthGradeCriteria();
+}
+
+export type DebtRatioRiskTier = 'healthy' | 'watch' | 'caution' | 'danger';
+
+export function resolveDebtRatioRiskTier(
+  debtRatio: number | null | undefined,
+): DebtRatioRiskTier {
+  if (debtRatio == null || debtRatio <= 0) return 'healthy';
+  if (debtRatio >= EXECUTIVE_DEBT_RATIO_WARNING) return 'danger';
+  if (debtRatio >= EXECUTIVE_DEBT_RATIO_CAUTION) return 'caution';
+  if (debtRatio >= EXECUTIVE_DEBT_RATIO_WATCH) return 'watch';
+  return 'healthy';
+}
+
+export function formatFinancialHealthDebtRatioTierLabel(tier: DebtRatioRiskTier): string {
+  if (tier === 'danger') return '고위험';
+  if (tier === 'caution') return '경계';
+  if (tier === 'watch') return '주의';
+  return '양호';
+}
+
+export const FINANCIAL_HEALTH_DEBT_RATIO_TIER_ORDER: DebtRatioRiskTier[] = [
+  'healthy',
+  'watch',
+  'caution',
+  'danger',
+];
+
+export function formatFinancialHealthTrendLabel(
+  trend: FinancialHealthChartItem['debtRatioTrend'],
+): string {
+  if (trend === 'improving') return '부채비율 개선';
+  if (trend === 'worsening') return '부채비율 악화';
+  if (trend === 'stable') return '부채비율 유지';
+  return '추세 미확인';
+}
+
+function resolveEntryIndustryDebtRatioForYear(
+  entry: IndustryAnalysisEntry,
+  targetYear: number,
+): number | null {
+  const byYear = entry.industryDebtRatioByYear;
+  if (byYear) {
+    const direct = byYear[String(targetYear)];
+    if (direct != null) return direct;
+
+    const years = Object.keys(byYear)
+      .map(Number)
+      .filter((year) => year <= targetYear && byYear[String(year)] != null)
+      .sort((a, b) => b - a);
+    if (years.length > 0) {
+      return byYear[String(years[0])] ?? null;
+    }
+  }
+
+  return entry.industryAverage.debt_ratio;
+}
+
+function medianPercentValues(values: number[]): number | null {
+  if (values.length === 0) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 1
+    ? sorted[mid]
+    : Math.round(((sorted[mid - 1] + sorted[mid]) / 2) * 10) / 10;
+}
+
+function collectIndustryDebtBenchmarkValues(
+  entries: IndustryAnalysisEntry[],
+  targetYear: number,
+): number[] {
+  return entries
+    .filter(
+      (entry) =>
+        entry.industryDebtRatioByYear != null &&
+        Object.keys(entry.industryDebtRatioByYear).length > 0,
+    )
+    .map((entry) => resolveEntryIndustryDebtRatioForYear(entry, targetYear))
+    .filter((value): value is number => value != null && value > 0);
+}
+
+/** 신용분석 03. 소속산업 분석 — 분석기간 최신연도 업종평균 부채비율(중앙값) */
+export function resolveIndustryDebtRatioBenchmark(
+  summary: CompetitorExecutiveMultiYearSummary,
+  chartYears: number[],
+): { referenceYear: number; value: number } | null {
+  if (chartYears.length === 0) return null;
+
+  const referenceYear = Math.max(...chartYears);
+
+  for (let folderYear = referenceYear; folderYear >= summary.fromYear; folderYear -= 1) {
+    const entries = Object.values(summary.industryAnalysisByYear?.[String(folderYear)] ?? {});
+    const values = collectIndustryDebtBenchmarkValues(entries, referenceYear);
+    const median = medianPercentValues(values);
+    if (median != null) {
+      return { referenceYear, value: median };
+    }
+  }
+
+  return null;
+}
+
+export function buildFinancialHealthChartData(
+  summary: CompetitorExecutiveMultiYearSummary,
+  revenueRanking: RevenueRankingChartItem[],
+): FinancialHealthChartItem[] {
+  const rankYear = resolveExecutiveRankYear(summary);
+  const chartYears = resolveRevenueRankingChartYears(summary.fromYear, summary.toYear, rankYear);
+
+  const items = revenueRanking.map((company) => {
+    const metricsByYear = chartYears.map((year) => {
+      const yearRecords = summary.recordsByYear[String(year)] ?? [];
+      const dedupedYear = dedupeRecordsByCompany(yearRecords, summary.sector);
+      const record = dedupedYear.get(company.companyKey);
+      if (!record) {
+        return {
+          year,
+          debtRatio: null,
+          operatingMargin: null,
+          netIncomeEok: null,
+          isOperatingLoss: false,
+          isNetLoss: false,
+        };
+      }
+
+      const view = resolveStandardFinancialView(record);
+      const operatingMargin = view.operating_margin ?? null;
+      const netIncome = view.net_income ?? null;
+
+      return {
+        year,
+        debtRatio: view.debt_ratio ?? null,
+        operatingMargin,
+        netIncomeEok: netIncome != null ? round1(netIncome / 100) : null,
+        isOperatingLoss: operatingMargin != null && operatingMargin < 0,
+        isNetLoss: netIncome != null && netIncome < 0,
+      };
+    });
+
+    const latestPoint =
+      [...metricsByYear].reverse().find((point) => point.debtRatio != null && point.debtRatio > 0) ??
+      metricsByYear[metricsByYear.length - 1];
+    const debtRatioTrend = resolveDebtRatioTrend(metricsByYear);
+    const soundnessScore = computeSoundnessScore(latestPoint, debtRatioTrend);
+    const latestDebtRatio = latestPoint?.debtRatio ?? null;
+    const reasonTags = buildFinancialHealthReasonTags(latestPoint, debtRatioTrend, latestDebtRatio);
+    const hasFinancialHealthData = metricsByYear.some(
+      (point) => point.debtRatio != null && point.debtRatio > 0,
+    );
+
+    return {
+      companyName: company.companyName,
+      companyKey: company.companyKey,
+      rank: 0,
+      revenueRank: company.rank,
+      soundnessScore,
+      riskLevel: resolveFinancialHealthRiskLevel(soundnessScore),
+      reasonTags,
+      metricsByYear,
+      latestDebtRatio,
+      latestOperatingMargin: latestPoint?.operatingMargin ?? null,
+      debtRatioTrend,
+      hasFinancialHealthData,
+    };
+  });
+
+  return items
+    .filter((item) => item.hasFinancialHealthData)
+    .map((item) => ({
+      ...item,
+      rank: item.revenueRank,
+    }));
+}
+
 export interface StabilityRiskChartItem {
   companyName: string;
   debtRatio: number;
@@ -784,20 +1096,25 @@ export function buildExecutiveFromMultiYear(summary: CompetitorExecutiveMultiYea
   productivityYear: number;
   costStructure: CostStructureChartItem[];
   productivity: ProductivityChartItem[];
+  financialHealth: FinancialHealthChartItem[];
+  financialHealthYears: number[];
   timeline: TimelineChartItem[];
 } {
   const rankYear = resolveExecutiveRankYear(summary);
   const productivityYear = resolveProductivityAnalysisYear(summary);
   const revenueRanking = buildRevenueRankingChartData(summary);
   const productivityRanking = buildProductivityRevenueRanking(summary);
+  const financialHealthYears = resolveRevenueRankingChartYears(summary.fromYear, summary.toYear, rankYear);
 
   return {
     revenueRanking,
-    revenueRankingYears: resolveRevenueRankingChartYears(summary.fromYear, summary.toYear, rankYear),
+    revenueRankingYears: financialHealthYears,
     rankYear,
     productivityYear,
     costStructure: buildCostStructureChartData(summary, revenueRanking),
     productivity: buildProductivityChartData(summary, productivityRanking),
+    financialHealth: buildFinancialHealthChartData(summary, revenueRanking),
+    financialHealthYears,
     timeline: buildTimelineChartData(summary.timeline),
   };
 }

@@ -456,6 +456,57 @@ function attachRoutes(server: { middlewares: { use: Function } }, root: string):
     }
   });
 
+  server.middlewares.use('/api/competitor/industry-analysis', async (req, res) => {
+    if (req.method !== 'GET') {
+      sendJson(res, 405, { error: 'Method Not Allowed' });
+      return;
+    }
+
+    try {
+      const url = new URL(req.url ?? '', 'http://localhost');
+      const sector = parseSector(url.searchParams.get('sector'));
+      const fromYear = parseYear(url.searchParams.get('fromYear'));
+      const toYear = parseYear(url.searchParams.get('toYear'));
+      const force = url.searchParams.get('force') === '1';
+
+      if (!sector || !fromYear || !toYear) {
+        sendJson(res, 400, {
+          error: 'sector, fromYear, toYear가 필요합니다.',
+        });
+        return;
+      }
+
+      const driveStatus = getCompetitorDriveStatus(root);
+      if (!driveStatus.configured) {
+        sendJson(res, 200, {
+          sector,
+          fromYear,
+          toYear,
+          industryAnalysisByYear: {},
+        });
+        return;
+      }
+
+      const { buildIndustryAnalysisByYear } = await import('./server/competitorIndustryAnalysis');
+      const industryAnalysisByYear = await buildIndustryAnalysisByYear(
+        root,
+        sector,
+        fromYear,
+        toYear,
+        { force },
+      );
+
+      sendJson(res, 200, {
+        sector,
+        fromYear,
+        toYear,
+        industryAnalysisByYear,
+      });
+    } catch (error) {
+      sendJson(res, 500, { error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
   server.middlewares.use('/api/competitor/executive', async (req, res) => {
     if (req.method !== 'GET') {
       sendJson(res, 405, { error: 'Method Not Allowed' });

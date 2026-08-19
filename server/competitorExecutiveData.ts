@@ -15,6 +15,7 @@ import { rebuildMasterCompetitorData } from './competitorMasterData';
 import { dedupeStructuredCompaniesForSummary } from './competitorSummaryDedup';
 import { buildStandardRecord } from './competitorStandardSchema';
 import { buildProductivityEmployeesByYear } from './competitorProductivityEmployees';
+import { buildIndustryAnalysisByYear } from './competitorIndustryAnalysis';
 import {
   buildCompanyFiscalDedupKey,
   documentToSelectionMeta,
@@ -237,6 +238,14 @@ export async function buildExecutiveMultiYearSummary(
     { force: options.force },
   );
 
+  const industryAnalysisByYear = await buildIndustryAnalysisByYear(
+    root,
+    sector,
+    options.fromYear,
+    options.toYear,
+    { force: options.force },
+  );
+
   return {
     sector,
     fromYear: options.fromYear,
@@ -252,5 +261,6 @@ export async function buildExecutiveMultiYearSummary(
     recordsByYear,
     timeline,
     productivityEmployeesByYear,
+    industryAnalysisByYear,
   };
 }

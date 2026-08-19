@@ -1,8 +1,10 @@
 import type { CompetitorExecutiveMultiYearSummary } from '@/types/competitorStandard';
 import {
+  buildFinancialHealthChartData,
   buildProductivityChartData,
   buildProductivityRevenueRanking,
   buildRevenueRankingChartData,
+  formatFinancialHealthGradeLabel,
   formatProductivityPerEmployeeEok,
   resolveExecutiveRankYear,
   resolveProductivityAnalysisYear,
@@ -33,6 +35,7 @@ export interface ExecutiveInsightsBySection {
   revenueRanking: ExecutiveInsightItem[];
   costStructure: ExecutiveInsightItem[];
   productivity: ExecutiveInsightItem[];
+  financialHealth: ExecutiveInsightItem[];
 }
 
 const UNIT_ANOMALY_MILLION = 1_000_000;
@@ -45,6 +48,7 @@ export function buildExecutiveInsightsBySection(
     revenueRanking: [],
     costStructure: [],
     productivity: [],
+    financialHealth: [],
   };
 
   const records = summary.records;
@@ -175,7 +179,59 @@ export function buildExecutiveInsightsBySection(
     });
   }
 
+  const financialHealth = buildFinancialHealthChartData(summary, revenueRanking);
+  if (financialHealth.length > 0) {
+    const topHealthy = [...financialHealth].sort(
+      (a, b) => b.soundnessScore - a.soundnessScore || (a.latestDebtRatio ?? 0) - (b.latestDebtRatio ?? 0),
+    )[0];
+    result.financialHealth.push({
+      severity: 'info',
+      title: '건전성 1위',
+      detail: `${topHealthy.companyName} · ${formatFinancialHealthGradeLabel(topHealthy.riskLevel)} · 부채비율 ${topHealthy.latestDebtRatio?.toFixed(1) ?? '-'}% · ${topHealthy.reasonTags.map((tag) => tag.label).join(', ')}`,
+    });
+
+    const highRisk = financialHealth.filter((item) => item.riskLevel === 'high');
+    if (highRisk.length > 0) {
+      result.financialHealth.push({
+        severity: 'risk',
+        title: '고위험(부실징후)',
+        detail: `${highRisk.map((item) => `${item.companyName}(${item.latestDebtRatio?.toFixed(1) ?? '-'}%)`).join(', ')} · 부채비율·적자 기준`,
+      });
+    }
+
+    const worsening = financialHealth.filter((item) => item.debtRatioTrend === 'worsening');
+    if (worsening.length > 0) {
+      result.financialHealth.push({
+        severity: 'warning',
+        title: '부채비율 악화 추세',
+        detail: `${worsening.map((item) => item.companyName).join(', ')} · ${financialHealthYearsLabel(summary, rankYear)}`,
+      });
+    }
+
+    const operatingLoss = financialHealth.filter((item) =>
+      item.metricsByYear.some((point) => point.isOperatingLoss),
+    );
+    if (operatingLoss.length > 0) {
+      result.financialHealth.push({
+        severity: 'warning',
+        title: '영업적자 구간 존재',
+        detail: `${operatingLoss.map((item) => item.companyName).join(', ')} · 기간 내 영업이익률 마이너스`,
+      });
+    }
+  }
+
   return result;
+}
+
+function financialHealthYearsLabel(
+  summary: CompetitorExecutiveMultiYearSummary,
+  rankYear: number,
+): string {
+  const years: number[] = [];
+  for (let year = rankYear; year >= summary.fromYear && years.length < 3; year -= 1) {
+    years.unshift(year);
+  }
+  return years.length === 1 ? `${years[0]}년` : `${years[0]}–${years[years.length - 1]}년`;
 }
 
 /** @deprecated 섹션별 인사이트는 buildExecutiveInsightsBySection 사용 */
@@ -188,5 +244,6 @@ export function buildExecutiveInsights(
     ...bySection.revenueRanking,
     ...bySection.costStructure,
     ...bySection.productivity,
+    ...bySection.financialHealth,
   ];
 }

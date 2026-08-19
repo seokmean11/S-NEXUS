@@ -25,33 +25,43 @@ export interface ExecutiveInsightClaudeContext {
   toYear: number;
   baseYear: number;
   rankYear: number;
+  productivityYear?: number;
   companyCount: number;
   timeline: Array<{
     year: number;
-    totalRevenue: number | null;
+    totalRevenueEok?: number | null;
+    totalRevenue?: number | null;
     companyCount: number;
     avgOperatingMargin: number | null;
   }>;
   revenueRanking: Array<{
     rank: number;
     name: string;
-    latestRevenue: number;
-    revenuesByYear: Array<{ year: number; revenue: number }>;
+    latestRevenueEok?: number;
+    latestRevenue?: number;
+    revenuesByYear: Array<{ year: number; revenueEok?: number; revenue?: number }>;
+    revenueCagrPct?: number | null;
   }>;
   costStructure: Array<{
     rank: number;
     name: string;
-    cogsRatio: number | null;
-    sgaRatio: number | null;
-    operatingMargin: number | null;
+    avgCogsRatio?: number | null;
+    avgSgaRatio?: number | null;
+    avgOperatingMargin?: number | null;
+    cogsRatio?: number | null;
+    sgaRatio?: number | null;
+    operatingMargin?: number | null;
+    marginByYear?: Array<{ year: number; operatingMargin: number | null; cogsRatio: number | null }>;
   }>;
   productivity: Array<{
     rank: number;
     name: string;
     avgEmployees: number | null;
+    employeesReferenceYear?: number | null;
     revenuePerEmployeeEok: number | null;
     operatingProfitPerEmployeeEok: number | null;
   }>;
+  analytics?: Record<string, unknown>;
   dataQualityHints?: string[];
 }
 
@@ -105,7 +115,7 @@ function parsePipeLine(line: string): ExecutiveInsightClaudeItem | null {
       return {
         severity,
         title: title.slice(0, 80),
-        detail: detail.slice(0, 500),
+        detail: detail.slice(0, 700),
       };
     }
   }
@@ -194,7 +204,7 @@ function parseJsonItems(value: unknown): ExecutiveInsightClaudeItem[] {
     items.push({
       severity: normalizeSeverity(String(row.severity ?? 'info')),
       title: title.slice(0, 80),
-      detail: detail.slice(0, 500),
+      detail: detail.slice(0, 700),
     });
     if (items.length >= 3) break;
   }
@@ -224,6 +234,8 @@ function buildFallbackInsightsFromContext(
   ctx: ExecutiveInsightClaudeContext,
 ): ExecutiveInsightsBySection {
   const topRevenue = ctx.revenueRanking[0];
+  const topRevenueLabel =
+    topRevenue?.latestRevenueEok ?? topRevenue?.latestRevenue ?? '-';
   const topProductivity = [...ctx.productivity]
     .filter((item) => (item.revenuePerEmployeeEok ?? 0) > 0)
     .sort((a, b) => (b.revenuePerEmployeeEok ?? 0) - (a.revenuePerEmployeeEok ?? 0))[0];
@@ -241,7 +253,7 @@ function buildFallbackInsightsFromContext(
           {
             severity: 'info',
             title: '매출 1위',
-            detail: `${ctx.rankYear}년 ${topRevenue.rank}위 ${topRevenue.name} · ${topRevenue.latestRevenue}억원`,
+            detail: `${ctx.rankYear}년 ${topRevenue.rank}위 ${topRevenue.name} · ${topRevenueLabel}억원`,
           },
         ]
       : [],
@@ -284,29 +296,42 @@ function buildFallbackInsightsFromContext(
 }
 
 function buildExecutiveInsightPrompt(compactPayload: Record<string, unknown>): string {
-  return `당신은 국내 전시·인테리어 업종 최고 경쟁사 분석 최고 전문가입니다.
-아래 요약 데이터만 보고 Executive Insight를 작성하세요.
+  return `당신은 국내 ${compactPayload.sector ?? '전시·인테리어'} 업종 경쟁사 재무·원가·생산성 분석 최고 전문가입니다.
+아래 JSON 데이터만 근거로 Executive Insight를 작성하세요. 수치는 JSON에 있는 값만 사용하고, 없는 수치·회사·연도는 창작하지 마세요.
 
-데이터(JSON, 금액 단위 억원):
+[분석 품질 기준 — 오프라인 경쟁사 분석 보고서 수준]
+- 단순 순위 나열 금지. 업종 맥락·추세·업체 간 격차·리스크·시사점을 해석하세요.
+- 매출: 업계 평균·고성장 업체·1·2위 격차 확대/축소·지속 성장 업체를 연도별 수치(CAGR 포함)로 설명
+- 원가: 매출 규모 구간(예: ${REVENUE_TIER_LABEL})별 평균 영업이익률 비교, 업체별 원가율·이익률 추세, 매출 증가 대비 적자 업체 구분
+- 생산성: 인당 매출·인당 영업이익, 종업원 증가와 매출 성장의 연계, 효율 우수/저조 업체
+- 시장·타임라인: 분석 기간 내 경쟁사 집합의 매출·마진 방향성과 시장 맥락
+
+데이터(JSON):
 ${JSON.stringify(compactPayload)}
 
-반드시 아래 "구간 텍스트 형식"만 출력하세요. JSON·markdown·설명 문장 금지.
+반드시 아래 "구간 텍스트 형식"만 출력하세요. JSON·markdown·서두/맺음말 금지.
 
 ===TIMELINE===
-info|짧은 제목|1-2문장 상세
+info|짧은 제목|2~3문장. 시장·기간 추세와 경쟁사 집합의 방향성
 ===REVENUE_RANKING===
-warning|짧은 제목|1-2문장 상세
+info|짧은 제목|2~3문장. 순위·성장률·격차·주목 업체 (수치 포함)
+warning|짧은 제목|2~3문장. 추가 리스크·역전·둔화 등 (해당 시)
 ===COST_STRUCTURE===
-info|짧은 제목|1-2문장 상세
+info|짧은 제목|2~3문장. 규모별 수익성·원가율 추세·대표 업체 (수치 % 포함)
+warning|짧은 제목|2~3문장. 적자·원가 악화·구조적 취약 업체 (해당 시)
 ===PRODUCTIVITY===
-info|짧은 제목|1-2문장 상세
+info|짧은 제목|2~3문장. 인당 매출·종업원 대비 효율·두드러진 업체
+warning|짧은 제목|2~3문장. 생산성 저조·인력 대비 매출 정체 (해당 시)
 
 규칙:
-- 각 구간 1~3줄, 형식은 severity|title|detail
-- severity는 info, warning, risk 중 하나
-- title/detail에 | 문자 사용 금지
-- 한국어, 경영진 보고용 간결 문체`;
+- 각 구간 2~3줄(최대 3줄), 형식 severity|title|detail
+- severity: info, warning, risk
+- title 25자 이내, detail에 | 문자 금지
+- 한국어, 경영진·전략 기획 보고용 전문 문체
+- analytics·revenueCagrPct·marginByYear·productivityWithHeadcountGrowth 필드를 적극 활용`;
 }
+
+const REVENUE_TIER_LABEL = '200억원 기준';
 
 export async function generateCompetitorExecutiveInsights(
   projectRoot: string,
@@ -325,19 +350,22 @@ export async function generateCompetitorExecutiveInsights(
     period: `${ctx.fromYear}-${ctx.toYear}`,
     baseYear: ctx.baseYear,
     rankYear: ctx.rankYear,
+    productivityYear: ctx.productivityYear ?? ctx.rankYear,
     companyCount: ctx.companyCount,
+    unitNote: 'revenueEok·revenuePerEmployeeEok 단위=억원, ratio·margin=%, employees=명, revenueCagrPct=연평균성장률',
     timeline: ctx.timeline,
     revenueRanking: ctx.revenueRanking.slice(0, 10),
     costStructure: ctx.costStructure.slice(0, 10),
     productivity: ctx.productivity.slice(0, 10),
+    analytics: ctx.analytics ?? {},
     dataQualityHints: ctx.dataQualityHints?.slice(0, 6) ?? [],
   };
 
   const result = await sendClaudeServerMessage(projectRoot, {
     system:
-      '경쟁사 재무 분석 최고 전문가. 지정된 구간 텍스트 형식만 출력. 다른 텍스트 금지.',
+      '국내 경쟁사 재무·원가·생산성 분석 최고 전문가. 제공 JSON만 근거로 사용. 지정 구간 텍스트 형식만 출력.',
     user: buildExecutiveInsightPrompt(compactPayload),
-    maxTokens: 1400,
+    maxTokens: 2200,
     apiKey: params.apiKey,
   });
 

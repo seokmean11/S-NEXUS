@@ -43,9 +43,11 @@ import {
   type CompetitorPeriodAnalysisCache,
 } from '@/utils/competitorAnalysisStorage';
 import {
-  countProductivityOverlayEntries,
-  enrichExecutiveSummaryWithProductivityOverlay,
-} from '@/utils/competitorProductivityOverlayClient';
+  enrichExecutiveSummaryWithAllOverlays,
+  executiveNeedsOverlayRefresh,
+} from '@/utils/competitorExecutiveOverlayClient';
+import { countIndustryAnalysisOverlayEntries } from '@/utils/competitorIndustryAnalysisOverlayClient';
+import { countProductivityOverlayEntries } from '@/utils/competitorProductivityOverlayClient';
 
 interface UploadResultItem {
   id: string;
@@ -54,6 +56,14 @@ interface UploadResultItem {
   status: 'pending' | 'uploading' | 'done' | 'error';
   error?: string;
   uploadedAt?: string;
+}
+
+function countExecutiveOverlayEntries(
+  summary: CompetitorExecutiveMultiYearSummary | null | undefined,
+): number {
+  return (
+    countProductivityOverlayEntries(summary) + countIndustryAnalysisOverlayEntries(summary)
+  );
 }
 
 function formatFileSize(bytes: number): string {
@@ -309,17 +319,17 @@ export function CompetitorAnalysisDashboard() {
         sector: analysisSector,
         fromYear,
         toYear,
-        force: false,
+        force: true,
       });
 
       setAnalysis(result.analysis);
       const enrichedExecutive = result.executive
-        ? await enrichExecutiveSummaryWithProductivityOverlay(
+        ? await enrichExecutiveSummaryWithAllOverlays(
             result.executive,
             analysisSector,
             fromYear,
             toYear,
-            { force: countProductivityOverlayEntries(result.executive) === 0 },
+            { force: executiveNeedsOverlayRefresh(result.executive, fromYear, toYear) },
           )
         : null;
       setExecutiveSummary(enrichedExecutive);
@@ -364,16 +374,16 @@ export function CompetitorAnalysisDashboard() {
 
     let cancelled = false;
 
-    void enrichExecutiveSummaryWithProductivityOverlay(
+    void enrichExecutiveSummaryWithAllOverlays(
       executiveSummary,
       analysisSector,
       fromYear,
       toYear,
-      { force: countProductivityOverlayEntries(executiveSummary) === 0 },
+      { force: executiveNeedsOverlayRefresh(executiveSummary, fromYear, toYear) },
     ).then((enriched) => {
       if (cancelled) return;
       if (
-        countProductivityOverlayEntries(enriched) <= countProductivityOverlayEntries(executiveSummary)
+        countExecutiveOverlayEntries(enriched) <= countExecutiveOverlayEntries(executiveSummary)
       ) {
         return;
       }

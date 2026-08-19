@@ -90,6 +90,28 @@ export interface ProductivityEmployeeEntry {
   source_type: 'credit-report';
 }
 
+/** 소속산업 분석 — 신용분석보고서에서 별도 추출, competitor-data.json과 분리 */
+export interface IndustryAnalysisRatios {
+  debt_ratio: number | null;
+  operating_margin: number | null;
+  current_ratio: number | null;
+}
+
+export interface IndustryAnalysisEntry {
+  companyKey: string;
+  companyName: string;
+  biz_no?: string | null;
+  industryName: string | null;
+  industryCode?: string | null;
+  referenceYear: number;
+  companyRatios: IndustryAnalysisRatios;
+  industryAverage: IndustryAnalysisRatios;
+  /** 03. 소속산업 분석 — 업종평균 표의 연도별 부채비율(%) */
+  industryDebtRatioByYear?: Record<string, number>;
+  source_file: string;
+  source_type: 'credit-report';
+}
+
 export interface CompetitorExecutiveMultiYearSummary {
   sector: string;
   fromYear: number;
@@ -106,4 +128,6 @@ export interface CompetitorExecutiveMultiYearSummary {
   timeline: ExecutiveTimelinePoint[];
   /** Drive 폴더 연도별 신용분석보고서 종업원 추출 (기존 structured 데이터 비변경) */
   productivityEmployeesByYear?: Record<string, Record<string, ProductivityEmployeeEntry>>;
+  /** Drive 폴더 연도별 신용분석보고서 소속산업 분석 추출 (기존 structured 데이터 비변경) */
+  industryAnalysisByYear?: Record<string, Record<string, IndustryAnalysisEntry>>;
 }

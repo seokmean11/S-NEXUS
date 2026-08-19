@@ -285,7 +285,7 @@ export async function runCompetitorPeriodAnalysis(
     requestedToYear: toYear,
     effectiveFromYear,
     effectiveToYear,
-    force: false,
+    force,
     uploadConfigured,
     warnings,
     preloadedRecordsByYear: dataByYear,
