@@ -5,7 +5,18 @@ import {
   MARKET_SIZE_TREND_FROM_YEAR,
   MARKET_SIZE_TREND_TO_YEAR,
 } from '../src/utils/marketSizeTrend';
-import { normalizeExecutiveInsightsBySection } from '../src/utils/competitorExecutiveInsight';
+
+function normalizeExecutiveInsightsBySection(
+  insights: Partial<ExecutiveInsightsBySection> | null | undefined,
+): ExecutiveInsightsBySection {
+  return {
+    timeline: insights?.timeline ?? [],
+    revenueRanking: insights?.revenueRanking ?? [],
+    costStructure: insights?.costStructure ?? [],
+    productivity: insights?.productivity ?? [],
+    financialHealth: insights?.financialHealth ?? [],
+  };
+}
 
 export interface ExecutiveInsightClaudeItem {
   severity: 'info' | 'warning' | 'risk';
