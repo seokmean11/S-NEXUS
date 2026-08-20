@@ -33,8 +33,6 @@ import {
 
 const NAV_ITEMS = [
 
-  { path: '/', label: '대시보드', icon: '📊' },
-
   { path: '/analysis', label: 'NEXUS AI', icon: '🤖' },
 
   { path: '/org', label: '조직관리', icon: '🏢', adminOnly: true },
@@ -279,7 +277,7 @@ export function AppLayout() {
 
                 to={item.path}
 
-                end={item.path === '/'}
+                end={item.path === '/analysis'}
 
                 className={({ isActive }) =>
 

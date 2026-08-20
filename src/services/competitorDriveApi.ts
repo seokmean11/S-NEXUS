@@ -249,6 +249,7 @@ export function fetchCompetitorAiInsights(options: {
 
 export function fetchCompetitorExecutiveClaudeInsights(options: {
   context: Record<string, unknown>;
+  cacheKey?: string;
   apiKey: string;
 }): Promise<{
   ok: boolean;
@@ -257,9 +258,11 @@ export function fetchCompetitorExecutiveClaudeInsights(options: {
     revenueRanking: Array<{ severity: string; title: string; detail: string }>;
     costStructure: Array<{ severity: string; title: string; detail: string }>;
     productivity: Array<{ severity: string; title: string; detail: string }>;
+    financialHealth?: Array<{ severity: string; title: string; detail: string }>;
   };
   usage?: { input_tokens: number; output_tokens: number };
   usedFallback?: boolean;
+  cacheHit?: boolean;
 }> {
   return readJson('/api/competitor/executive-insights', {
     method: 'POST',
@@ -267,7 +270,7 @@ export function fetchCompetitorExecutiveClaudeInsights(options: {
       'Content-Type': 'application/json',
       'x-api-key': options.apiKey,
     },
-    body: JSON.stringify({ context: options.context }),
+    body: JSON.stringify({ context: options.context, cacheKey: options.cacheKey }),
   });
 }
 

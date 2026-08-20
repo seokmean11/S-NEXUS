@@ -34,6 +34,7 @@ import {
 } from '@/utils/competitorExecutiveDashboard';
 import {
   buildExecutiveInsightsBySection,
+  normalizeExecutiveInsightsBySection,
   type ExecutiveInsightItem,
   type ExecutiveInsightsBySection,
 } from '@/utils/competitorExecutiveInsight';
@@ -592,6 +593,11 @@ export function CompetitorExecutiveDashboard({
     [resolvedSummary],
   );
 
+  const insightClaudeContext = useMemo(
+    () => (resolvedSummary ? buildExecutiveInsightClaudeContext(resolvedSummary) : null),
+    [resolvedSummary],
+  );
+
   const [claudeInsights, setClaudeInsights] = useState<ExecutiveInsightsBySection | null>(null);
   const [insightUsedFallback, setInsightUsedFallback] = useState(false);
   const [insightLoading, setInsightLoading] = useState(false);
@@ -624,11 +630,20 @@ export function CompetitorExecutiveDashboard({
             : (ruleInsightsBySection?.financialHealth ?? []),
       };
     }
+    if (insightLoading && ruleInsightsBySection) {
+      return ruleInsightsBySection;
+    }
     return insightSource === 'local' ? ruleInsightsBySection : null;
-  }, [claudeInsights, insightSource, ruleInsightsBySection]);
+  }, [claudeInsights, insightLoading, insightSource, ruleInsightsBySection]);
+
+  const displayInsightSource: 'claude' | 'local' | 'pending' = claudeInsights
+    ? 'claude'
+    : insightLoading && ruleInsightsBySection
+      ? 'local'
+      : insightSource;
 
   const handleGenerateExecutiveInsights = useCallback(async () => {
-    if (!resolvedSummary || !insightCacheKey) return;
+    if (!resolvedSummary || !insightCacheKey || !insightClaudeContext) return;
 
     const apiKey = getClaudeApiKey();
     if (!apiKey) {
@@ -640,9 +655,9 @@ export function CompetitorExecutiveDashboard({
     setInsightError(null);
 
     try {
-      const context = buildExecutiveInsightClaudeContext(resolvedSummary);
       const result = await fetchCompetitorExecutiveClaudeInsights({
-        context: context as unknown as Record<string, unknown>,
+        context: insightClaudeContext as unknown as Record<string, unknown>,
+        cacheKey: insightCacheKey,
         apiKey,
       });
 
@@ -654,16 +669,19 @@ export function CompetitorExecutiveDashboard({
         });
       }
 
+      const rawInsights = result.insights as Partial<ExecutiveInsightsBySection> & {
+        stabilityRisk?: ExecutiveInsightItem[];
+      };
+      const parsedInsights = normalizeExecutiveInsightsBySection({
+        ...rawInsights,
+        productivity: rawInsights.productivity ?? rawInsights.stabilityRisk,
+      });
       const normalized: ExecutiveInsightsBySection = {
-        timeline: result.insights.timeline as ExecutiveInsightItem[],
-        revenueRanking: result.insights.revenueRanking as ExecutiveInsightItem[],
-        costStructure: result.insights.costStructure as ExecutiveInsightItem[],
-        productivity:
-          ((result.insights as { productivity?: ExecutiveInsightItem[]; stabilityRisk?: ExecutiveInsightItem[] })
-            .productivity ??
-            (result.insights as { stabilityRisk?: ExecutiveInsightItem[] }).stabilityRisk ??
-            []) as ExecutiveInsightItem[],
-        financialHealth: ruleInsightsBySection?.financialHealth ?? [],
+        ...parsedInsights,
+        financialHealth:
+          parsedInsights.financialHealth.length > 0
+            ? parsedInsights.financialHealth
+            : (ruleInsightsBySection?.financialHealth ?? []),
       };
 
       setClaudeInsights(normalized);
@@ -679,7 +697,7 @@ export function CompetitorExecutiveDashboard({
     } finally {
       setInsightLoading(false);
     }
-  }, [insightCacheKey, resolvedSummary, ruleInsightsBySection]);
+  }, [insightCacheKey, insightClaudeContext, ruleInsightsBySection]);
 
   const revenueScale = useMemo(() => {
     if (!dashboard?.revenueRanking.length) return buildLinearChartScale(0);
@@ -770,10 +788,10 @@ export function CompetitorExecutiveDashboard({
             ? 'Executive Insight 생성 중…'
             : claudeInsights
               ? 'Executive Insight 생성 완료'
-              : 'Executive Insight 생성 (Claude · 1회 호출)'}
+              : 'Executive Insight 생성 (Claude · 5구간 병렬)'}
         </Button>
         <p className="competitor-executive-insight-actions__hint">
-          4개 대시보드 인사이트를 한 번에 생성 · 동일 분석 결과는 세션 캐시로 재호출 없음
+          5개 구간 병렬 생성 · 동일 분석은 세션·서버 캐시로 재호출 없음 · 생성 중 자동 점검 인사이트 표시
           {!hasClaudeApiKey() ? ' · API 키 없으면 자동 점검(로컬)만 표시' : ''}
         </p>
         {insightError && (
@@ -809,7 +827,7 @@ export function CompetitorExecutiveDashboard({
         </div>
         <ExecutiveInsightList
           items={displayInsights?.timeline ?? []}
-          source={insightSource}
+          source={displayInsightSource}
           usedFallback={insightUsedFallback}
         />
       </Card>
@@ -914,7 +932,7 @@ export function CompetitorExecutiveDashboard({
         )}
         <ExecutiveInsightList
           items={displayInsights?.revenueRanking ?? []}
-          source={insightSource}
+          source={displayInsightSource}
           usedFallback={insightUsedFallback}
         />
       </Card>
@@ -1077,7 +1095,7 @@ export function CompetitorExecutiveDashboard({
         )}
         <ExecutiveInsightList
           items={displayInsights?.costStructure ?? []}
-          source={insightSource}
+          source={displayInsightSource}
           usedFallback={insightUsedFallback}
         />
       </Card>
@@ -1197,7 +1215,7 @@ export function CompetitorExecutiveDashboard({
         )}
         <ExecutiveInsightList
           items={displayInsights?.productivity ?? []}
-          source={insightSource}
+          source={displayInsightSource}
           usedFallback={insightUsedFallback}
         />
       </Card>
@@ -1369,7 +1387,7 @@ export function CompetitorExecutiveDashboard({
         )}
         <ExecutiveInsightList
           items={displayInsights?.financialHealth ?? []}
-          source={insightSource}
+          source={displayInsightSource}
           usedFallback={insightUsedFallback}
         />
       </Card>

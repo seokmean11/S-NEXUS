@@ -5,6 +5,7 @@ import {
   MARKET_SIZE_TREND_FROM_YEAR,
   MARKET_SIZE_TREND_TO_YEAR,
 } from '../src/utils/marketSizeTrend';
+import { normalizeExecutiveInsightsBySection } from '../src/utils/competitorExecutiveInsight';
 
 export interface ExecutiveInsightClaudeItem {
   severity: 'info' | 'warning' | 'risk';
@@ -17,6 +18,7 @@ export interface ExecutiveInsightsBySection {
   revenueRanking: ExecutiveInsightClaudeItem[];
   costStructure: ExecutiveInsightClaudeItem[];
   productivity: ExecutiveInsightClaudeItem[];
+  financialHealth: ExecutiveInsightClaudeItem[];
 }
 
 export interface ExecutiveInsightClaudeContext {
@@ -61,6 +63,17 @@ export interface ExecutiveInsightClaudeContext {
     revenuePerEmployeeEok: number | null;
     operatingProfitPerEmployeeEok: number | null;
   }>;
+  financialHealth?: Array<{
+    rank: number;
+    name: string;
+    riskLevel: string;
+    latestDebtRatio: number | null;
+    debtRatioTrend: string;
+    latestOperatingMargin: number | null;
+    revenueRank: number;
+    latestRevenueEok: number;
+    debtRatioByYear: Array<{ year: number; debtRatio: number | null }>;
+  }>;
   analytics?: Record<string, unknown>;
   dataQualityHints?: string[];
 }
@@ -73,6 +86,7 @@ const SECTION_HEADER_MAP: Record<string, SectionKey> = {
   COST_STRUCTURE: 'costStructure',
   PRODUCTIVITY: 'productivity',
   STABILITY_RISK: 'productivity',
+  FINANCIAL_HEALTH: 'financialHealth',
 };
 
 const EMPTY_SECTIONS: ExecutiveInsightsBySection = {
@@ -80,6 +94,7 @@ const EMPTY_SECTIONS: ExecutiveInsightsBySection = {
   revenueRanking: [],
   costStructure: [],
   productivity: [],
+  financialHealth: [],
 };
 
 function normalizeSeverity(value: string): ExecutiveInsightClaudeItem['severity'] {
@@ -98,6 +113,9 @@ function pushInsightItem(
   section: SectionKey,
   item: ExecutiveInsightClaudeItem,
 ): void {
+  if (!bucket[section]) {
+    bucket[section] = [];
+  }
   if (bucket[section].length >= 3) return;
   bucket[section].push(item);
 }
@@ -139,6 +157,7 @@ function parseExecutiveInsightsFromSectionText(text: string): ExecutiveInsightsB
     revenueRanking: [],
     costStructure: [],
     productivity: [],
+    financialHealth: [],
   };
 
   const parts = text.split(/===\s*([A-Z_]+)\s*===/u);
@@ -181,6 +200,7 @@ function tryParseExecutiveInsightsJson(text: string): ExecutiveInsightsBySection
         revenueRanking: parseJsonItems(parsed.revenueRanking),
         costStructure: parseJsonItems(parsed.costStructure),
         productivity: parseJsonItems(parsed.productivity ?? parsed.stabilityRisk),
+        financialHealth: parseJsonItems(parsed.financialHealth),
       };
       if (countInsightItems(mapped) > 0) return mapped;
     } catch {
@@ -213,10 +233,11 @@ function parseJsonItems(value: unknown): ExecutiveInsightClaudeItem[] {
 
 function countInsightItems(insights: ExecutiveInsightsBySection): number {
   return (
-    insights.timeline.length +
-    insights.revenueRanking.length +
-    insights.costStructure.length +
-    insights.productivity.length
+    (insights.timeline?.length ?? 0) +
+    (insights.revenueRanking?.length ?? 0) +
+    (insights.costStructure?.length ?? 0) +
+    (insights.productivity?.length ?? 0) +
+    (insights.financialHealth?.length ?? 0)
   );
 }
 
@@ -267,6 +288,7 @@ function buildFallbackInsightsFromContext(
           },
         ]
       : [],
+    financialHealth: [],
   };
 
   for (const hint of ctx.dataQualityHints ?? []) {
@@ -281,8 +303,8 @@ function buildFallbackInsightsFromContext(
       pushInsightItem(result, 'costStructure', item);
     } else if (lower.includes('종업원') || lower.includes('생산성') || lower.includes('인당')) {
       pushInsightItem(result, 'productivity', item);
-    } else if (lower.includes('부채')) {
-      pushInsightItem(result, 'productivity', item);
+    } else if (lower.includes('부채') || lower.includes('건전') || lower.includes('재무')) {
+      pushInsightItem(result, 'financialHealth', item);
     } else if (lower.includes('매출') && lower.includes('미추출')) {
       pushInsightItem(result, 'revenueRanking', item);
     } else if (lower.includes('단위')) {
@@ -295,57 +317,67 @@ function buildFallbackInsightsFromContext(
   return result;
 }
 
-function buildExecutiveInsightPrompt(compactPayload: Record<string, unknown>): string {
-  return `당신은 국내 ${compactPayload.sector ?? '전시·인테리어'} 업종 경쟁사 재무·원가·생산성 분석 최고 전문가입니다.
-아래 JSON 데이터만 근거로 Executive Insight를 작성하세요. 수치는 JSON에 있는 값만 사용하고, 없는 수치·회사·연도는 창작하지 마세요.
+const REVENUE_TIER_LABEL = '200억원 기준';
 
-[분석 품질 기준 — 오프라인 경쟁사 분석 보고서 수준]
+const EXECUTIVE_INSIGHT_QUALITY_RULES = `[분석 품질 기준 — 오프라인 경쟁사 분석 보고서 수준]
 - 단순 순위 나열 금지. 업종 맥락·추세·업체 간 격차·리스크·시사점을 해석하세요.
 - 매출: 업계 평균·고성장 업체·1·2위 격차 확대/축소·지속 성장 업체를 연도별 수치(CAGR 포함)로 설명
 - 원가: 매출 규모 구간(예: ${REVENUE_TIER_LABEL})별 평균 영업이익률 비교, 업체별 원가율·이익률 추세, 매출 증가 대비 적자 업체 구분
 - 생산성: 인당 매출·인당 영업이익, 종업원 증가와 매출 성장의 연계, 효율 우수/저조 업체
-- 시장·타임라인: 분석 기간 내 경쟁사 집합의 매출·마진 방향성과 시장 맥락
+- 재무 건전성: 부채비율(총부채÷자본×100) 추세·업종평균 대비·매출·생산성과의 교차 해석. 차트에 이미 보이는 등급·막대 높이만 반복하지 말고, 매출 상위 vs 재무 취약, 인당 생산성 vs 부채 악화, 업종평균 대비 과부채 집단 등 전략적 시사점을 제시
+- 시장·타임라인: 분석 기간 내 경쟁사 집합의 매출·마진 방향성과 시장 맥락`;
 
-데이터(JSON):
-${JSON.stringify(compactPayload)}
-
-반드시 아래 "구간 텍스트 형식"만 출력하세요. JSON·markdown·서두/맺음말 금지.
-
-===TIMELINE===
-info|짧은 제목|2~3문장. 시장·기간 추세와 경쟁사 집합의 방향성
-===REVENUE_RANKING===
-info|짧은 제목|2~3문장. 순위·성장률·격차·주목 업체 (수치 포함)
-warning|짧은 제목|2~3문장. 추가 리스크·역전·둔화 등 (해당 시)
-===COST_STRUCTURE===
-info|짧은 제목|2~3문장. 규모별 수익성·원가율 추세·대표 업체 (수치 % 포함)
-warning|짧은 제목|2~3문장. 적자·원가 악화·구조적 취약 업체 (해당 시)
-===PRODUCTIVITY===
-info|짧은 제목|2~3문장. 인당 매출·종업원 대비 효율·두드러진 업체
-warning|짧은 제목|2~3문장. 생산성 저조·인력 대비 매출 정체 (해당 시)
-
-규칙:
-- 각 구간 2~3줄(최대 3줄), 형식 severity|title|detail
-- severity: info, warning, risk
-- title 25자 이내, detail에 | 문자 금지
-- 한국어, 경영진·전략 기획 보고용 전문 문체
-- analytics·revenueCagrPct·marginByYear·productivityWithHeadcountGrowth 필드를 적극 활용`;
-}
-
-const REVENUE_TIER_LABEL = '200억원 기준';
-
-export async function generateCompetitorExecutiveInsights(
-  projectRoot: string,
-  params: {
-    context: ExecutiveInsightClaudeContext;
-    apiKey?: string;
+const EXECUTIVE_INSIGHT_SECTION_SPECS: Array<{
+  key: SectionKey;
+  header: string;
+  focus: string;
+  formatLines: string;
+  maxTokens: number;
+}> = [
+  {
+    key: 'timeline',
+    header: 'TIMELINE',
+    focus: '시장·기간 추세와 경쟁사 집합의 방향성',
+    formatLines: 'info|짧은 제목|2~3문장. 시장·기간 추세와 경쟁사 집합의 방향성',
+    maxTokens: 480,
   },
-): Promise<{
-  insights: ExecutiveInsightsBySection;
-  usage: { input_tokens: number; output_tokens: number };
-  usedFallback: boolean;
-}> {
-  const ctx = params.context;
-  const compactPayload = {
+  {
+    key: 'revenueRanking',
+    header: 'REVENUE_RANKING',
+    focus: '순위·성장률·격차·주목 업체 (수치 포함) 및 역전·둔화 리스크',
+    formatLines:
+      'info|짧은 제목|2~3문장. 순위·성장률·격차·주목 업체 (수치 포함)\nwarning|짧은 제목|2~3문장. 추가 리스크·역전·둔화 등 (해당 시)',
+    maxTokens: 560,
+  },
+  {
+    key: 'costStructure',
+    header: 'COST_STRUCTURE',
+    focus: '규모별 수익성·원가율 추세·대표 업체 (수치 % 포함) 및 적자·원가 악화',
+    formatLines:
+      'info|짧은 제목|2~3문장. 규모별 수익성·원가율 추세·대표 업체 (수치 % 포함)\nwarning|짧은 제목|2~3문장. 적자·원가 악화·구조적 취약 업체 (해당 시)',
+    maxTokens: 560,
+  },
+  {
+    key: 'productivity',
+    header: 'PRODUCTIVITY',
+    focus: '인당 매출·종업원 대비 효율·두드러진 업체 및 생산성 저조 리스크',
+    formatLines:
+      'info|짧은 제목|2~3문장. 인당 매출·종업원 대비 효율·두드러진 업체\nwarning|짧은 제목|2~3문장. 생산성 저조·인력 대비 매출 정체 (해당 시)',
+    maxTokens: 560,
+  },
+  {
+    key: 'financialHealth',
+    header: 'FINANCIAL_HEALTH',
+    focus:
+      '업종평균 대비 부채 구조·매출·생산성과 연계한 재무 포지셔닝 및 고매출·고부채·적자 리스크',
+    formatLines:
+      'info|짧은 제목|2~3문장. 업종평균 대비 부채 구조·매출·생산성과 연계한 재무 포지셔닝 (수치 % 포함)\nwarning|짧은 제목|2~3문장. 고매출·고부채·적자·추세 악화 등 구조적 재무 리스크 (해당 시)\nrisk|짧은 제목|2~3문장. 즉시 주의가 필요한 재무 취약 업체·집단 (해당 시)',
+    maxTokens: 640,
+  },
+];
+
+function buildCompactExecutiveInsightPayload(ctx: ExecutiveInsightClaudeContext): Record<string, unknown> {
+  return {
     sector: ctx.sector,
     period: `${ctx.fromYear}-${ctx.toYear}`,
     baseYear: ctx.baseYear,
@@ -357,30 +389,173 @@ export async function generateCompetitorExecutiveInsights(
     revenueRanking: ctx.revenueRanking.slice(0, 10),
     costStructure: ctx.costStructure.slice(0, 10),
     productivity: ctx.productivity.slice(0, 10),
+    financialHealth: (ctx.financialHealth ?? []).slice(0, 10),
     analytics: ctx.analytics ?? {},
     dataQualityHints: ctx.dataQualityHints?.slice(0, 6) ?? [],
   };
+}
 
+function buildSectionExecutiveInsightPrompt(
+  section: (typeof EXECUTIVE_INSIGHT_SECTION_SPECS)[number],
+  compactPayload: Record<string, unknown>,
+): string {
+  return `당신은 국내 ${compactPayload.sector ?? '전시·인테리어'} 업종 경쟁사 재무·원가·생산성 분석 최고 전문가입니다.
+아래 JSON 데이터만 근거로 Executive Insight의 ${section.header} 구간만 작성하세요. 수치는 JSON에 있는 값만 사용하고, 없는 수치·회사·연도는 창작하지 마세요.
+
+${EXECUTIVE_INSIGHT_QUALITY_RULES}
+
+[이번 구간 초점]
+- ${section.focus}
+
+데이터(JSON):
+${JSON.stringify(compactPayload)}
+
+반드시 아래 "구간 텍스트 형식"만 출력하세요. JSON·markdown·서두/맺음말·다른 구간 금지.
+
+===${section.header}===
+${section.formatLines}
+
+규칙:
+- 이 구간 2~3줄(최대 3줄), 형식 severity|title|detail
+- severity: info, warning, risk
+- title 25자 이내, detail에 | 문자 금지
+- 한국어, 경영진·전략 기획 보고용 전문 문체
+- analytics·financialHealth·revenueCagrPct·marginByYear·productivityWithHeadcountGrowth·industryBenchmarkDebtRatio·highRevenueHighDebtRisk·productivityLeaderFinancialRisk 필드를 적극 활용`;
+}
+
+async function generateExecutiveInsightSection(
+  projectRoot: string,
+  params: {
+    section: (typeof EXECUTIVE_INSIGHT_SECTION_SPECS)[number];
+    compactPayload: Record<string, unknown>;
+    apiKey?: string;
+  },
+): Promise<{
+  section: SectionKey;
+  items: ExecutiveInsightClaudeItem[];
+  usage: { input_tokens: number; output_tokens: number };
+}> {
   const result = await sendClaudeServerMessage(projectRoot, {
     system:
       '국내 경쟁사 재무·원가·생산성 분석 최고 전문가. 제공 JSON만 근거로 사용. 지정 구간 텍스트 형식만 출력.',
-    user: buildExecutiveInsightPrompt(compactPayload),
-    maxTokens: 2200,
+    user: buildSectionExecutiveInsightPrompt(params.section, params.compactPayload),
+    maxTokens: params.section.maxTokens,
     apiKey: params.apiKey,
   });
 
-  const parsed = parseExecutiveInsightsFromClaudeText(result.text);
-  if (countInsightItems(parsed) > 0) {
+  const parsed = parseExecutiveInsightsFromSectionText(result.text);
+  return {
+    section: params.section.key,
+    items: parsed[params.section.key],
+    usage: result.usage,
+  };
+}
+
+function mergeExecutiveInsightSections(
+  ctx: ExecutiveInsightClaudeContext,
+  sectionResults: Array<{
+    section: SectionKey;
+    items: ExecutiveInsightClaudeItem[];
+  }>,
+): { insights: ExecutiveInsightsBySection; usedFallback: boolean } {
+  const fallback = buildFallbackInsightsFromContext(ctx);
+  const insights: ExecutiveInsightsBySection = { ...EMPTY_SECTIONS };
+  let usedFallback = false;
+
+  for (const result of sectionResults) {
+    if (result.items.length > 0) {
+      insights[result.section] = result.items;
+      continue;
+    }
+    const fallbackItems = fallback[result.section] ?? [];
+    if (fallbackItems.length > 0) {
+      insights[result.section] = fallbackItems;
+      usedFallback = true;
+    }
+  }
+
+  return { insights, usedFallback };
+}
+
+export async function generateCompetitorExecutiveInsights(
+  projectRoot: string,
+  params: {
+    context: ExecutiveInsightClaudeContext;
+    cacheKey?: string;
+    apiKey?: string;
+  },
+): Promise<{
+  insights: ExecutiveInsightsBySection;
+  usage: { input_tokens: number; output_tokens: number };
+  usedFallback: boolean;
+  cacheHit?: boolean;
+}> {
+  const ctx = params.context;
+  const cacheKey = params.cacheKey?.trim();
+
+  if (cacheKey) {
+    const { loadExecutiveClaudeInsightDiskCache, saveExecutiveClaudeInsightDiskCache } = await import(
+      './competitorExecutiveClaudeInsightDiskCache'
+    );
+    const cached = loadExecutiveClaudeInsightDiskCache(projectRoot, cacheKey);
+    if (cached) {
+      return {
+        insights: normalizeExecutiveInsightsBySection(cached.insights),
+        usage: cached.usage,
+        usedFallback: cached.usedFallback,
+        cacheHit: true,
+      };
+    }
+  }
+
+  const compactPayload = buildCompactExecutiveInsightPayload(ctx);
+  const sectionResults = await Promise.all(
+    EXECUTIVE_INSIGHT_SECTION_SPECS.map((section) =>
+      generateExecutiveInsightSection(projectRoot, {
+        section,
+        compactPayload,
+        apiKey: params.apiKey,
+      }),
+    ),
+  );
+
+  const usage = sectionResults.reduce(
+    (acc, result) => ({
+      input_tokens: acc.input_tokens + result.usage.input_tokens,
+      output_tokens: acc.output_tokens + result.usage.output_tokens,
+    }),
+    { input_tokens: 0, output_tokens: 0 },
+  );
+
+  const merged = mergeExecutiveInsightSections(
+    ctx,
+    sectionResults.map((result) => ({ section: result.section, items: result.items })),
+  );
+
+  if (countInsightItems(merged.insights) === 0) {
     return {
-      insights: parsed,
-      usage: result.usage,
-      usedFallback: false,
+      insights: normalizeExecutiveInsightsBySection(buildFallbackInsightsFromContext(ctx)),
+      usage,
+      usedFallback: true,
     };
   }
 
-  return {
-    insights: buildFallbackInsightsFromContext(ctx),
-    usage: result.usage,
-    usedFallback: true,
+  const response = {
+    insights: normalizeExecutiveInsightsBySection(merged.insights),
+    usage,
+    usedFallback: merged.usedFallback,
   };
+
+  if (cacheKey) {
+    const { saveExecutiveClaudeInsightDiskCache } = await import('./competitorExecutiveClaudeInsightDiskCache');
+    saveExecutiveClaudeInsightDiskCache(projectRoot, {
+      cacheKey,
+      generatedAt: new Date().toISOString(),
+      insights: response.insights,
+      usage: response.usage,
+      usedFallback: response.usedFallback,
+    });
+  }
+
+  return response;
 }

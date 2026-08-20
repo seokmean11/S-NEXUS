@@ -3,6 +3,7 @@ import {
   buildExecutiveFromMultiYear,
   dedupeRecordsByCompany,
   resolveExecutiveRankYear,
+  resolveIndustryDebtRatioBenchmark,
   resolveRevenueRankingChartYears,
   safeNumber,
 } from '@/utils/competitorExecutiveDashboard';
@@ -10,7 +11,7 @@ import { buildExecutiveInsightsBySection } from '@/utils/competitorExecutiveInsi
 import { resolveStandardFinancialView } from '@/utils/competitorStandardView';
 
 const REVENUE_TIER_THRESHOLD_EOK = 200;
-const INSIGHT_PROMPT_VERSION = 'v2';
+const INSIGHT_PROMPT_VERSION = 'v3';
 
 function round1(value: number): number {
   return Math.round(value * 10) / 10;
@@ -63,6 +64,17 @@ export interface ExecutiveInsightClaudeContext {
     revenuePerEmployeeEok: number | null;
     operatingProfitPerEmployeeEok: number | null;
   }>;
+  financialHealth: Array<{
+    rank: number;
+    name: string;
+    riskLevel: string;
+    latestDebtRatio: number | null;
+    debtRatioTrend: string;
+    latestOperatingMargin: number | null;
+    revenueRank: number;
+    latestRevenueEok: number;
+    debtRatioByYear: Array<{ year: number; debtRatio: number | null }>;
+  }>;
   analytics: {
     industryAvgRevenueEok: number | null;
     revenueTierThresholdEok: number;
@@ -74,6 +86,26 @@ export interface ExecutiveInsightClaudeContext {
     consecutiveLossCompanies: string[];
     improvingCogsCompanies: string[];
     productivityWithHeadcountGrowth: Array<{ name: string; employeesFrom: number; employeesTo: number; fromYear: number; toYear: number }>;
+    industryBenchmarkDebtRatio: number | null;
+    industryBenchmarkYear: number | null;
+    aboveIndustryDebtBenchmark: string[];
+    belowIndustryDebtBenchmark: string[];
+    highRevenueHighDebtRisk: Array<{ name: string; revenueRank: number; latestDebtRatio: number }>;
+    improvingDebtTrend: string[];
+    worseningDebtTrend: string[];
+    operatingLossWithHighDebt: string[];
+    strongRevenueWeakBalance: Array<{
+      name: string;
+      revenueRank: number;
+      latestDebtRatio: number;
+      latestOperatingMargin: number | null;
+    }>;
+    productivityLeaderFinancialRisk: Array<{
+      name: string;
+      revenuePerEmployeeEok: number;
+      latestDebtRatio: number;
+      debtRatioTrend: string;
+    }>;
   };
   dataQualityHints?: string[];
 }
@@ -232,6 +264,125 @@ function buildInsightAnalytics(
     consecutiveLossCompanies,
     improvingCogsCompanies,
     productivityWithHeadcountGrowth,
+    industryBenchmarkDebtRatio: null,
+    industryBenchmarkYear: null,
+    aboveIndustryDebtBenchmark: [],
+    belowIndustryDebtBenchmark: [],
+    highRevenueHighDebtRisk: [],
+    improvingDebtTrend: [],
+    worseningDebtTrend: [],
+    operatingLossWithHighDebt: [],
+    strongRevenueWeakBalance: [],
+    productivityLeaderFinancialRisk: [],
+  };
+}
+
+function buildFinancialHealthInsightAnalytics(
+  summary: CompetitorExecutiveMultiYearSummary,
+  dashboard: ReturnType<typeof buildExecutiveFromMultiYear>,
+): Pick<
+  ExecutiveInsightClaudeContext['analytics'],
+  | 'industryBenchmarkDebtRatio'
+  | 'industryBenchmarkYear'
+  | 'aboveIndustryDebtBenchmark'
+  | 'belowIndustryDebtBenchmark'
+  | 'highRevenueHighDebtRisk'
+  | 'improvingDebtTrend'
+  | 'worseningDebtTrend'
+  | 'operatingLossWithHighDebt'
+  | 'strongRevenueWeakBalance'
+  | 'productivityLeaderFinancialRisk'
+> {
+  const financialHealth = dashboard.financialHealth;
+  const chartYears = dashboard.financialHealthYears;
+  const industryBenchmark = resolveIndustryDebtRatioBenchmark(summary, chartYears);
+  const benchmarkValue = industryBenchmark?.value ?? null;
+  const benchmarkYear = industryBenchmark?.referenceYear ?? null;
+
+  const aboveIndustryDebtBenchmark: string[] = [];
+  const belowIndustryDebtBenchmark: string[] = [];
+  const highRevenueHighDebtRisk: Array<{ name: string; revenueRank: number; latestDebtRatio: number }> =
+    [];
+  const improvingDebtTrend: string[] = [];
+  const worseningDebtTrend: string[] = [];
+  const operatingLossWithHighDebt: string[] = [];
+  const strongRevenueWeakBalance: Array<{
+    name: string;
+    revenueRank: number;
+    latestDebtRatio: number;
+    latestOperatingMargin: number | null;
+  }> = [];
+
+  for (const item of financialHealth) {
+    const debtRatio = item.latestDebtRatio;
+    if (debtRatio == null || debtRatio <= 0) continue;
+
+    if (benchmarkValue != null) {
+      if (debtRatio > benchmarkValue) aboveIndustryDebtBenchmark.push(item.companyName);
+      else belowIndustryDebtBenchmark.push(item.companyName);
+    }
+
+    if (item.debtRatioTrend === 'improving') improvingDebtTrend.push(item.companyName);
+    if (item.debtRatioTrend === 'worsening') worseningDebtTrend.push(item.companyName);
+
+    if (item.revenueRank <= 3 && (item.riskLevel === 'high' || item.riskLevel === 'medium')) {
+      highRevenueHighDebtRisk.push({
+        name: item.companyName,
+        revenueRank: item.revenueRank,
+        latestDebtRatio: round1(debtRatio),
+      });
+    }
+
+    if (
+      item.revenueRank <= 5 &&
+      (item.riskLevel === 'high' || (benchmarkValue != null && debtRatio > benchmarkValue))
+    ) {
+      strongRevenueWeakBalance.push({
+        name: item.companyName,
+        revenueRank: item.revenueRank,
+        latestDebtRatio: round1(debtRatio),
+        latestOperatingMargin: item.latestOperatingMargin,
+      });
+    }
+
+    if (
+      (item.riskLevel === 'high' || (benchmarkValue != null && debtRatio > benchmarkValue)) &&
+      item.metricsByYear.some((point) => point.isOperatingLoss)
+    ) {
+      operatingLossWithHighDebt.push(item.companyName);
+    }
+  }
+
+  const productivityLeaderFinancialRisk: ExecutiveInsightClaudeContext['analytics']['productivityLeaderFinancialRisk'] =
+    [];
+  const productivityByKey = new Map(
+    dashboard.productivity.map((item) => [item.companyKey, item]),
+  );
+  for (const item of financialHealth) {
+    const productivity = productivityByKey.get(item.companyKey);
+    if (!productivity?.hasProductivityData || (productivity.revenuePerEmployeeEok ?? 0) <= 0) continue;
+    if (item.latestDebtRatio == null || item.latestDebtRatio <= 0) continue;
+    if (productivity.rank > 3) continue;
+    if (item.riskLevel !== 'high' && item.debtRatioTrend !== 'worsening') continue;
+    productivityLeaderFinancialRisk.push({
+      name: item.companyName,
+      revenuePerEmployeeEok: productivity.revenuePerEmployeeEok ?? 0,
+      latestDebtRatio: round1(item.latestDebtRatio),
+      debtRatioTrend: item.debtRatioTrend ?? 'stable',
+    });
+  }
+
+  return {
+    industryBenchmarkDebtRatio: benchmarkValue != null ? round1(benchmarkValue) : null,
+    industryBenchmarkYear: benchmarkYear,
+    aboveIndustryDebtBenchmark,
+    belowIndustryDebtBenchmark,
+    highRevenueHighDebtRisk,
+    improvingDebtTrend,
+    worseningDebtTrend,
+    operatingLossWithHighDebt,
+    strongRevenueWeakBalance,
+    productivityLeaderFinancialRisk,
   };
 }
 
@@ -242,16 +393,23 @@ export function buildExecutiveInsightClaudeContext(
   const rankYear = resolveExecutiveRankYear(summary);
   const chartYears = resolveRevenueRankingChartYears(summary.fromYear, summary.toYear, rankYear);
   const ruleHints = buildExecutiveInsightsBySection(summary);
+  const baseAnalytics = buildInsightAnalytics(summary, dashboard);
+  const financialHealthAnalytics = buildFinancialHealthInsightAnalytics(summary, dashboard);
 
   const dataQualityHints = [
     ...ruleHints.timeline,
     ...ruleHints.revenueRanking,
     ...ruleHints.costStructure,
     ...ruleHints.productivity,
+    ...ruleHints.financialHealth,
   ]
     .filter((item) => item.severity !== 'info')
     .map((item) => `${item.title}: ${item.detail}`)
-    .slice(0, 6);
+    .slice(0, 8);
+
+  const revenueByKey = new Map(
+    dashboard.revenueRanking.map((item) => [item.companyKey, item]),
+  );
 
   return {
     sector: summary.sector,
@@ -293,7 +451,27 @@ export function buildExecutiveInsightClaudeContext(
       revenuePerEmployeeEok: item.revenuePerEmployeeEok,
       operatingProfitPerEmployeeEok: item.operatingProfitPerEmployeeEok,
     })),
-    analytics: buildInsightAnalytics(summary, dashboard),
+    financialHealth: dashboard.financialHealth.map((item) => {
+      const revenue = revenueByKey.get(item.companyKey);
+      return {
+        rank: item.rank,
+        name: item.companyName,
+        riskLevel: item.riskLevel,
+        latestDebtRatio: item.latestDebtRatio,
+        debtRatioTrend: item.debtRatioTrend ?? 'stable',
+        latestOperatingMargin: item.latestOperatingMargin,
+        revenueRank: item.revenueRank,
+        latestRevenueEok: revenue ? toEok(revenue.latestRevenue) : 0,
+        debtRatioByYear: item.metricsByYear.map((point) => ({
+          year: point.year,
+          debtRatio: point.debtRatio,
+        })),
+      };
+    }),
+    analytics: {
+      ...baseAnalytics,
+      ...financialHealthAnalytics,
+    },
     dataQualityHints,
   };
 }

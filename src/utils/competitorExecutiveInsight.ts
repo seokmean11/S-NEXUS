@@ -4,10 +4,11 @@ import {
   buildProductivityChartData,
   buildProductivityRevenueRanking,
   buildRevenueRankingChartData,
-  formatFinancialHealthGradeLabel,
   formatProductivityPerEmployeeEok,
   resolveExecutiveRankYear,
+  resolveIndustryDebtRatioBenchmark,
   resolveProductivityAnalysisYear,
+  resolveRevenueRankingChartYears,
   safeNumber,
 } from '@/utils/competitorExecutiveDashboard';
 import { formatCompetitorDisplayCompanyName } from '@/utils/competitorCompanyName';
@@ -36,6 +37,18 @@ export interface ExecutiveInsightsBySection {
   costStructure: ExecutiveInsightItem[];
   productivity: ExecutiveInsightItem[];
   financialHealth: ExecutiveInsightItem[];
+}
+
+export function normalizeExecutiveInsightsBySection(
+  insights: Partial<ExecutiveInsightsBySection> | null | undefined,
+): ExecutiveInsightsBySection {
+  return {
+    timeline: insights?.timeline ?? [],
+    revenueRanking: insights?.revenueRanking ?? [],
+    costStructure: insights?.costStructure ?? [],
+    productivity: insights?.productivity ?? [],
+    financialHealth: insights?.financialHealth ?? [],
+  };
 }
 
 const UNIT_ANOMALY_MILLION = 1_000_000;
@@ -180,22 +193,34 @@ export function buildExecutiveInsightsBySection(
   }
 
   const financialHealth = buildFinancialHealthChartData(summary, revenueRanking);
-  if (financialHealth.length > 0) {
-    const topHealthy = [...financialHealth].sort(
-      (a, b) => b.soundnessScore - a.soundnessScore || (a.latestDebtRatio ?? 0) - (b.latestDebtRatio ?? 0),
-    )[0];
-    result.financialHealth.push({
-      severity: 'info',
-      title: '건전성 1위',
-      detail: `${topHealthy.companyName} · ${formatFinancialHealthGradeLabel(topHealthy.riskLevel)} · 부채비율 ${topHealthy.latestDebtRatio?.toFixed(1) ?? '-'}% · ${topHealthy.reasonTags.map((tag) => tag.label).join(', ')}`,
-    });
+  const financialHealthYears = resolveRevenueRankingChartYears(summary.fromYear, summary.toYear, rankYear);
+  const industryBenchmark = resolveIndustryDebtRatioBenchmark(summary, financialHealthYears);
 
-    const highRisk = financialHealth.filter((item) => item.riskLevel === 'high');
-    if (highRisk.length > 0) {
+  if (financialHealth.length > 0) {
+    if (industryBenchmark) {
+      const above = financialHealth.filter(
+        (item) =>
+          item.latestDebtRatio != null && item.latestDebtRatio > industryBenchmark.value,
+      );
+      const below = financialHealth.filter(
+        (item) =>
+          item.latestDebtRatio != null && item.latestDebtRatio <= industryBenchmark.value,
+      );
       result.financialHealth.push({
-        severity: 'risk',
-        title: '고위험(부실징후)',
-        detail: `${highRisk.map((item) => `${item.companyName}(${item.latestDebtRatio?.toFixed(1) ?? '-'}%)`).join(', ')} · 부채비율·적자 기준`,
+        severity: 'info',
+        title: '업종 대비 부채 구조',
+        detail: `${industryBenchmark.referenceYear}년 업종평균 부채비율 ${industryBenchmark.value.toFixed(1)}% 기준 · 초과 ${above.length}社 · 양호 ${below.length}社 · 매출·생산성 대시보드와 교차 검토 필요`,
+      });
+    }
+
+    const highRevenueHighDebt = financialHealth.filter(
+      (item) => item.revenueRank <= 3 && (item.riskLevel === 'high' || item.riskLevel === 'medium'),
+    );
+    if (highRevenueHighDebt.length > 0) {
+      result.financialHealth.push({
+        severity: 'warning',
+        title: '매출 상위·재무 취약',
+        detail: `${highRevenueHighDebt.map((item) => `${item.companyName}(매출${item.revenueRank}위·부채${item.latestDebtRatio?.toFixed(1) ?? '-'}%)`).join(', ')} · 성장성 대비 재무 레버리지 점검`,
       });
     }
 
@@ -204,7 +229,26 @@ export function buildExecutiveInsightsBySection(
       result.financialHealth.push({
         severity: 'warning',
         title: '부채비율 악화 추세',
-        detail: `${worsening.map((item) => item.companyName).join(', ')} · ${financialHealthYearsLabel(summary, rankYear)}`,
+        detail: `${worsening.map((item) => item.companyName).join(', ')} · ${financialHealthYearsLabel(summary, rankYear)} · 원가·생산성 지표와 함께 추적`,
+      });
+    }
+
+    const productivityByKey = new Map(
+      productivityItems.map((item) => [item.companyKey, item]),
+    );
+    const productiveButLeveraged = financialHealth.filter((item) => {
+      const productivity = productivityByKey.get(item.companyKey);
+      return (
+        productivity?.hasProductivityData &&
+        (productivity.revenuePerEmployeeEok ?? 0) >= 1 &&
+        (item.riskLevel === 'high' || item.debtRatioTrend === 'worsening')
+      );
+    });
+    if (productiveButLeveraged.length > 0) {
+      result.financialHealth.push({
+        severity: 'warning',
+        title: '생산성·부채 불균형',
+        detail: `${productiveButLeveraged.map((item) => item.companyName).join(', ')} · 인당 매출은 양호하나 부채비율·추세가 부담`,
       });
     }
 
@@ -213,9 +257,9 @@ export function buildExecutiveInsightsBySection(
     );
     if (operatingLoss.length > 0) {
       result.financialHealth.push({
-        severity: 'warning',
-        title: '영업적자 구간 존재',
-        detail: `${operatingLoss.map((item) => item.companyName).join(', ')} · 기간 내 영업이익률 마이너스`,
+        severity: 'risk',
+        title: '적자·부채 복합 리스크',
+        detail: `${operatingLoss.map((item) => item.companyName).join(', ')} · 기간 내 영업적자 구간 존재 · 매출 순위와 별도로 재무 건전성 우선 관찰`,
       });
     }
   }

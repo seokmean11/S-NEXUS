@@ -1,4 +1,7 @@
-import type { ExecutiveInsightsBySection } from '@/utils/competitorExecutiveInsight';
+import {
+  normalizeExecutiveInsightsBySection,
+  type ExecutiveInsightsBySection,
+} from '@/utils/competitorExecutiveInsight';
 
 const CACHE_PREFIX = 'perf-dashboard-executive-claude-insights:';
 
@@ -17,7 +20,10 @@ export function loadCachedExecutiveClaudeInsights(
     if (!raw) return null;
     const parsed = JSON.parse(raw) as CachedExecutiveClaudeInsights;
     if (parsed.cacheKey !== cacheKey) return null;
-    return parsed;
+    return {
+      ...parsed,
+      insights: normalizeExecutiveInsightsBySection(parsed.insights),
+    };
   } catch {
     return null;
   }

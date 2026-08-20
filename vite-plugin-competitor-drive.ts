@@ -659,7 +659,7 @@ function attachRoutes(server: { middlewares: { use: Function } }, root: string):
     try {
       const apiKeyHeader = req.headers['x-api-key'];
       const apiKey = Array.isArray(apiKeyHeader) ? apiKeyHeader[0] : apiKeyHeader;
-      const body = await readJsonBody<{ context?: Record<string, unknown> }>(req);
+      const body = await readJsonBody<{ context?: Record<string, unknown>; cacheKey?: string }>(req);
 
       if (!body.context) {
         sendJson(res, 400, { error: 'context가 필요합니다.' });
@@ -678,6 +678,7 @@ function attachRoutes(server: { middlewares: { use: Function } }, root: string):
 
       const result = await generateCompetitorExecutiveInsights(root, {
         context: body.context as import('./server/competitorExecutiveClaudeInsight').ExecutiveInsightClaudeContext,
+        cacheKey: body.cacheKey,
         apiKey: apiKey ?? undefined,
       });
 
@@ -686,6 +687,7 @@ function attachRoutes(server: { middlewares: { use: Function } }, root: string):
         insights: result.insights,
         usage: result.usage,
         usedFallback: result.usedFallback,
+        cacheHit: result.cacheHit ?? false,
       });
     } catch (error) {
       sendJson(res, 500, { error: error instanceof Error ? error.message : String(error) });
