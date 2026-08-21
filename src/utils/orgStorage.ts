@@ -21,6 +21,33 @@ export interface StoredOrgState {
   parseVersion?: number;
   /** 수동 조직 보정 버전 — 보정 로직 변경 시 증가, 적용 후에는 재실행하지 않음 */
   manualOverrideVersion?: number;
+  /** 조직 상태 저장 시각 — Drive 이전 파일보다 최신 저장을 가리기 위함 */
+  savedAt?: string;
+}
+
+export function getOrgStateSavedAtMs(state: StoredOrgState | null | undefined): number {
+  if (!state?.savedAt) return 0;
+  const value = Date.parse(state.savedAt);
+  return Number.isFinite(value) ? value : 0;
+}
+
+/** remote가 local보다 더 최신이면 true. 둘 다 시각이 없으면 remote를 적용한다. */
+export function isRemoteOrgStateNewer(
+  remote: StoredOrgState | null | undefined,
+  local: StoredOrgState | null | undefined,
+): boolean {
+  if (!remote) return false;
+  const remoteAt = getOrgStateSavedAtMs(remote);
+  const localAt = getOrgStateSavedAtMs(local);
+  if (remoteAt === 0 && localAt === 0) return true;
+  return remoteAt > localAt;
+}
+
+export function withOrgStateSavedAt(
+  state: StoredOrgState,
+  savedAt = new Date().toISOString(),
+): StoredOrgState {
+  return { ...state, savedAt };
 }
 
 export interface StoredAppState {

@@ -15,7 +15,6 @@ import {
   fetchCompetitorDriveStatus,
   getCompetitorUploadModeLabel,
   getCompetitorUploadTargetBlockReason,
-  GOOGLE_DRIVE_SETUP_STEPS,
   isCompetitorUploadAllowed,
   syncCompetitorDrive,
   uploadCompetitorDriveFile,
@@ -698,9 +697,9 @@ export function CompetitorAnalysisDashboard() {
                   {!driveStatus
                     ? '확인 중…'
                     : driveStatus.configured && driveStatus.uploadConfigured
-                      ? 'Drive 업로드 가능'
+                      ? 'Drive 업로드 가능 (팀 공용)'
                       : driveStatus.configured
-                        ? 'Drive 읽기만 가능 (OAuth 업로드 필요)'
+                        ? 'Drive 읽기만 가능 (OAuth 재연결 필요)'
                         : '미설정'}
                 </dd>
               </div>
@@ -723,14 +722,13 @@ export function CompetitorAnalysisDashboard() {
             </dl>
             {!uploadAllowed && driveStatus && !driveStatus.uploadConfigured && (
               <div className="competitor-analysis-dashboard__setup">
-                <p>업로드·동기화를 사용하려면 Google Drive NEXUS 연동과 OAuth 업로드 설정이 필요합니다.</p>
-                <ul>
-                  {GOOGLE_DRIVE_SETUP_STEPS.map((step) => (
-                    <li key={step}>{step}</li>
-                  ))}
-                </ul>
                 <p>
-                  설정 상태는 <a href="/data-folder">데이터 폴더</a> 메뉴에서 확인할 수 있습니다.
+                  {driveStatus.uploadError ??
+                    '업로드·동기화를 사용하려면 Google Drive NEXUS 연동과 OAuth 업로드 설정이 필요합니다.'}
+                </p>
+                <p>
+                  관리자가 <a href="/data-folder">데이터 폴더</a>에서 「Drive OAuth 재연결」을 한 번
+                  완료하면, 로그인한 팀원 누구나 같은 Drive에 업로드할 수 있습니다.
                 </p>
               </div>
             )}

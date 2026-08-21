@@ -5,41 +5,62 @@ import {
   resolveCanonicalCompanyName,
 } from './competitorCompanyAliases';
 export function isBoilerplateCompetitorCompanyName(name: string): boolean {
-  return /신용정보|보호에\s*관한|법률|report\s*no|이용\s*및/i.test(name);
+  return /신용정보|보호에\s*관한|법률|report\s*no|이용\s*및|평가정보|신용평가|평가기관|이크레더블|한국기업평가|SCI평가|NICE평가|나이스평가/i.test(
+    name,
+  );
 }
 
 export function inferCompetitorCompanyNameFromFileName(fileName: string): string | undefined {
-  const numbered = fileName.match(/^\d+\.\((?:주|유|㈜)\)([^_]+?)_/u);
+  // [SCI평가정보] 등 평가사 대괄호는 회사명이 아님
+  const withoutAgencyBracket = fileName.replace(
+    /\[(?:SCI[^\]]*|NICE[^\]]*|[^\]]*(?:평가정보|신용평가|평가기관|이크레더블|한국기업평가)[^\]]*)\]/giu,
+    '',
+  );
+
+  const numbered = withoutAgencyBracket.match(/^\d+\.\((?:주|유|㈜)\)([^_]+?)_/u);
   if (numbered?.[1]) {
     return numbered[1].trim();
   }
 
-  const numberedPlain = fileName.match(/^\d+\.([^_]+?)_/u);
-  if (numberedPlain?.[1] && !/신용분석/u.test(numberedPlain[1])) {
+  const numberedPlain = withoutAgencyBracket.match(/^\d+\.([^_]+?)_/u);
+  if (numberedPlain?.[1] && !/신용분석|신용평가/u.test(numberedPlain[1])) {
     return stripCompetitorNameNoise(
       numberedPlain[1].replace(/\(?(?:주|유|㈜)\)?/gu, '').trim(),
     );
   }
 
-  const bracketMatch = fileName.match(/\[([^\]]+)\]/u);
-  if (bracketMatch?.[1]) {
+  const bracketMatch = withoutAgencyBracket.match(/\[([^\]]+)\]/u);
+  if (bracketMatch?.[1] && !isBoilerplateCompetitorCompanyName(bracketMatch[1])) {
     return bracketMatch[1]
       .replace(/감사보고서.*$/u, '')
+      .replace(/사업보고서.*$/u, '')
       .replace(/\(\d{4}[^)]*\)/g, '')
       .trim();
   }
 
-  const stockMatch = fileName.match(/\(?(?:주|유|㈜)\)?([^().]+?)(?:\(|\[|\.|$)/u);
-  if (stockMatch?.[1]) {
+  const stockMatch = withoutAgencyBracket.match(/\(?(?:주|유|㈜)\)?([^().[\]]+?)(?:\(|\[|\.|_|$)/u);
+  if (stockMatch?.[1] && !isBoilerplateCompetitorCompanyName(stockMatch[1])) {
     return stockMatch[1].trim();
   }
 
-  const baseName = fileName.replace(/\.[^.]+$/, '');
+  const baseName = withoutAgencyBracket.replace(/\.[^.]+$/, '');
   const stripped = baseName
     .replace(/^\[[^\]]+\]/, '')
-    .replace(/[_-]?(감사보고서|신용평가서|신용평가|평가서|\(\d{4}[^)]*\)|\d{4})/g, '')
+    .replace(
+      /[_-]?(감사보고서|사업보고서|신용분석보고서|신용평가서|신용평가|민간\s*기업신용평가\s*보고서|\(\d{4}[^)]*\)|\d{4})/g,
+      '',
+    )
+    .replace(/\(\d{2}\.\d{2}\.\d{2}\s*[-~～]\s*\d{2}\.\d{2}\.\d{2}\)/g, '')
     .trim();
-  return stripped.length >= 2 ? stripped : undefined;
+  if (
+    stripped.length >= 2 &&
+    !isBoilerplateCompetitorCompanyName(stripped) &&
+    !/^[\d.()~\-～\s]+$/u.test(stripped) &&
+    /[가-힣A-Za-z]/u.test(stripped)
+  ) {
+    return stripped;
+  }
+  return undefined;
 }
 
 export function resolveCompetitorDocumentCompanyKey(doc: CompetitorParsedDocument): string {
@@ -77,12 +98,18 @@ export function resolveCompetitorRecordGroupKey(
   const sourceFile = record.metadata?.source_file;
   if (sourceFile) {
     const fromFile = inferCompetitorCompanyNameFromFileName(sourceFile);
-    if (fromFile) {
+    if (fromFile && !isBoilerplateCompetitorCompanyName(fromFile)) {
       const cleaned = cleanCompetitorDisplayName(fromFile);
-      if (cleaned.length >= 2) {
+      if (cleaned.length >= 2 && !isBoilerplateCompetitorCompanyName(cleaned)) {
         return resolveCanonicalCompanyKey(normalizeCompetitorCompanyKey(cleaned), sector);
       }
     }
+  }
+
+  // 파일명에서 사명을 못 얻으면(SCI 등) 추출된 company_name 사용
+  const fromName = cleanCompetitorDisplayName(record.company_name);
+  if (fromName.length >= 2 && !isBoilerplateCompetitorCompanyName(fromName)) {
+    return resolveCanonicalCompanyKey(normalizeCompetitorCompanyKey(fromName), sector);
   }
 
   const normalized = normalizeCompetitorCompanyKey(

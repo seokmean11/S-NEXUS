@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import {
   formatDriveUploadError,
   getCompetitorCacheDir,
-  getCompetitorDriveStatus,
+  getCompetitorDriveStatusLive,
   getCompetitorFolderPath,
   getCompetitorSyncMeta,
   isCompetitorSector,
@@ -55,12 +55,18 @@ function parseSector(value: string | null) {
 }
 
 function attachRoutes(server: { middlewares: { use: Function } }, root: string): void {
-  server.middlewares.use('/api/competitor/status', (req, res) => {
+  server.middlewares.use('/api/competitor/status', async (req, res) => {
     if (req.method !== 'GET') {
       sendJson(res, 405, { error: 'Method Not Allowed' });
       return;
     }
-    sendJson(res, 200, getCompetitorDriveStatus(root));
+    try {
+      sendJson(res, 200, await getCompetitorDriveStatusLive(root));
+    } catch (error) {
+      sendJson(res, 500, {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   });
 
   server.middlewares.use('/api/competitor/files', async (req, res) => {
@@ -77,7 +83,7 @@ function attachRoutes(server: { middlewares: { use: Function } }, root: string):
         return;
       }
 
-      const status = getCompetitorDriveStatus(root);
+      const status = await getCompetitorDriveStatusLive(root);
       if (!status.configured) {
         sendJson(res, 200, { configured: false, files: [], year, sector });
         return;
@@ -144,7 +150,7 @@ function attachRoutes(server: { middlewares: { use: Function } }, root: string):
       }
 
       try {
-        const driveStatus = getCompetitorDriveStatus(root);
+        const driveStatus = await getCompetitorDriveStatusLive(root);
         if (!driveStatus.configured) {
           sendJson(res, 503, {
             error:
@@ -155,7 +161,8 @@ function attachRoutes(server: { middlewares: { use: Function } }, root: string):
         if (!driveStatus.uploadConfigured) {
           sendJson(res, 503, {
             error:
-              'Google Drive OAuth 업로드가 설정되지 않았습니다. GOOGLE_OAUTH_* 설정 후 npm run google-drive-oauth를 실행하세요.',
+              driveStatus.uploadError ??
+              'Google Drive OAuth 업로드가 설정되지 않았습니다. 데이터폴더에서 Drive OAuth 재연결을 실행하세요.',
           });
           return;
         }
@@ -194,7 +201,7 @@ function attachRoutes(server: { middlewares: { use: Function } }, root: string):
         return;
       }
 
-      const driveStatus = getCompetitorDriveStatus(root);
+      const driveStatus = await getCompetitorDriveStatusLive(root);
       const config = getNexusDriveConfig(root);
       const folderPath = getCompetitorFolderPath(year, sector);
 
@@ -393,7 +400,7 @@ function attachRoutes(server: { middlewares: { use: Function } }, root: string):
         return;
       }
 
-      const driveStatus = getCompetitorDriveStatus(root);
+      const driveStatus = await getCompetitorDriveStatusLive(root);
       const { runCompetitorPeriodAnalysis } = await import('./server/competitorAnalysisPeriod');
       const result = await runCompetitorPeriodAnalysis(root, sector, fromYear, toYear, {
         force,
@@ -425,7 +432,7 @@ function attachRoutes(server: { middlewares: { use: Function } }, root: string):
         return;
       }
 
-      const driveStatus = getCompetitorDriveStatus(root);
+      const driveStatus = await getCompetitorDriveStatusLive(root);
       if (!driveStatus.configured) {
         sendJson(res, 200, {
           sector,
@@ -476,7 +483,7 @@ function attachRoutes(server: { middlewares: { use: Function } }, root: string):
         return;
       }
 
-      const driveStatus = getCompetitorDriveStatus(root);
+      const driveStatus = await getCompetitorDriveStatusLive(root);
       if (!driveStatus.configured) {
         sendJson(res, 200, {
           sector,
@@ -533,7 +540,7 @@ function attachRoutes(server: { middlewares: { use: Function } }, root: string):
         return;
       }
 
-      const driveStatus = getCompetitorDriveStatus(root);
+      const driveStatus = await getCompetitorDriveStatusLive(root);
       const folderPath = getCompetitorFolderPath(baseYear, sector);
 
       if (!driveStatus.configured) {

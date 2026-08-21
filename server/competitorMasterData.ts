@@ -219,8 +219,16 @@ function upsertFlatRecord(
 
   if (
     shouldReplaceDocument(
-      { documentType: parseDocumentType(existing.document_type), parsedAt: existing.parsed_at },
-      { documentType: parseDocumentType(candidate.document_type), parsedAt: candidate.parsed_at },
+      {
+        documentType: parseDocumentType(existing.document_type),
+        parsedAt: existing.parsed_at,
+        sourceFile: existing.metadata.source_file ?? undefined,
+      },
+      {
+        documentType: parseDocumentType(candidate.document_type),
+        parsedAt: candidate.parsed_at,
+        sourceFile: candidate.metadata.source_file ?? undefined,
+      },
     )
   ) {
     records.set(candidate.recordKey, candidate);
@@ -297,10 +305,12 @@ function historyShouldReplace(
     {
       documentType: parseDocumentType(previous.document_type),
       parsedAt: previous.parsed_at,
+      sourceFile: previous.source_files[0],
     },
     {
       documentType: parseDocumentType(candidate.document_type),
       parsedAt: candidate.parsed_at,
+      sourceFile: candidate.source_files[0],
     },
   );
 }

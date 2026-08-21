@@ -6,9 +6,11 @@ import { fetchLocalOutsourcingInfo, type OutsourcingLocalInfo } from '@/services
 import {
   fetchNexusDataFolderFiles,
   fetchNexusDataFolderStatus,
+  fetchGoogleDriveOAuthStatus,
   GOOGLE_DRIVE_SETUP_STEPS,
   GOOGLE_DRIVE_OAUTH_NOTE,
   NEXUS_DATA_MENU_SLOTS,
+  startGoogleDriveOAuthReconnect,
   stripDriveFolderPrefix,
   syncNexusDataFolder,
   uploadNexusDataFolderFile,
@@ -78,6 +80,7 @@ export function DataFolderPage() {
   const [loading, setLoading] = useState(true);
   const [uploadingSlot, setUploadingSlot] = useState<NexusDataMenuSlotKey | null>(null);
   const [syncing, setSyncing] = useState(false);
+  const [oauthConnecting, setOauthConnecting] = useState(false);
   const [dragOverSlot, setDragOverSlot] = useState<NexusDataMenuSlotKey | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -155,6 +158,38 @@ export function DataFolderPage() {
     }
   };
 
+  const handleOAuthReconnect = async () => {
+    setOauthConnecting(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const started = await startGoogleDriveOAuthReconnect();
+      window.open(started.authUrl, '_blank', 'noopener,noreferrer');
+      setNotice(
+        '브라우저에서 Drive 소유자 Google 계정으로 허용하세요. 완료되면 자동으로 반영됩니다…',
+      );
+
+      const startedAt = Date.now();
+      while (Date.now() - startedAt < 180_000) {
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+        const oauthStatus = await fetchGoogleDriveOAuthStatus();
+        if (oauthStatus.ok) {
+          setNotice(
+            'Drive OAuth 재연결 완료. 이제 로그인한 팀원 누구나 같은 Drive에 업로드할 수 있습니다.',
+          );
+          await refresh();
+          return;
+        }
+      }
+      setError('OAuth 대기 시간이 초과되었습니다. 허용 후 「상태 새로고침」을 눌러 주세요.');
+      await refresh();
+    } catch (oauthError) {
+      setError(oauthError instanceof Error ? oauthError.message : 'OAuth 재연결에 실패했습니다.');
+    } finally {
+      setOauthConnecting(false);
+    }
+  };
+
   const driveConfigured = Boolean(status?.configured);
   const uploadConfigured = Boolean(status?.uploadConfigured);
 
@@ -180,14 +215,29 @@ export function DataFolderPage() {
             <span>마지막 동기화 · {formatDateTime(status?.lastSync?.syncedAt)}</span>
             <span>
               웹 업로드 ·{' '}
-              {uploadConfigured ? 'OAuth 준비됨' : 'OAuth 미설정 (Drive 웹에서 직접 업로드 가능)'}
+              {uploadConfigured
+                ? '팀 공용 OAuth 연결됨'
+                : status?.uploadError
+                  ? 'OAuth 토큰 만료/미연결'
+                  : 'OAuth 미설정 (Drive 웹에서 직접 업로드 가능)'}
             </span>
           </div>
           {status?.error && <p className="data-folder-page__error-text">{status.error}</p>}
+          {status?.uploadError && (
+            <p className="data-folder-page__error-text">{status.uploadError}</p>
+          )}
         </div>
         <div className="data-folder-page__toolbar">
           <Button variant="secondary" size="sm" onClick={() => void refresh()} disabled={loading}>
             상태 새로고침
+          </Button>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => void handleOAuthReconnect()}
+            disabled={!driveConfigured || oauthConnecting}
+          >
+            {oauthConnecting ? 'OAuth 연결 중…' : 'Drive OAuth 재연결'}
           </Button>
           <Button variant="secondary" size="sm" onClick={() => void handleSync()} disabled={!driveConfigured || syncing}>
             {syncing ? '동기화 중…' : '전체 동기화'}
@@ -200,6 +250,12 @@ export function DataFolderPage() {
 
       {driveConfigured && !uploadConfigured && (
         <p className="data-folder-page__oauth-note no-print">{GOOGLE_DRIVE_OAUTH_NOTE}</p>
+      )}
+      {driveConfigured && uploadConfigured && (
+        <p className="data-folder-page__oauth-note no-print">
+          업로드는 서버 공용 Drive 토큰으로 저장됩니다. 서비스 웹에 로그인한 팀원 누구나 같은 NEXUS
+          Drive에 파일을 올릴 수 있습니다.
+        </p>
       )}
 
       {!driveConfigured && (

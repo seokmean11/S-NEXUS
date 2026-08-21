@@ -3,13 +3,17 @@ import type { Plugin } from 'vite';
 import formidable from 'formidable';
 import fs from 'node:fs';
 import {
-  getNexusDriveStatus,
+  getNexusDriveStatusLive,
   listNexusDriveFiles,
   syncNexusDriveCache,
   uploadToNexusDriveFolder,
   formatDriveUploadError,
   type NexusDriveSubfolderKey,
 } from './server/nexusGoogleDrive';
+import {
+  probeGoogleOAuthUploadAccess,
+  startGoogleOAuthReconnect,
+} from './server/googleDriveOAuth';
 
 function parseSubfolderKey(value: unknown): NexusDriveSubfolderKey {
   if (value === 'organization') return 'organization';
@@ -33,12 +37,54 @@ async function readJsonBody<T>(req: IncomingMessage): Promise<T> {
 }
 
 function attachRoutes(server: { middlewares: { use: Function } }, root: string): void {
-  server.middlewares.use('/api/nexus-data-folder/status', (req, res) => {
+  server.middlewares.use('/api/nexus-data-folder/status', async (req, res) => {
     if (req.method !== 'GET') {
       sendJson(res, 405, { error: 'Method Not Allowed' });
       return;
     }
-    sendJson(res, 200, getNexusDriveStatus(root));
+    try {
+      sendJson(res, 200, await getNexusDriveStatusLive(root));
+    } catch (error) {
+      sendJson(res, 500, {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  });
+
+  server.middlewares.use('/api/google-drive-oauth/start', async (req, res) => {
+    if (req.method !== 'POST') {
+      sendJson(res, 405, { error: 'Method Not Allowed' });
+      return;
+    }
+    try {
+      const started = await startGoogleOAuthReconnect(root);
+      sendJson(res, 200, {
+        ok: true,
+        authUrl: started.authUrl,
+        message:
+          '브라우저에서 Google 계정(Drive 소유자)으로 허용하세요. 연결되면 모든 팀원 업로드가 이 Drive에 저장됩니다.',
+      });
+    } catch (error) {
+      sendJson(res, 500, { error: formatDriveUploadError(error) });
+    }
+  });
+
+  server.middlewares.use('/api/google-drive-oauth/status', async (req, res) => {
+    if (req.method !== 'GET') {
+      sendJson(res, 405, { error: 'Method Not Allowed' });
+      return;
+    }
+    try {
+      const probe = await probeGoogleOAuthUploadAccess(root, { force: true });
+      sendJson(res, 200, {
+        ok: probe.ok,
+        uploadConfigured: probe.ok,
+        hasCredentials: probe.hasCredentials,
+        error: probe.error,
+      });
+    } catch (error) {
+      sendJson(res, 500, { error: formatDriveUploadError(error) });
+    }
   });
 
   server.middlewares.use('/api/nexus-data-folder/files', async (req, res) => {
@@ -47,7 +93,7 @@ function attachRoutes(server: { middlewares: { use: Function } }, root: string):
       return;
     }
     try {
-      const status = getNexusDriveStatus(root);
+      const status = await getNexusDriveStatusLive(root);
       if (!status.configured) {
         sendJson(res, 200, { configured: false, files: [] });
         return;
@@ -139,6 +185,9 @@ export function nexusDataFolderPlugin(): Plugin {
       projectRoot = config.root;
     },
     configureServer(server) {
+      attachRoutes(server, projectRoot);
+    },
+    configurePreviewServer(server) {
       attachRoutes(server, projectRoot);
     },
   };

@@ -5,13 +5,18 @@ import type {
   CompetitorExecutiveMultiYearSummary,
 } from '@/types/competitorStandard';
 import { clearCachedExecutiveClaudeInsights } from '@/utils/competitorExecutiveClaudeInsightCache';
+import {
+  removeLocalStorageByPrefix,
+  removeSessionStorageByPrefix,
+  workspaceStorageKey,
+} from '@/utils/userWorkspaceStorage';
 
 const LEGACY_SELECTION_STORAGE_KEY = 'perf-dashboard-competitor-selection';
 const UPLOAD_SELECTION_STORAGE_KEY = 'perf-dashboard-competitor-upload-selection';
 const ANALYSIS_SELECTION_STORAGE_KEY = 'perf-dashboard-competitor-analysis-selection';
 const ANALYSIS_CACHE_PREFIX = 'perf-dashboard-competitor-analysis:';
 const ANALYSIS_CACHE_VERSION = '2';
-const PERIOD_ANALYSIS_CACHE_PREFIX = 'perf-dashboard-competitor-period-analysis:';
+const PERIOD_ANALYSIS_CACHE_PREFIX = 'perf-dashboard-competitor-period-analysis:v2:';
 const PERIOD_ANALYSIS_CACHE_VERSION = '3';
 
 export interface CompetitorSelectionState {
@@ -30,7 +35,7 @@ function isCompetitorSector(value: unknown): value is CompetitorSector {
 }
 
 function analysisCacheKey(sector: CompetitorSector, year: number): string {
-  return `${ANALYSIS_CACHE_PREFIX}${sector}:${year}`;
+  return workspaceStorageKey(ANALYSIS_CACHE_PREFIX, `${sector}:${year}`);
 }
 
 function parseYear(value: unknown): number | null {
@@ -57,18 +62,20 @@ function parseSelectionState(raw: string | null): CompetitorSelectionState {
 }
 
 function readLegacySelection(): CompetitorSelectionState {
-  return parseSelectionState(localStorage.getItem(LEGACY_SELECTION_STORAGE_KEY));
+  return parseSelectionState(localStorage.getItem(workspaceStorageKey(LEGACY_SELECTION_STORAGE_KEY)));
 }
 
 export function loadUploadSelection(): CompetitorSelectionState {
-  const stored = parseSelectionState(localStorage.getItem(UPLOAD_SELECTION_STORAGE_KEY));
+  const stored = parseSelectionState(
+    localStorage.getItem(workspaceStorageKey(UPLOAD_SELECTION_STORAGE_KEY)),
+  );
   if (stored.sector || stored.year) return stored;
   return readLegacySelection();
 }
 
 export function saveUploadSelection(state: CompetitorSelectionState): void {
   localStorage.setItem(
-    UPLOAD_SELECTION_STORAGE_KEY,
+    workspaceStorageKey(UPLOAD_SELECTION_STORAGE_KEY),
     JSON.stringify({
       sector: state.sector,
       year: state.sector ? state.year : null,
@@ -78,7 +85,7 @@ export function saveUploadSelection(state: CompetitorSelectionState): void {
 
 export function loadAnalysisSelection(): CompetitorAnalysisSelectionState {
   try {
-    const raw = localStorage.getItem(ANALYSIS_SELECTION_STORAGE_KEY);
+    const raw = localStorage.getItem(workspaceStorageKey(ANALYSIS_SELECTION_STORAGE_KEY));
     if (!raw) return { sector: null };
 
     const parsed = JSON.parse(raw) as Partial<
@@ -97,7 +104,7 @@ export function loadAnalysisSelection(): CompetitorAnalysisSelectionState {
 
 export function saveAnalysisSelection(state: CompetitorAnalysisSelectionState): void {
   localStorage.setItem(
-    ANALYSIS_SELECTION_STORAGE_KEY,
+    workspaceStorageKey(ANALYSIS_SELECTION_STORAGE_KEY),
     JSON.stringify({
       sector: state.sector,
       fromYear: state.fromYear,
@@ -162,7 +169,7 @@ function periodAnalysisCacheKey(
 ): string {
   const from = Math.min(fromYear, toYear);
   const to = Math.max(fromYear, toYear);
-  return `${PERIOD_ANALYSIS_CACHE_PREFIX}${sector}:${from}:${to}`;
+  return workspaceStorageKey(PERIOD_ANALYSIS_CACHE_PREFIX, `${sector}:${from}:${to}`);
 }
 
 function isPeriodAnalysisCacheCompatible(
@@ -255,32 +262,11 @@ export function clearCachedPeriodAnalysis(
 }
 
 export function clearCompetitorAnalysisStorage(): void {
-  localStorage.removeItem(LEGACY_SELECTION_STORAGE_KEY);
-  localStorage.removeItem(UPLOAD_SELECTION_STORAGE_KEY);
-  localStorage.removeItem(ANALYSIS_SELECTION_STORAGE_KEY);
-
-  const keysToRemove: string[] = [];
-  for (let index = 0; index < sessionStorage.length; index += 1) {
-    const key = sessionStorage.key(index);
-    if (key?.startsWith(ANALYSIS_CACHE_PREFIX)) {
-      keysToRemove.push(key);
-    }
-  }
-  for (const key of keysToRemove) {
-    sessionStorage.removeItem(key);
-  }
-
-  const localKeysToRemove: string[] = [];
-  for (let index = 0; index < localStorage.length; index += 1) {
-    const key = localStorage.key(index);
-    if (key?.startsWith(PERIOD_ANALYSIS_CACHE_PREFIX)) {
-      localKeysToRemove.push(key);
-    }
-  }
-  for (const key of localKeysToRemove) {
-    localStorage.removeItem(key);
-  }
-
+  localStorage.removeItem(workspaceStorageKey(LEGACY_SELECTION_STORAGE_KEY));
+  localStorage.removeItem(workspaceStorageKey(UPLOAD_SELECTION_STORAGE_KEY));
+  localStorage.removeItem(workspaceStorageKey(ANALYSIS_SELECTION_STORAGE_KEY));
+  removeSessionStorageByPrefix(workspaceStorageKey(ANALYSIS_CACHE_PREFIX));
+  removeLocalStorageByPrefix(workspaceStorageKey(PERIOD_ANALYSIS_CACHE_PREFIX));
   clearCachedExecutiveClaudeInsights();
 }
 

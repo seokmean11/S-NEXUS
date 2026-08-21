@@ -218,19 +218,34 @@ def document_type_to_source_type(document_type: str | None, source_file: str | N
     return mapping.get(document_type, "미분류")
 
 
-def document_type_priority(document_type: str | None) -> int:
+def document_type_priority(document_type: str | None, source_file: str | None = None) -> int:
+    """신용평가서 > 신용분석(SCI 등) > 감사보고서 > 사업보고서 > 재무자료"""
+    name = source_file or ""
+    if "신용평가서" in name:
+        return 100
+    if document_type == "credit-rating":
+        if any(token in name for token in ("SCI", "평가정보", "신용분석", "민간", "기업신용평가")):
+            return 90
+        if "신용평가" in name:
+            return 100
+        return 90
     mapping = {
-        "audit-report": 100,
-        "business-report": 80,
-        "credit-rating": 50,
-        "financial-sheet": 30,
+        "audit-report": 70,
+        "business-report": 60,
+        "financial-sheet": 40,
     }
     return mapping.get(document_type or "", 0)
 
 
 def should_replace_document(existing: dict[str, Any], incoming: dict[str, Any]) -> bool:
-    existing_priority = document_type_priority(existing.get("document_type"))
-    incoming_priority = document_type_priority(incoming.get("document_type"))
+    existing_priority = document_type_priority(
+        existing.get("document_type"),
+        existing.get("source_file") or (existing.get("source_files") or [None])[0],
+    )
+    incoming_priority = document_type_priority(
+        incoming.get("document_type"),
+        incoming.get("source_file") or (incoming.get("source_files") or [None])[0],
+    )
     if incoming_priority > existing_priority:
         return True
     if incoming_priority < existing_priority:

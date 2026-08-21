@@ -20,6 +20,7 @@ export interface NexusDriveStatus {
   lastSync?: NexusDriveSyncMeta;
   uploadConfigured?: boolean;
   uploadMethod?: 'oauth' | 'unavailable';
+  uploadError?: string;
   error?: string;
 }
 
@@ -115,17 +116,35 @@ export async function uploadNexusDataFolderFile(
   return payload;
 }
 
+export async function startGoogleDriveOAuthReconnect(): Promise<{
+  ok: boolean;
+  authUrl: string;
+  message?: string;
+}> {
+  return readJson('/api/google-drive-oauth/start', { method: 'POST' });
+}
+
+export async function fetchGoogleDriveOAuthStatus(): Promise<{
+  ok: boolean;
+  uploadConfigured: boolean;
+  hasCredentials: boolean;
+  error?: string;
+}> {
+  return readJson('/api/google-drive-oauth/status');
+}
+
 export const GOOGLE_DRIVE_SETUP_STEPS = [
   'Google Cloud Console에서 프로젝트 생성 → Google Drive API 사용 설정',
   '서비스 계정 생성 → JSON 키 다운로드 → google-service-account.json (동기화·읽기용)',
   'Google Drive에 NEXUS / 외주정보데이터 폴더 생성 → NEXUS를 서비스 계정에 편집자 공유',
   'NEXUS 폴더 ID → .env GOOGLE_DRIVE_NEXUS_FOLDER_ID',
-  'OAuth 클라이언트 ID(데스크톱) 생성 → .env GOOGLE_OAUTH_CLIENT_ID / SECRET → npm run google-drive-oauth',
-  '발급된 GOOGLE_OAUTH_REFRESH_TOKEN을 .env에 추가 → dev 서버 재시작',
+  'OAuth 클라이언트 ID(데스크톱) 생성 → .env GOOGLE_OAUTH_CLIENT_ID / SECRET',
+  '데이터폴더에서 「Drive OAuth 재연결」(또는 npm run google-drive-oauth) → Drive 소유자 계정으로 1회 허용',
+  '팀 사용 시 Google Cloud Console OAuth 동의 화면을 게시(프로덕션)로 전환 (테스트 모드는 약 7일 만료)',
 ];
 
 export const GOOGLE_DRIVE_OAUTH_NOTE =
-  '개인 Google Drive는 서비스 계정 업로드 할당량이 없습니다. 웹에서 파일 업로드하려면 OAuth 설정이 필요합니다. Drive 웹에서 직접 넣으면 동기화만으로도 사용 가능합니다.';
+  '웹 업로드는 서버 공용 OAuth 토큰으로 관리자 Drive에 저장됩니다. 로그인한 팀원 누구나 같은 Drive에 올릴 수 있습니다. 토큰이 만료되면 관리자가 「Drive OAuth 재연결」만 하면 됩니다.';
 
 export function stripDriveFolderPrefix(fileName: string, driveFolder: string): string {
   const prefix = `${driveFolder}/`;

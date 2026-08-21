@@ -10,22 +10,13 @@ import type {
 import {
   inferCompanyNameFromAuditReport,
   isKoreanAuditReportText,
-  parseKoreanAuditReportText,
 } from './competitorAuditReportParser';
-import {
-  isKoreanCreditRatingText,
-  parseKoreanCreditRatingText,
-} from './competitorCreditRatingParser';
 import {
   COMPETITOR_PARSE_PIPELINE_VERSION,
   financialsToMetrics,
-  metricsAppearNormalizedToWon,
   normalizeFinancialMetrics,
 } from './competitorFinancialNormalize';
 import { extractCompetitorMetadata } from './competitorMetadataExtract';
-import {
-  resolveDocumentIdentity,
-} from './competitorDocumentIdentity';
 
 const PARSED_ANALYSIS_FILE = '.parsed-analysis.json';
 
@@ -42,7 +33,7 @@ const METRIC_PATTERNS: Array<{ key: string; label: string; pattern: RegExp }> = 
 
 const COMPANY_NAME_PATTERNS = [
   /\[([^\]]+)\]/u,
-  /(?:회사명|업체명|기업명|상호)\s*[:：]?\s*([가-힣A-Za-z0-9()（）·\s]{2,40})/u,
+  /(?:기업개요|회사개요|회사명|업체명|사명|기업명|기업체명|상호)\s*[:：]?\s*([가-힣A-Za-z0-9()（）·\s]{2,40})/u,
   /(?:\(주\)|㈜|주식회사)\s*([가-힣A-Za-z0-9()（）·\s&]{2,30})/u,
 ];
 
@@ -74,7 +65,9 @@ function inferDocumentType(fileName: string, text: string): CompetitorDocumentTy
 }
 
 function isBoilerplateCompanyName(name: string): boolean {
-  return /신용정보|보호에\s*관한|법률|report\s*no|이용\s*및/i.test(name);
+  return /신용정보|보호에\s*관한|법률|report\s*no|이용\s*및|평가정보|신용평가|평가기관|이크레더블|한국기업평가|SCI평가|NICE평가|나이스평가/i.test(
+    name,
+  );
 }
 
 export function inferCompanyNameFromFileName(fileName: string): string | undefined {
@@ -191,23 +184,15 @@ function dedupeMetrics(metrics: CompetitorMetric[]): CompetitorMetric[] {
   return [...merged.values()];
 }
 
-function resolveDocumentCompanyKey(doc: CompetitorParsedDocument): string {
-  return (
-    inferCompanyNameFromFileName(doc.fileName) ??
-    (doc.companyName && !isBoilerplateCompanyName(doc.companyName) ? doc.companyName : undefined) ??
-    path.basename(doc.fileName, path.extname(doc.fileName))
-  );
-}
-
-function parseSpreadsheet(filePath: string): { text: string; metrics: CompetitorMetric[]; warnings: string[] } {
+function parseSpreadsheet(filePath: string): { text: string; warnings: string[] } {
   const workbook = XLSX.readFile(filePath, { cellDates: false });
   const warnings: string[] = [];
-  const metrics: CompetitorMetric[] = [];
   const textParts: string[] = [];
 
   for (const sheetName of workbook.SheetNames) {
     const sheet = workbook.Sheets[sheetName];
     if (!sheet) continue;
+    textParts.push(`[시트: ${sheetName}]`);
     const rows = XLSX.utils.sheet_to_json<(string | number | null)[]>(sheet, {
       header: 1,
       defval: '',
@@ -218,29 +203,14 @@ function parseSpreadsheet(filePath: string): { text: string; metrics: Competitor
       const cells = row.map(normalizeCell).filter(Boolean);
       if (cells.length === 0) continue;
       textParts.push(cells.join(' | '));
-
-      if (cells.length >= 2) {
-        const label = cells[0];
-        const valueCell = cells[1];
-        const matched = METRIC_PATTERNS.find(({ pattern }) => pattern.test(label));
-        if (matched) {
-          const numeric = parseNumeric(valueCell);
-          metrics.push({
-            key: matched.key,
-            label: matched.label,
-            value: matched.key === 'creditRating' ? valueCell : numeric ?? valueCell,
-          });
-        }
-      }
     }
   }
 
-  if (metrics.length === 0) {
-    warnings.push('표 형식에서 표준 재무 지표를 찾지 못했습니다. 텍스트 패턴으로 재시도합니다.');
-    metrics.push(...extractMetricsFromText(textParts.join('\n')));
+  const text = textParts.join('\n');
+  if (!text.trim()) {
+    warnings.push('스프레드시트에서 텍스트를 추출하지 못했습니다.');
   }
-
-  return { text: textParts.join('\n'), metrics: dedupeMetrics(metrics), warnings };
+  return { text, warnings };
 }
 
 async function parsePdf(filePath: string): Promise<{ text: string; warnings: string[] }> {
@@ -266,87 +236,24 @@ export async function parseCompetitorDocument(
 ): Promise<CompetitorParsedDocument> {
   const ext = path.extname(options.fileName).toLowerCase();
   const warnings: string[] = [];
-  let text = '';
-  let metrics: CompetitorMetric[] = [];
-  let companyName: string | undefined;
-  let fiscalYear: number | undefined;
-  let auditFirm: string | undefined;
+  const metrics: CompetitorMetric[] = [];
+  const companyName: string | undefined = undefined;
+  const fiscalYear: number | undefined = options.year;
+  const auditFirm: string | undefined = undefined;
 
-  if (ext === '.pdf') {
-    const pdf = await parsePdf(filePath);
-    text = pdf.text;
-    warnings.push(...pdf.warnings);
-
-    if (isKoreanAuditReportText(text)) {
-      const audit = parseKoreanAuditReportText(text, options.fileName, options.year);
-      metrics = applyNormalizedMetrics(audit.metrics, text);
-      companyName = audit.companyName;
-      fiscalYear = audit.fiscalYear;
-      auditFirm = audit.auditFirm;
-      warnings.push(...audit.warnings);
-    } else if (isKoreanCreditRatingText(text)) {
-      const credit = parseKoreanCreditRatingText(text, options.fileName, options.year);
-      metrics = applyNormalizedMetrics(credit.metrics, text);
-      companyName = credit.companyName;
-      fiscalYear = credit.fiscalYear;
-      warnings.push(...credit.warnings);
-    } else if (/손\s*익\s*계\s*산\s*서|재\s*무\s*상\s*태\s*표|손익계산서|재무상태표/u.test(text)) {
-      const audit = parseKoreanAuditReportText(text, options.fileName, options.year);
-      metrics = applyNormalizedMetrics(audit.metrics, text);
-      companyName = audit.companyName;
-      fiscalYear = audit.fiscalYear;
-      warnings.push(...audit.warnings);
-    } else {
-      metrics = applyNormalizedMetrics(extractMetricsFromText(text), text);
-    }
-  } else if (ext === '.csv' || ext === '.xlsx' || ext === '.xls') {
-    const sheet = parseSpreadsheet(filePath);
-    text = sheet.text;
-    metrics = applyNormalizedMetrics(sheet.metrics, text);
-    warnings.push(...sheet.warnings);
-  } else {
+  // 로컬은 파일 존재·유형만 확인 — 원문·사명·재무는 Claude가 원본 파일에서 추출
+  if (!fs.existsSync(filePath)) {
+    warnings.push(`파일을 찾을 수 없습니다: ${options.fileName}`);
+  } else if (!['.pdf', '.csv', '.xlsx', '.xls', '.txt', '.md'].includes(ext)) {
     warnings.push(`지원하지 않는 파일 형식입니다: ${ext}`);
+  } else {
+    warnings.push('원문·지표 추출은 Claude가 원본 파일에서 수행합니다.');
   }
 
-  const documentType =
-    ext === '.pdf' && isKoreanAuditReportText(text)
-      ? 'audit-report'
-      : ext === '.pdf' && isKoreanCreditRatingText(text)
-        ? 'credit-rating'
-        : inferDocumentType(options.fileName, text);
-  companyName = companyName ?? inferCompanyName(options.fileName, text);
+  const documentType = inferDocumentType(options.fileName, '');
 
-  const identity = resolveDocumentIdentity(
-    text.slice(0, UNIT_CONTEXT_TEXT_LIMIT),
-    options.fileName,
-    options.year,
-    companyName,
-  );
-  companyName = identity.companyName;
-  fiscalYear = identity.fiscalYear;
-
-  if (documentType === 'credit-rating') {
-    metrics = metrics.filter(
-      (metric) =>
-        metric.key === 'creditRating' ||
-        (typeof metric.value === 'number' &&
-          (Math.abs(metric.value) >= 1 ||
-            ['cogsRatio', 'sgaRatio', 'operatingMargin', 'currentRatio', 'accountsReceivableTurnover'].includes(
-              metric.key,
-            ) ||
-            metric.unit === '%' ||
-            metric.unit === '회' ||
-            metric.unit === '명')),
-    );
-  }
-
-  if (metrics.length === 0) {
-    warnings.push('분석 가능한 지표를 추출하지 못했습니다. 파일 형식·항목명을 확인하세요.');
-  }
-
-  const unitContextText = text.slice(0, UNIT_CONTEXT_TEXT_LIMIT);
   const metadata = extractCompetitorMetadata({
-    text: unitContextText,
+    text: '',
     fileName: options.fileName,
     companyName,
     documentType,
@@ -363,8 +270,8 @@ export async function parseCompetitorDocument(
     auditFirm,
     metrics,
     metadata,
-    rawTextPreview: text.slice(0, 400),
-    unitContextText,
+    rawTextPreview: undefined,
+    unitContextText: undefined,
     parsedAt: new Date().toISOString(),
     warnings,
   };
@@ -380,8 +287,9 @@ export async function buildCompetitorAnalysisFromCache(
     .filter((name) => !name.startsWith('.') && !name.endsWith('.json'))
     .filter((name) => {
       const lower = name.toLowerCase();
-      return ['.pdf', '.csv', '.xlsx', '.xls'].some((ext) => lower.endsWith(ext));
+      return ['.pdf', '.csv', '.xlsx', '.xls', '.txt', '.md'].some((ext) => lower.endsWith(ext));
     })
+    .filter((name) => !/oauth-upload-test|upload-test/i.test(name))
     .filter((name) => fs.statSync(path.join(cacheDir, name)).isFile());
 
   const cacheSignature = `${COMPETITOR_PARSE_PIPELINE_VERSION}|${fileNames
@@ -438,8 +346,11 @@ export async function buildCompetitorAnalysisFromCache(
   >();
 
   for (const doc of documents) {
-    const companyName = resolveDocumentCompanyKey(doc);
-    doc.companyName = companyName;
+    // PDF는 Claude 추출 전 사명 미확정 — 파일명 SCI 괄호로 companyName을 덮어쓰지 않음
+    const companyName =
+      doc.companyName && !isBoilerplateCompanyName(doc.companyName)
+        ? doc.companyName
+        : doc.fileName;
 
     const current = companyMap.get(companyName) ?? {
       companyName,

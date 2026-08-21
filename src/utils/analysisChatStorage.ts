@@ -9,8 +9,13 @@ import type {
 } from '@/types/analysisChatSession';
 import type { PendingAnalysisClarification } from '@/utils/analysisQueryClarification';
 import type { PendingLocalDataScope } from '@/utils/analysisLocalDataScope';
+import { workspaceStorageKey } from '@/utils/userWorkspaceStorage';
 
 const STORAGE_KEY = 'perf-dashboard-analysis-chat-sessions';
+
+function storageKey(): string {
+  return workspaceStorageKey(STORAGE_KEY);
+}
 
 function createId(): string {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
@@ -18,7 +23,7 @@ function createId(): string {
 
 function readRoot(): AnalysisChatStorageRoot {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = localStorage.getItem(storageKey());
     if (!raw) return { version: 1, byRole: {} };
     const parsed = JSON.parse(raw) as AnalysisChatStorageRoot;
     if (parsed.version !== 1 || typeof parsed.byRole !== 'object') {
@@ -31,7 +36,7 @@ function readRoot(): AnalysisChatStorageRoot {
 }
 
 function writeRoot(root: AnalysisChatStorageRoot): void {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(root));
+  localStorage.setItem(storageKey(), JSON.stringify(root));
 }
 
 export function threadHasUserMessages(messages: AnalysisChatMessage[]): boolean {

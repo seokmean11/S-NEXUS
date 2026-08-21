@@ -16,6 +16,11 @@ export const COMPETITOR_COMPANY_ALIAS_GROUPS: CompetitorCompanyAliasGroup[] = [
     aliases: ['다원디자인'],
     sectors: ['인테리어'],
   },
+  {
+    canonicalName: '인환경디자인연구소',
+    aliases: ['인환경디자인'],
+    sectors: ['전시사업'],
+  },
 ];
 
 interface AliasLookupEntry {

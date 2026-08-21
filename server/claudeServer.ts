@@ -7,6 +7,19 @@ export interface ClaudeServerMessageResult {
   usage: { input_tokens: number; output_tokens: number };
 }
 
+/** Claude Messages API document / text content block */
+export type ClaudeDocumentContent =
+  | {
+      type: 'document';
+      source: { type: 'base64'; media_type: 'application/pdf'; data: string };
+      title?: string;
+    }
+  | {
+      type: 'document';
+      source: { type: 'text'; media_type: 'text/plain'; data: string };
+      title?: string;
+    };
+
 export function isClaudeConfigured(projectRoot: string): boolean {
   return Boolean(getClaudeApiKey(projectRoot));
 }
@@ -19,6 +32,8 @@ export async function sendClaudeServerMessage(
     maxTokens?: number;
     apiKey?: string;
     timeoutMs?: number;
+    /** 원문 파일 — Claude가 직접 읽음 (로컬 OCR/텍스트 추출 대체) */
+    documents?: ClaudeDocumentContent[];
   },
 ): Promise<ClaudeServerMessageResult> {
   const apiKey = params.apiKey ?? getClaudeApiKey(projectRoot);
@@ -27,7 +42,16 @@ export async function sendClaudeServerMessage(
   }
 
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), params.timeoutMs ?? 90_000);
+  const hasDocs = (params.documents?.length ?? 0) > 0;
+  const timeout = setTimeout(
+    () => controller.abort(),
+    params.timeoutMs ?? (hasDocs ? 180_000 : 90_000),
+  );
+
+  const userContent: Array<ClaudeDocumentContent | { type: 'text'; text: string }> = [
+    ...(params.documents ?? []),
+    { type: 'text', text: params.user },
+  ];
 
   try {
     const response = await fetch('https://api.anthropic.com/v1/messages', {
@@ -41,7 +65,7 @@ export async function sendClaudeServerMessage(
         model: getClaudeModelName(projectRoot),
         max_tokens: params.maxTokens ?? 2048,
         system: params.system,
-        messages: [{ role: 'user', content: params.user }],
+        messages: [{ role: 'user', content: userContent }],
       }),
       signal: controller.signal,
     });

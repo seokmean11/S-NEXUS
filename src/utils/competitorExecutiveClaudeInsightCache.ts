@@ -2,8 +2,16 @@ import {
   normalizeExecutiveInsightsBySection,
   type ExecutiveInsightsBySection,
 } from '@/utils/competitorExecutiveInsight';
+import {
+  removeSessionStorageByPrefix,
+  workspaceStorageKey,
+} from '@/utils/userWorkspaceStorage';
 
 const CACHE_PREFIX = 'perf-dashboard-executive-claude-insights:';
+
+function insightCacheKey(cacheKey: string): string {
+  return workspaceStorageKey(CACHE_PREFIX, cacheKey);
+}
 
 export interface CachedExecutiveClaudeInsights {
   cacheKey: string;
@@ -16,7 +24,7 @@ export function loadCachedExecutiveClaudeInsights(
   cacheKey: string,
 ): CachedExecutiveClaudeInsights | null {
   try {
-    const raw = sessionStorage.getItem(`${CACHE_PREFIX}${cacheKey}`);
+    const raw = sessionStorage.getItem(insightCacheKey(cacheKey));
     if (!raw) return null;
     const parsed = JSON.parse(raw) as CachedExecutiveClaudeInsights;
     if (parsed.cacheKey !== cacheKey) return null;
@@ -40,18 +48,9 @@ export function saveCachedExecutiveClaudeInsights(
     insights,
     usedFallback,
   };
-  sessionStorage.setItem(`${CACHE_PREFIX}${cacheKey}`, JSON.stringify(payload));
+  sessionStorage.setItem(insightCacheKey(cacheKey), JSON.stringify(payload));
 }
 
 export function clearCachedExecutiveClaudeInsights(): void {
-  const keysToRemove: string[] = [];
-  for (let index = 0; index < sessionStorage.length; index += 1) {
-    const key = sessionStorage.key(index);
-    if (key?.startsWith(CACHE_PREFIX)) {
-      keysToRemove.push(key);
-    }
-  }
-  for (const key of keysToRemove) {
-    sessionStorage.removeItem(key);
-  }
+  removeSessionStorageByPrefix(workspaceStorageKey(CACHE_PREFIX));
 }

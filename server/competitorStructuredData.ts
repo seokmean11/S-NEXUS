@@ -14,11 +14,17 @@ import type {
 import { applyCompetitorCompanyAlias } from '../src/utils/competitorCompanyAliases';
 import { buildCompetitorAnalysisFromCache } from './competitorDocumentParser';
 import {
-  buildFileScopedDedupKey,
+  cleanCompanyLabel,
+  isAgencyOrBoilerplateCompanyName,
   normalizeCompanyKey,
   resolveDocumentIdentity,
 } from './competitorDocumentIdentity';
-import { toSourceTypeLabel, type SourceTypeLabel } from './competitorDocumentDedup';
+import {
+  buildCompanyFiscalDedupKey,
+  shouldReplaceDocument,
+  toSourceTypeLabel,
+  type SourceTypeLabel,
+} from './competitorDocumentDedup';
 import {
   extractCompetitorMetadata,
   type CompetitorDocumentMetadata,
@@ -128,6 +134,16 @@ export function buildCompetitorSourceSignature(cacheDir: string): string {
 
 /** 신용분석 PDF 날짜(2022.12 등)가 매출로 파싱된 오류 데이터 감지 */
 export function isStructuredDataTrustworthy(data: CompetitorStructuredData): boolean {
+  if (
+    data.companies.some(
+      (company) =>
+        isAgencyOrBoilerplateCompanyName(company.companyName) ||
+        isAgencyOrBoilerplateCompanyName(company.companyKey),
+    )
+  ) {
+    return false;
+  }
+
   const revenues = data.companies
     .flatMap((company) =>
       (company.metrics ?? [])
@@ -137,13 +153,16 @@ export function isStructuredDataTrustworthy(data: CompetitorStructuredData): boo
 
   if (revenues.length === 0) return false;
 
+  // YYYYMMDD 등이 금액으로 들어간 경우
   const dateLikeRevenues = revenues.filter((value) => value >= 1.5e9 && value <= 3.5e9);
   if (dateLikeRevenues.length >= 3 && dateLikeRevenues.length >= revenues.length * 0.4) {
     return false;
   }
 
+  // 同行 대비 비정상 거대 매출(연결/평가사 오탐) 1건만 튀는 경우
   const maxRevenue = Math.max(...revenues);
-  if (maxRevenue < 50_000_000_000 && revenues.length >= 5) {
+  const peerMedian = [...revenues].sort((a, b) => a - b)[Math.floor(revenues.length / 2)] ?? 0;
+  if (revenues.length >= 4 && peerMedian > 0 && maxRevenue >= peerMedian * 8 && maxRevenue >= 100_000_000_000) {
     return false;
   }
 
@@ -168,20 +187,44 @@ export function buildStructuredDataFromAnalysis(
 
   for (const doc of analysis.documents) {
     const unitText = doc.unitContextText ?? doc.rawTextPreview ?? '';
-    const identity = resolveDocumentIdentity(
-      unitText,
-      doc.fileName,
-      analysis.year,
-      doc.companyName,
-    );
+    // Claude가 채운 사명을 우선 — 로컬 identity로 미상/평가사명 덮어쓰지 않음
+    const fromClaude = doc.companyName ? cleanCompanyLabel(doc.companyName) ?? doc.companyName.trim() : null;
+    const preferClaude =
+      fromClaude &&
+      fromClaude !== '미상' &&
+      !isAgencyOrBoilerplateCompanyName(fromClaude);
+
+    const identity = preferClaude
+      ? {
+          companyName: fromClaude,
+          companyKey: normalizeCompanyKey(fromClaude),
+          fiscalYear: doc.fiscalYear ?? analysis.year,
+          sourceFile: doc.fileName,
+        }
+      : resolveDocumentIdentity(unitText, doc.fileName, analysis.year, doc.companyName);
+
     const aliased = applyCompetitorCompanyAlias(identity.companyKey, analysis.sector);
     const resolvedCompanyKey = aliased.key;
     const resolvedCompanyName = aliased.displayName;
+
+    // 피분석 사명을 못 찾은 경우만 집계 제외 (SCI·감사보고서 등 파일 자체는 사명만 되면 모두 추출)
+    if (
+      resolvedCompanyName === '미상' ||
+      resolvedCompanyKey === '미상' ||
+      isAgencyOrBoilerplateCompanyName(resolvedCompanyName) ||
+      isAgencyOrBoilerplateCompanyName(resolvedCompanyKey)
+    ) {
+      doc.companyName = resolvedCompanyName;
+      doc.fiscalYear = identity.fiscalYear;
+      continue;
+    }
+
     doc.companyName = resolvedCompanyName;
     doc.fiscalYear = identity.fiscalYear;
 
     const fiscalYear = identity.fiscalYear;
-    const dedupKey = buildFileScopedDedupKey(doc.fileName, fiscalYear);
+    // 사명+연도 기준: 중복이면 신용평가서 우선, 아니면 파일별 회사 모두 유지
+    const dedupKey = buildCompanyFiscalDedupKey(resolvedCompanyKey, fiscalYear);
     const sourceType = toSourceTypeLabel(doc.documentType, doc.fileName);
 
     const candidate: CompetitorStructuredCompany = {
@@ -214,6 +257,22 @@ export function buildStructuredDataFromAnalysis(
     const existing = companyMap.get(dedupKey);
     if (!existing) {
       companyMap.set(dedupKey, candidate);
+    } else if (
+      shouldReplaceDocument(
+        {
+          documentType: existing.documentType,
+          parsedAt: existing.parsedAt,
+          sourceFile: existing.source_file ?? existing.sourceFiles[0],
+        },
+        {
+          documentType: candidate.documentType,
+          parsedAt: candidate.parsedAt,
+          sourceFile: candidate.source_file ?? candidate.sourceFiles[0],
+        },
+      )
+    ) {
+      const mergedFiles = [...new Set([...existing.sourceFiles, doc.fileName])];
+      companyMap.set(dedupKey, { ...candidate, sourceFiles: mergedFiles });
     } else if (!existing.sourceFiles.includes(doc.fileName)) {
       existing.sourceFiles.push(doc.fileName);
     }

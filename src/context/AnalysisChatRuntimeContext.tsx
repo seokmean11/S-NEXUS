@@ -24,8 +24,13 @@ import {
   type ClaudeUsageSnapshot,
 } from '@/utils/claudeUsage';
 import type { AnalysisDataPayloadMeta } from '@/utils/buildAnalysisDataPayload';
+import { workspaceStorageKey } from '@/utils/userWorkspaceStorage';
 
 const INFLIGHT_STORAGE_KEY = 'perf-dashboard-analysis-inflight';
+
+function inflightStorageKey(): string {
+  return workspaceStorageKey(INFLIGHT_STORAGE_KEY);
+}
 
 interface StartBackgroundAnalysisParams {
   roleId: Role;
@@ -55,10 +60,10 @@ const AnalysisChatRuntimeContext = createContext<AnalysisChatRuntimeContextValue
 
 function writePersistedInFlight(job: ReturnType<typeof createAnalysisBackgroundJob> | null): void {
   if (!job) {
-    sessionStorage.removeItem(INFLIGHT_STORAGE_KEY);
+    sessionStorage.removeItem(inflightStorageKey());
     return;
   }
-  sessionStorage.setItem(INFLIGHT_STORAGE_KEY, JSON.stringify(job));
+  sessionStorage.setItem(inflightStorageKey(), JSON.stringify(job));
 }
 
 export function AnalysisChatRuntimeProvider({ children }: { children: ReactNode }) {

@@ -71,7 +71,7 @@ export interface NormalizeFinancialMetricsOptions {
   metricsInWon?: boolean;
 }
 
-export const COMPETITOR_PARSE_PIPELINE_VERSION = 'unit-normalize-v8';
+export const COMPETITOR_PARSE_PIPELINE_VERSION = 'claude-doc-v11';
 
 const FINANCIAL_STATEMENT_UNIT_PATTERNS: Array<{ unit: DocumentAmountUnit; pattern: RegExp }> = [
   { unit: '백만원', pattern: /(?:단\s*위|UNIT)\s*[:：]\s*백\s*만\s*원/u },

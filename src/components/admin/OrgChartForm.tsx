@@ -1,13 +1,6 @@
 import { PersonnelDashboard } from '@/components/personnel/PersonnelDashboard';
-import { useApp } from '@/context/AppContext';
 
 export function OrgChartForm() {
-  const { permissions } = useApp();
-
-  if (!permissions.canCreateProject) {
-    return null;
-  }
-
   return (
     <div className="org-page">
       <div className="page-header no-print org-page__header">

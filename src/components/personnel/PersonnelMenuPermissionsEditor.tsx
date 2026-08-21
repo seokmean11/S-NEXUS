@@ -1,6 +1,7 @@
 import {
   MENU_PERMISSION_MODE_LABELS,
   PERSONNEL_MENU_PERMISSION_ITEMS,
+  menuPermissionSupportsEdit,
   type MenuPermissionMode,
   type PersonnelMenuPermissionKey,
   type PersonnelMenuPermissions,
@@ -25,7 +26,10 @@ export function PersonnelMenuPermissionsEditor({
   const setMenuEnabled = (key: PersonnelMenuPermissionKey, enabled: boolean) => {
     const next = { ...value };
     if (enabled) {
-      next[key] = { mode: next[key]?.mode ?? 'read' };
+      const currentMode = next[key]?.mode;
+      next[key] = {
+        mode: menuPermissionSupportsEdit(key) && currentMode === 'edit' ? 'edit' : 'read',
+      };
     } else {
       delete next[key];
     }
@@ -34,6 +38,7 @@ export function PersonnelMenuPermissionsEditor({
 
   const setMenuMode = (key: PersonnelMenuPermissionKey, mode: MenuPermissionMode) => {
     if (!isMenuPermissionEnabled(value, key)) return;
+    if (!menuPermissionSupportsEdit(key)) return;
     onChange({ ...value, [key]: { mode } });
   };
 
@@ -60,6 +65,7 @@ export function PersonnelMenuPermissionsEditor({
         {PERSONNEL_MENU_PERMISSION_ITEMS.map((item) => {
           const enabled = isMenuPermissionEnabled(value, item.key);
           const mode = value[item.key]?.mode ?? 'read';
+          const showModeSelect = item.modes.length > 1;
 
           return (
             <li key={item.key} className="personnel-menu-perms__item">
@@ -72,9 +78,9 @@ export function PersonnelMenuPermissionsEditor({
                 <span>{item.label}</span>
               </label>
 
-              {enabled && (
+              {enabled && showModeSelect && (
                 <div className="personnel-menu-perms__modes" role="radiogroup" aria-label={`${item.label} 권한`}>
-                  {(['read', 'edit'] as const).map((option) => (
+                  {item.modes.map((option) => (
                     <label key={option} className="personnel-menu-perms__mode">
                       <input
                         type="radio"
@@ -93,7 +99,8 @@ export function PersonnelMenuPermissionsEditor({
       </ul>
 
       <p className="personnel-menu-perms__hint">
-        읽기전용: 메뉴 사용·조회만 가능 · 수정권한: 사용과 수정 모두 가능 (추후 로그인 연동 시 적용)
+        조직관리만 읽기전용/수정권한을 나눕니다. NEXUS AI · 입찰도우미 · 외주정보검색 · 경쟁사분석은
+        선택 시 해당 메뉴를 그대로 사용할 수 있습니다.
       </p>
     </div>
   );

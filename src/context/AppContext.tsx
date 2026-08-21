@@ -53,6 +53,7 @@ import {
 import { logHistory } from '@/utils/historyLogger';
 import { loadHistoryEvents, saveHistoryEvents } from '@/utils/historyStorage';
 import {
+  isRemoteOrgStateNewer,
   loadAppState,
   loadOrgState,
   normalizeExecutiveOffice,
@@ -155,6 +156,7 @@ function persistOrgStateIfNeeded(
     manualOverrideVersion: shouldPersistOverrideVersion
       ? ORG_MANUAL_OVERRIDE_VERSION
       : saved.manualOverrideVersion,
+    savedAt: saved.savedAt,
   });
 }
 
@@ -178,10 +180,13 @@ function finalizeOrgAuthState(
 }
 
 function buildOrgStateFromStored(saved: StoredOrgState) {
-  return finalizeOrgAuthState({
-    ...normalizeLoadedOrgState(saved),
-    personnelAuth: saved.personnelAuth ?? {},
-  });
+  return {
+    ...finalizeOrgAuthState({
+      ...normalizeLoadedOrgState(saved),
+      personnelAuth: saved.personnelAuth ?? {},
+    }),
+    savedAt: saved.savedAt,
+  };
 }
 
 function createInitialOrgState() {
@@ -195,7 +200,7 @@ function createInitialOrgState() {
         personnelAuth: saved.personnelAuth ?? {},
       });
       persistOrgStateIfNeeded(saved, withAuth);
-      return withAuth;
+      return { ...withAuth, savedAt: saved.savedAt };
     }
     if (saved && shouldSeedPhoneDirectoryOrg(saved)) {
       return { ...getPhoneDirectoryOrgState(), personnelAuth: saved.personnelAuth ?? {} };
@@ -410,9 +415,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const remoteOrgUpdatedAtRef = useRef<string | null>(null);
   const lastLocalOrgSaveAtRef = useRef(0);
   const skipRemoteOrgSaveRef = useRef(true);
+  const orgSavedAtRef = useRef<string | undefined>(
+    (initialOrg as StoredOrgState).savedAt ?? loadOrgState()?.savedAt,
+  );
 
   const applyOrgStatePayload = useCallback((saved: StoredOrgState) => {
     skipRemoteOrgSaveRef.current = true;
+    orgSavedAtRef.current = saved.savedAt;
     const withAuth = buildOrgStateFromStored(saved);
     setExecutiveOffice(withAuth.executiveOffice);
     setDivisions(withAuth.divisions);
@@ -464,6 +473,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         if (cancelled) return;
 
         if (serverState) {
+          const localStamp = { savedAt: orgSavedAtRef.current } as StoredOrgState;
+          if (!isRemoteOrgStateNewer(serverState, localStamp)) return;
           applyOrgStatePayload(serverState);
           remoteOrgUpdatedAtRef.current = meta?.updatedAt ?? null;
         }
@@ -490,6 +501,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const { state: serverState, meta: nextMeta } = await fetchNexusOrgState();
       if (!serverState) return;
 
+      const localStamp = { savedAt: orgSavedAtRef.current } as StoredOrgState;
+      if (!isRemoteOrgStateNewer(serverState, localStamp)) return;
+
       applyOrgStatePayload(serverState);
       remoteOrgUpdatedAtRef.current = nextMeta?.updatedAt ?? meta.updatedAt;
     };
@@ -506,6 +520,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!orgReady) return;
 
+    const skippingRemote = skipRemoteOrgSaveRef.current;
+    const savedAt = skippingRemote
+      ? orgSavedAtRef.current
+      : new Date().toISOString();
+    if (!skippingRemote) {
+      orgSavedAtRef.current = savedAt;
+    }
+
     const payload = {
       executiveOffice,
       divisions,
@@ -514,12 +536,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
       personnelAuth,
       parseVersion: orgStorageMeta.parseVersion,
       manualOverrideVersion: orgStorageMeta.manualOverrideVersion,
+      savedAt,
     };
 
     saveOrgState(payload);
     lastLocalOrgSaveAtRef.current = Date.now();
 
-    if (skipRemoteOrgSaveRef.current) {
+    if (skippingRemote) {
       skipRemoteOrgSaveRef.current = false;
       return;
     }
@@ -1036,7 +1059,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         divisionName: division?.name ?? '',
       };
       setEmployees((prev) => [...prev, employee]);
-      setProjects((prev) =>
+    setProjects((prev) =>
         addEmployeeToTeamProjects(prev, projectTeamAllocations, teamId, employee.id),
       );
       recordHistory({

@@ -35,6 +35,7 @@ import {
   isNexusDriveUploadConfigured,
   type NexusDriveConfig,
 } from './nexusGoogleDrive';
+import { probeGoogleOAuthUploadAccess } from './googleDriveOAuth';
 import {
   COMPETITOR_STRUCTURED_DATA_FILE,
   rebuildCompetitorStructuredData,
@@ -571,5 +572,17 @@ export function getCompetitorDriveStatus(projectRoot: string) {
     uploadConfigured: isNexusDriveUploadConfigured(projectRoot),
     rootFolder: COMPETITOR_DRIVE_ROOT_FOLDER,
     folderPattern: `${COMPETITOR_DRIVE_ROOT_FOLDER}/{연도}/{전시사업|인테리어}`,
+  };
+}
+
+export async function getCompetitorDriveStatusLive(projectRoot: string) {
+  const base = getCompetitorDriveStatus(projectRoot);
+  if (!base.configured) return base;
+
+  const probe = await probeGoogleOAuthUploadAccess(projectRoot);
+  return {
+    ...base,
+    uploadConfigured: probe.ok,
+    uploadError: probe.ok ? undefined : probe.error,
   };
 }

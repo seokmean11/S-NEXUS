@@ -20,6 +20,7 @@ export interface CompetitorDriveStatus {
   folderId?: string;
   cacheDir?: string;
   uploadConfigured: boolean;
+  uploadError?: string;
   rootFolder: string;
   folderPattern: string;
 }
@@ -377,7 +378,10 @@ export function getCompetitorUploadBlockReason(status: CompetitorDriveStatus | n
     return 'Google Drive NEXUS 연동이 필요합니다. GOOGLE_DRIVE_NEXUS_FOLDER_ID와 서비스 계정 키를 설정하세요.';
   }
   if (!status.uploadConfigured) {
-    return 'Google Drive OAuth 업로드 설정이 필요합니다. GOOGLE_OAUTH_* 설정 후 npm run google-drive-oauth를 실행하세요.';
+    return (
+      status.uploadError ??
+      'Google Drive OAuth 업로드 설정이 필요합니다. 데이터폴더에서 Drive OAuth 재연결을 실행하세요.'
+    );
   }
   return null;
 }

@@ -13,6 +13,7 @@ import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
 import {
   canShowSidebarNavItem,
+  shouldShowCompetitorNav,
   shouldShowDataFolderNav,
   shouldShowMiscInfoNav,
   shouldShowPurchaseNav,
@@ -85,6 +86,7 @@ export function AppLayout() {
     isDeveloper || permissions.canCreateProject || permissions.canViewAll
       ? true
       : shouldShowPurchaseNav(menuPermissions, false);
+  const showCompetitorNav = shouldShowCompetitorNav(menuPermissions, isDeveloper);
   const purchaseActive = isPurchaseSectionPath(location.pathname);
   const miscInfoActive = isMiscInfoSectionPath(location.pathname);
   const projectActive = isProjectManagementSectionPath(location.pathname);
@@ -114,6 +116,16 @@ export function AppLayout() {
     const outsourcingRoute = path.startsWith('/outsourcing');
 
     if (orgRoute && !canAccessPath('/org')) {
+      navigate('/', { replace: true });
+      return;
+    }
+
+    if ((path === '/analysis' || path.startsWith('/analysis/')) && !canAccessPath(path)) {
+      navigate('/', { replace: true });
+      return;
+    }
+
+    if (path.startsWith('/misc-info/competitor-analysis') && !canAccessPath(path)) {
       navigate('/', { replace: true });
       return;
     }
@@ -384,6 +396,18 @@ export function AppLayout() {
 
               </div>
 
+            )}
+
+            {showCompetitorNav && (
+              <NavLink
+                to="/misc-info/competitor-analysis"
+                className={({ isActive }) =>
+                  `lnb__link ${isActive ? 'lnb__link--active' : ''}`
+                }
+              >
+                <span className="lnb__icon">📊</span>
+                경쟁사분석
+              </NavLink>
             )}
 
             {showMiscInfoNav && (

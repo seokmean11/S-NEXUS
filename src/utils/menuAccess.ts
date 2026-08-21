@@ -1,31 +1,42 @@
 import type { PersonnelMenuPermissionKey, PersonnelMenuPermissions } from '@/types/menuPermissions';
+import { PERSONNEL_MENU_PERMISSION_KEYS } from '@/types/menuPermissions';
 import { isMenuPermissionEnabled } from '@/utils/menuPermissions';
 
 /** 조직관리에서 부여하지 않은 메뉴 — 일반 사용자 기본 차단 */
-const RESTRICTED_PATH_PREFIXES = ['/analysis', '/misc-info', '/data-folder'] as const;
-
 export function isRestrictedPathForRegularUser(pathname: string): boolean {
-  return RESTRICTED_PATH_PREFIXES.some((prefix) => pathname.startsWith(prefix));
+  if (pathname.startsWith('/data-folder')) return true;
+  if (pathname.startsWith('/misc-info/competitor-analysis')) return false;
+  if (pathname.startsWith('/misc-info')) return true;
+  return false;
 }
 
 export function hasAnyMenuPermission(permissions: PersonnelMenuPermissions | undefined): boolean {
   if (!permissions) return false;
-  return PERSONNEL_MENU_PERMISSION_KEYS.some((key) => isMenuPermissionEnabled(permissions, key));
+  return PERSONNEL_MENU_PERMISSION_KEYS.some((key) => isMenuPermissionGranted(permissions, key));
 }
 
-const PERSONNEL_MENU_PERMISSION_KEYS: PersonnelMenuPermissionKey[] = [
-  'org',
-  'purchase',
-  'bidding',
-  'outsourcing',
-];
-
 export function pathnameToMenuPermissionKey(pathname: string): PersonnelMenuPermissionKey | null {
+  if (pathname === '/analysis' || pathname.startsWith('/analysis/')) return 'analysis';
   if (pathname === '/org' || pathname.startsWith('/org/')) return 'org';
   if (pathname.startsWith('/outsourcing')) return 'outsourcing';
-  if (pathname.startsWith('/purchase/bidding')) return 'bidding';
+  if (pathname.startsWith('/purchase/bidding') || pathname === '/purchase') return 'bidding';
   if (pathname.startsWith('/purchase')) return 'purchase';
+  if (pathname.startsWith('/misc-info/competitor-analysis')) return 'competitor';
   return null;
+}
+
+export function isMenuPermissionGranted(
+  permissions: PersonnelMenuPermissions | undefined,
+  key: PersonnelMenuPermissionKey,
+): boolean {
+  if (isMenuPermissionEnabled(permissions, key)) return true;
+  if (
+    (key === 'bidding' || key === 'outsourcing') &&
+    isMenuPermissionEnabled(permissions, 'purchase')
+  ) {
+    return true;
+  }
+  return false;
 }
 
 export function canAccessMenuPermission(
@@ -34,7 +45,7 @@ export function canAccessMenuPermission(
   isDeveloper: boolean,
 ): boolean {
   if (isDeveloper) return true;
-  return isMenuPermissionEnabled(permissions, key);
+  return isMenuPermissionGranted(permissions, key);
 }
 
 export type ProjectManagementRoleFlags = {
@@ -93,7 +104,9 @@ export function canShowSidebarNavItem(
 
   if (path === '/') return true;
 
-  if (path === '/analysis' || path === '/data-folder') return false;
+  if (path === '/analysis') {
+    return canAccessMenuPermission(permissions, 'analysis', false);
+  }
 
   if (path === '/org') {
     return canAccessMenuPermission(permissions, 'org', false);
@@ -129,12 +142,21 @@ export function shouldShowDataFolderNav(isDeveloper: boolean): boolean {
   return isDeveloper;
 }
 
+export function shouldShowCompetitorNav(
+  permissions: PersonnelMenuPermissions | undefined,
+  isDeveloper: boolean,
+): boolean {
+  if (isDeveloper) return false;
+  return canAccessMenuPermission(permissions, 'competitor', false);
+}
+
 export function isMenuPermissionReadOnly(
   permissions: PersonnelMenuPermissions | undefined,
   key: PersonnelMenuPermissionKey,
 ): boolean {
   const entry = permissions?.[key];
-  return entry?.mode === 'read';
+  if (key === 'org') return entry?.mode === 'read';
+  return true;
 }
 
 export function pathnameMenuReadOnly(

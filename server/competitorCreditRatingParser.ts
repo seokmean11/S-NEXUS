@@ -11,6 +11,10 @@ import {
   readIncomeLineAmounts,
   readLatestYearAmount,
 } from './competitorFinancialStatementExtract';
+import {
+  extractCompanyNameFromCover,
+  extractCompanyNameFromFileName,
+} from './competitorDocumentIdentity';
 
 function pushAmountMetric(
   metrics: CompetitorMetric[],
@@ -221,14 +225,13 @@ function inferFiscalYearFromCreditReport(text: string, folderYear: number): numb
 }
 
 export function inferCompanyNameFromCreditReport(fileName: string, text: string): string | undefined {
-  const fromFile = fileName.match(/\(?(?:주|유|㈜)\)?([^().]+?)(?:\(|\[|\.|$)/u);
-  if (fromFile?.[1]) return fromFile[1].trim();
+  const fromCover = extractCompanyNameFromCover(text, fileName);
+  if (fromCover) return fromCover;
 
-  const companyMatch = text.match(/업\s*체\s*명\s*\(?(?:주|유|㈜)\)?\s*([가-힣A-Za-z0-9&]+)/u);
-  if (companyMatch?.[1]) return companyMatch[1].trim();
+  const fromFile = extractCompanyNameFromFileName(fileName);
+  if (fromFile) return fromFile;
 
-  const altMatch = text.match(/기\s*업\s*명\s*\(?(?:주|유|㈜)\)?\s*([가-힣A-Za-z0-9&]+)/u);
-  return altMatch?.[1]?.trim();
+  return undefined;
 }
 
 export function isKoreanCreditRatingText(text: string): boolean {

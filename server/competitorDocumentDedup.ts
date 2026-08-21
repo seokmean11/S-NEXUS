@@ -17,17 +17,30 @@ export interface DocumentSelectionMeta {
   parsedAt: string;
 }
 
-/** 문서 유형 우선순위: 감사보고서(100) > 사업보고서(80) > 신용분석(50) > 재무자료(30) */
-export function documentTypePriority(documentType: CompetitorDocumentType): number {
-  switch (documentType) {
-    case 'audit-report':
+/**
+ * 폴더 내 다중 파일 사명 중복 시 우선순위
+ * 신용평가서 > 신용분석보고서(SCI 등) > 감사보고서 > 사업보고서 > 재무자료
+ */
+export function documentTypePriority(
+  documentType: CompetitorDocumentType,
+  fileName?: string,
+): number {
+  const label = toSourceTypeLabel(documentType, fileName);
+  return sourceTypePriority(label);
+}
+
+export function sourceTypePriority(label: SourceTypeLabel): number {
+  switch (label) {
+    case '신용평가서':
       return 100;
-    case 'business-report':
-      return 80;
-    case 'credit-rating':
-      return 50;
-    case 'financial-sheet':
-      return 30;
+    case '신용분석보고서':
+      return 90;
+    case '감사보고서':
+      return 70;
+    case '사업보고서':
+      return 60;
+    case '재무자료':
+      return 40;
     default:
       return 0;
   }
@@ -37,9 +50,32 @@ export function toSourceTypeLabel(
   documentType: CompetitorDocumentType,
   fileName?: string,
 ): SourceTypeLabel {
-  if (documentType === 'credit-rating' && fileName) {
-    if (/신용분석/u.test(fileName)) return '신용분석보고서';
-    if (/신용평가/u.test(fileName)) return '신용평가서';
+  if (fileName) {
+    // 파일명에 명시된 "신용평가서"만 최우선 라벨 (SCI·민간기업신용평가 등은 신용분석)
+    if (/신용평가서/u.test(fileName)) return '신용평가서';
+    if (
+      /신용평가/u.test(fileName) &&
+      !/신용분석|SCI|평가정보|민간\s*기업신용|기업신용평가/u.test(fileName)
+    ) {
+      return '신용평가서';
+    }
+    if (/신용분석|기업신용평가|민간\s*기업신용|SCI|NICE|이크레더블|한국기업평가/u.test(fileName)) {
+      return '신용분석보고서';
+    }
+    if (/감사보고서/u.test(fileName)) return '감사보고서';
+    if (/사업보고서/u.test(fileName)) return '사업보고서';
+  }
+
+  if (documentType === 'credit-rating') {
+    if (fileName && /신용평가서/u.test(fileName)) return '신용평가서';
+    if (
+      fileName &&
+      /신용평가/u.test(fileName) &&
+      !/신용분석|SCI|평가정보|민간\s*기업신용|기업신용평가/u.test(fileName)
+    ) {
+      return '신용평가서';
+    }
+    return '신용분석보고서';
   }
 
   switch (documentType) {
@@ -47,8 +83,6 @@ export function toSourceTypeLabel(
       return '감사보고서';
     case 'business-report':
       return '사업보고서';
-    case 'credit-rating':
-      return '신용분석보고서';
     case 'financial-sheet':
       return '재무자료';
     default:
@@ -71,11 +105,11 @@ export function buildCompanyFiscalDedupKey(companyKey: string, fiscalYear: numbe
 }
 
 export function shouldReplaceDocument(
-  existing: Pick<DocumentSelectionMeta, 'documentType' | 'parsedAt'>,
-  incoming: Pick<DocumentSelectionMeta, 'documentType' | 'parsedAt'>,
+  existing: Pick<DocumentSelectionMeta, 'documentType' | 'parsedAt'> & { sourceFile?: string },
+  incoming: Pick<DocumentSelectionMeta, 'documentType' | 'parsedAt'> & { sourceFile?: string },
 ): boolean {
-  const existingPriority = documentTypePriority(existing.documentType);
-  const incomingPriority = documentTypePriority(incoming.documentType);
+  const existingPriority = documentTypePriority(existing.documentType, existing.sourceFile);
+  const incomingPriority = documentTypePriority(incoming.documentType, incoming.sourceFile);
 
   if (incomingPriority > existingPriority) return true;
   if (incomingPriority < existingPriority) return false;
@@ -108,17 +142,19 @@ export function pickPrimaryDocument(metas: DocumentSelectionMeta[]): DocumentSel
   if (metas.length === 0) return null;
 
   return metas.reduce((best, current) => {
-    const bestPriority = documentTypePriority(best.documentType);
-    const currentPriority = documentTypePriority(current.documentType);
-    if (currentPriority > bestPriority) return current;
-    if (currentPriority < bestPriority) return best;
-
-    const bestTime = Date.parse(best.parsedAt);
-    const currentTime = Date.parse(current.parsedAt);
-    if (Number.isFinite(bestTime) && Number.isFinite(currentTime) && currentTime > bestTime) {
+    if (
+      shouldReplaceDocument(
+        { documentType: best.documentType, parsedAt: best.parsedAt, sourceFile: best.sourceFile },
+        {
+          documentType: current.documentType,
+          parsedAt: current.parsedAt,
+          sourceFile: current.sourceFile,
+        },
+      )
+    ) {
       return current;
     }
-    return best.parsedAt >= current.parsedAt ? best : current;
+    return best;
   });
 }
 

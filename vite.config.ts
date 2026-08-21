@@ -39,9 +39,16 @@ export default defineConfig(({ mode }) => {
       },
     },
     server: {
+      // 팀원 PC에서 서비스웹으로 접속 가능 (동일 서버·공용 Drive 토큰으로 업로드)
+      host: true,
+      port: 5173,
       watch: {
-        ignored: ['**/tmp/**'],
+        ignored: ['**/tmp/**', '**/.data/**'],
       },
+    },
+    preview: {
+      host: true,
+      port: 4173,
     },
   };
 });

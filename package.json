@@ -1,12 +1,13 @@
 {
   "name": "performance-dashboard",
   "private": true,
-  "version": "1.14.0",
+  "version": "1.16.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
+    "service": "vite build && vite preview --host --port 4173",
     "google-drive-oauth": "node scripts/google-drive-oauth-setup.mjs"
   },
   "dependencies": {

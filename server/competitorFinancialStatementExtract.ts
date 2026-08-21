@@ -97,7 +97,13 @@ function findSectionStart(text: string, kind: 'income' | 'balance'): number {
   const separateMatch = text.match(separatePattern);
   if (separateMatch?.index != null) return separateMatch.index;
 
-  const pattern = sectionUnitPattern(kind);
+  const individualPattern =
+    kind === 'income'
+      ? /개\s*별\s*손\s*익\s*계\s*산\s*서|개별\s*손익계산서/u
+      : /개\s*별\s*재\s*무\s*상\s*태\s*표|개별\s*재무상태표/u;
+  const individualMatch = text.match(individualPattern);
+  if (individualMatch?.index != null) return individualMatch.index;
+
   const formalPattern =
     kind === 'income'
       ? /손익계산서\s*[\(（][^)）]{0,40}단\s*위\s*[:：][^)）]{0,20}[\)）]/u
@@ -109,20 +115,19 @@ function findSectionStart(text: string, kind: 'income' | 'balance'): number {
     if (!/연\s*결/u.test(window)) return formalMatch.index;
   }
 
-  const consolidatedPattern =
-    kind === 'income'
-      ? /연\s*결\s*손\s*익\s*계\s*산\s*서|연결\s*손익계산서/u
-      : /연\s*결\s*재\s*무\s*상\s*태\s*표|연결\s*재무상태표/u;
-  const consolidatedMatch = text.match(consolidatedPattern);
-
-  const genericMatch = text.match(pattern);
-  if (genericMatch?.index != null && !consolidatedMatch) return genericMatch.index;
-  if (consolidatedMatch?.index != null && !genericMatch) return consolidatedMatch.index;
-  if (genericMatch?.index != null && consolidatedMatch?.index != null) {
-    return Math.min(genericMatch.index, consolidatedMatch.index);
+  // 일반 손익/재무상태표 — 연결 제목·인접 구간은 제외하고 첫 비연결 위치만 사용
+  const consolidatedNearby = /연\s*결/u;
+  for (const match of text.matchAll(
+    kind === 'income' ? /손\s*익\s*계\s*산\s*서|손익계산서/gu : /재\s*무\s*상\s*태\s*표|재무상태표/gu,
+  )) {
+    if (match.index == null) continue;
+    const window = text.slice(Math.max(0, match.index - 48), match.index + 24);
+    if (consolidatedNearby.test(window)) continue;
+    return match.index;
   }
 
-  return genericMatch?.index ?? consolidatedMatch?.index ?? -1;
+  // 연결만 있으면 사용하지 않음 (계열사 연결재무제표 제외 정책)
+  return -1;
 }
 
 function findSectionEnd(text: string, start: number, kind: 'income' | 'balance'): number {

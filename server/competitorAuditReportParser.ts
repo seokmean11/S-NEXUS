@@ -12,6 +12,11 @@ import {
   readIncomeLineAmounts,
   readIncomeLineLatestAmount,
 } from './competitorFinancialStatementExtract';
+import {
+  cleanCompanyLabel,
+  extractCompanyNameFromCover,
+  extractCompanyNameFromFileName,
+} from './competitorDocumentIdentity';
 
 const BALANCE_LINE_PATTERNS: Array<{ key: string; label: string; pattern: RegExp }> = [
   { key: 'totalAssets', label: '자산총계', pattern: /자\s*산\s*총\s*계/u },
@@ -55,14 +60,15 @@ function linePatternWithNumbers(labelPattern: RegExp): RegExp {
 }
 
 export function inferCompanyNameFromAuditReport(fileName: string, text: string): string | undefined {
+  const fromCover = extractCompanyNameFromCover(text, fileName);
+  if (fromCover) return fromCover;
+
+  const fromFile = extractCompanyNameFromFileName(fileName);
+  if (fromFile) return fromFile;
+
   const bracketMatch = fileName.match(/\[([^\]]+)\]/);
   if (bracketMatch?.[1]) {
-    return bracketMatch[1].trim();
-  }
-
-  const legalNameMatch = text.match(/주식회사\s+([가-힣A-Za-z0-9&]+)/u);
-  if (legalNameMatch?.[1]) {
-    return legalNameMatch[1].trim();
+    return cleanCompanyLabel(bracketMatch[1]) ?? undefined;
   }
 
   return undefined;

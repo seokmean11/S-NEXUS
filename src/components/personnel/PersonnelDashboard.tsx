@@ -284,6 +284,7 @@ export function PersonnelDashboard({ embedded = false }: { embedded?: boolean })
   };
 
   const openAddPersonEditor = () => {
+    if (!canEditOrg) return;
     setAddConfirmOpen(false);
     setEditingRow(null);
     setIsAddingPerson(true);
@@ -293,6 +294,7 @@ export function PersonnelDashboard({ embedded = false }: { embedded?: boolean })
   };
 
   const openEditPerson = (row: PersonnelRow) => {
+    if (!canEditOrg) return;
     setEditingRow(row);
     setMessage('');
     setError('');
@@ -307,7 +309,7 @@ export function PersonnelDashboard({ embedded = false }: { embedded?: boolean })
       grade: getPersonnelGradeFormValue(row),
       rank: row.rank,
       position: getPersonnelPositionFormValue(row.position),
-      menuPermissions: row.menuPermissions ?? {},
+      menuPermissions: normalizeMenuPermissions(row.menuPermissions) ?? {},
       divisionId: resolvedDivisionId,
       teamId: getPersonnelTeamFormValue(row),
     });
@@ -392,7 +394,7 @@ export function PersonnelDashboard({ embedded = false }: { embedded?: boolean })
   };
 
   const handleSavePersonEdit = () => {
-    if (!editingRow) return;
+    if (!canEditOrg || !editingRow) return;
 
     const name = personForm.name.trim();
 
@@ -518,7 +520,7 @@ export function PersonnelDashboard({ embedded = false }: { embedded?: boolean })
   };
 
   const handleSavePersonAdd = () => {
-    if (!isAddingPerson) return;
+    if (!canEditOrg || !isAddingPerson) return;
 
     const name = personForm.name.trim();
     if (!name) {
@@ -571,7 +573,7 @@ export function PersonnelDashboard({ embedded = false }: { embedded?: boolean })
   };
 
   const handleDeletePersonConfirm = () => {
-    if (!deletePersonTarget) return;
+    if (!canEditOrg || !deletePersonTarget) return;
 
     if (isPlatformSuperAdminPerson(deletePersonTarget)) {
       showError('플랫폼 통합관리자(서석민)는 삭제할 수 없습니다.');
@@ -678,13 +680,17 @@ export function PersonnelDashboard({ embedded = false }: { embedded?: boolean })
           />
         </div>
 
-        {canEditOrg && (
-          <div className="personnel-dashboard__add-action no-print">
-            <Button variant="primary" size="sm" onClick={() => setAddConfirmOpen(true)}>
-              인원추가등록
-            </Button>
-          </div>
-        )}
+        <div className="personnel-dashboard__add-action no-print">
+          <Button
+            variant="primary"
+            size="sm"
+            disabled={!canEditOrg}
+            title={canEditOrg ? undefined : '조직관리 읽기전용 — 등록할 수 없습니다.'}
+            onClick={() => setAddConfirmOpen(true)}
+          >
+            인원추가등록
+          </Button>
+        </div>
 
         <div className="personnel-dashboard__summary">
           <span>
@@ -744,19 +750,26 @@ export function PersonnelDashboard({ embedded = false }: { embedded?: boolean })
                     <td>{row.teamName}</td>
                     <td className="personnel-table__actions">
                       <div className="personnel-table__action-group">
-                        {canEditOrg && (
-                          <>
-                            <Button variant="outline" size="sm" onClick={() => openEditPerson(row)}>
-                              수정
-                            </Button>
-                            {!isPlatformSuperAdminPerson(row) && (
-                              <Button variant="danger" size="sm" onClick={() => setDeletePersonTarget(row)}>
-                                삭제
-                              </Button>
-                            )}
-                          </>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          disabled={!canEditOrg}
+                          title={canEditOrg ? undefined : '조직관리 읽기전용 — 수정할 수 없습니다.'}
+                          onClick={() => openEditPerson(row)}
+                        >
+                          수정
+                        </Button>
+                        {!isPlatformSuperAdminPerson(row) && (
+                          <Button
+                            variant="danger"
+                            size="sm"
+                            disabled={!canEditOrg}
+                            title={canEditOrg ? undefined : '조직관리 읽기전용 — 삭제할 수 없습니다.'}
+                            onClick={() => setDeletePersonTarget(row)}
+                          >
+                            삭제
+                          </Button>
                         )}
-                        {!canEditOrg && <span className="personnel-table__readonly">읽기전용</span>}
                       </div>
                     </td>
                   </tr>

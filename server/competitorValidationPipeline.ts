@@ -5,7 +5,6 @@ import type { CompetitorNormalizedFinancials, CompetitorParsedDocument, Competit
 import { getCompetitorCacheDir } from './competitorDrive';
 import { saveParsedAnalysisCache } from './competitorDocumentParser';
 import {
-  claudeAuditRecord,
   claudeReparseDocument,
 } from './competitorClaudeValidation';
 import {
@@ -15,7 +14,6 @@ import {
   type CompetitorFolderValidationReport,
   type CompetitorRecordValidation,
 } from './competitorParseValidation';
-import { buildStandardRecord } from './competitorStandardSchema';
 import {
   buildStructuredDataFromAnalysis,
   loadStructuredDataFromCache,
@@ -27,7 +25,6 @@ import { isClaudeConfigured } from './claudeServer';
 import { getNexusDriveConfig } from './nexusGoogleDrive';
 import { normalizeCompanyKey } from './competitorDocumentIdentity';
 import {
-  financialsToMetrics,
   normalizeFinancialMetrics,
 } from './competitorFinancialNormalize';
 
@@ -88,78 +85,62 @@ export async function validateAndRepairDocuments(
   documents: CompetitorParsedDocument[],
   folderYear: number,
   sector: CompetitorSector,
-  options?: { apiKey?: string; enableClaude?: boolean },
-): Promise<{ documents: CompetitorParsedDocument[]; claudeReparsed: number }> {
-  const enableClaude = options?.enableClaude !== false && (isClaudeConfigured(projectRoot) || Boolean(options?.apiKey));
+  options?: { apiKey?: string; enableClaude?: boolean; cacheDir?: string },
+): Promise<{
+  documents: CompetitorParsedDocument[];
+  claudeReparsed: number;
+  claudeTouchedFiles: string[];
+}> {
+  const enableClaude =
+    options?.enableClaude !== false && (isClaudeConfigured(projectRoot) || Boolean(options?.apiKey));
   let claudeReparsed = 0;
+  const claudeTouchedFiles: string[] = [];
   const patched = [...documents];
+
+  // 경쟁사 분석: 원문·사명·재무 모두 Claude가 원본 파일에서 추출
+  if (!enableClaude) {
+    console.warn(
+      '[competitor] Claude API 미설정 — 원문·사명·재무 추출을 건너뜁니다. .env의 Claude 키를 확인하세요.',
+    );
+    return { documents: patched, claudeReparsed: 0, claudeTouchedFiles: [] };
+  }
 
   for (let i = 0; i < patched.length; i += 1) {
     const doc = patched[i];
+    const filePath = options?.cacheDir ? path.join(options.cacheDir, doc.fileName) : undefined;
+    if (filePath && !fs.existsSync(filePath)) {
+      console.warn(`[competitor] 원본 파일 없음: ${doc.fileName}`);
+      continue;
+    }
+
     const tempCompany = documentToTempCompany(doc);
     const prior = loadPriorYearFinancials(projectRoot, sector, folderYear, tempCompany.companyKey);
     const validation = validateStructuredCompany(tempCompany, folderYear, prior);
 
-    const needsClaude = validation.trust === 'reparse' || validation.trust === 'review';
-    if (!needsClaude || !enableClaude) continue;
-
     try {
-      let shouldReparse = validation.trust === 'reparse';
-
-      if (validation.trust === 'review') {
-        const standard = buildStandardRecord({
-          companyName: tempCompany.companyName,
-          year: folderYear,
-          metrics: tempCompany.metrics,
-          financials: tempCompany.financials,
-          sourceFile: doc.fileName,
-          documentType: doc.documentType,
-          metadata: doc.metadata,
-        });
-
-        const priorStandard = prior
-          ? buildStandardRecord({
-              companyName: tempCompany.companyName,
-              year: folderYear - 1,
-              metrics: financialsToMetrics(prior),
-              financials: prior,
-              sourceFile: doc.fileName,
-              documentType: doc.documentType,
-            })
-          : null;
-
-        const audit = await claudeAuditRecord(
-          projectRoot,
-          validation,
-          standard as unknown as Record<string, unknown>,
-          {
-            apiKey: options?.apiKey,
-            priorYearJson: priorStandard as unknown as Record<string, unknown> | null,
-          },
-        );
-        shouldReparse = audit?.trust === 'reparse';
-      }
-
-      if (!shouldReparse) continue;
-
       const repaired = await claudeReparseDocument(projectRoot, doc, folderYear, {
         apiKey: options?.apiKey,
         localIssues: validation.issues,
+        filePath,
       });
 
       if (repaired?.patched) {
         patched[i] = repaired.patched;
         claudeReparsed += 1;
+        claudeTouchedFiles.push(doc.fileName);
+        console.info(`[competitor] Claude 원문추출: ${doc.fileName} → ${repaired.patched.companyName}`);
+      } else {
+        console.warn(`[competitor] Claude 추출 결과 없음: ${doc.fileName}`);
       }
     } catch (error) {
       console.warn(
-        `[validation] Claude 재파싱 실패 (${doc.fileName}):`,
+        `[validation] Claude 추출 실패 (${doc.fileName}):`,
         error instanceof Error ? error.message : error,
       );
     }
   }
 
-  return { documents: patched, claudeReparsed };
+  return { documents: patched, claudeReparsed, claudeTouchedFiles };
 }
 
 export async function buildValidationReportForStructured(
@@ -209,15 +190,17 @@ export async function runFolderValidationPipeline(
   report: CompetitorFolderValidationReport;
   claudeReparsed: number;
 }> {
-  const { documents: repairedDocs, claudeReparsed } = await validateAndRepairDocuments(
-    projectRoot,
-    analysis.documents,
-    analysis.year,
-    analysis.sector,
-    options,
-  );
+  const { documents: repairedDocs, claudeReparsed, claudeTouchedFiles } =
+    await validateAndRepairDocuments(
+      projectRoot,
+      analysis.documents,
+      analysis.year,
+      analysis.sector,
+      { ...options, cacheDir },
+    );
 
   const repairedAnalysis = { ...analysis, documents: repairedDocs };
+  const touched = new Set(claudeTouchedFiles);
 
   if (claudeReparsed > 0) {
     const companyMap = new Map<
@@ -254,11 +237,9 @@ export async function runFolderValidationPipeline(
   const structured = buildStructuredDataFromAnalysis(repairedAnalysis, sourceSignature);
 
   const reparsedKeys = new Set<string>();
-  if (claudeReparsed > 0) {
-    for (const doc of repairedDocs) {
-      const key = normalizeCompanyKey(doc.companyName ?? doc.fileName);
-      reparsedKeys.add(key);
-    }
+  for (const doc of repairedDocs) {
+    if (!touched.has(doc.fileName)) continue;
+    reparsedKeys.add(normalizeCompanyKey(doc.companyName ?? doc.fileName));
   }
 
   const report = await buildValidationReportForStructured(projectRoot, structured, reparsedKeys);

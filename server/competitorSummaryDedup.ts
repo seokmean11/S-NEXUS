@@ -6,6 +6,7 @@ import type {
 import { resolveCanonicalCompanyKey, resolveCanonicalCompanyName } from '../src/utils/competitorCompanyAliases';
 import { cleanCompanyLabel, extractCompanyNameFromFileName, normalizeCompanyKey } from './competitorDocumentIdentity';
 import {
+  documentTypePriority,
   shouldReplaceDocument,
 } from './competitorDocumentDedup';
 import type { CompetitorStructuredCompany, CompetitorStructuredData } from './competitorStructuredData';
@@ -91,21 +92,36 @@ function resolveSummaryDisplayCompanyName(
 
 function pickBestStructuredCompany(candidates: CompetitorStructuredCompany[]): CompetitorStructuredCompany {
   return candidates.reduce((best, candidate) => {
-    const bestScore = scoreStructuredCompanyQuality(best);
-    const candidateScore = scoreStructuredCompanyQuality(candidate);
-
-    if (candidateScore > bestScore + 3) return candidate;
-    if (candidateScore < bestScore - 3) return best;
-
+    // 사명 중복 시 신용평가서(및 신용분석) 우선 — 품질 점수는 동순위일 때만
     if (
       shouldReplaceDocument(
-        { documentType: best.documentType, parsedAt: best.parsedAt },
-        { documentType: candidate.documentType, parsedAt: candidate.parsedAt },
+        {
+          documentType: best.documentType,
+          parsedAt: best.parsedAt,
+          sourceFile: best.source_file ?? best.sourceFiles[0],
+        },
+        {
+          documentType: candidate.documentType,
+          parsedAt: candidate.parsedAt,
+          sourceFile: candidate.source_file ?? candidate.sourceFiles[0],
+        },
       )
     ) {
       return candidate;
     }
 
+    const bestPriority = documentTypePriority(
+      best.documentType,
+      best.source_file ?? best.sourceFiles[0],
+    );
+    const candidatePriority = documentTypePriority(
+      candidate.documentType,
+      candidate.source_file ?? candidate.sourceFiles[0],
+    );
+    if (candidatePriority !== bestPriority) return best;
+
+    const bestScore = scoreStructuredCompanyQuality(best);
+    const candidateScore = scoreStructuredCompanyQuality(candidate);
     return candidateScore > bestScore ? candidate : best;
   });
 }

@@ -15,6 +15,19 @@ export const ORG_STATE_FILENAME = 'state.json';
 const ORG_DIR = '.data/nexus-org';
 const SYNC_META_FILE = '.sync-meta.json';
 
+function getOrgStateSavedAtMs(state: StoredOrgState | null | undefined): number {
+  if (!state?.savedAt) return 0;
+  const value = Date.parse(state.savedAt);
+  return Number.isFinite(value) ? value : 0;
+}
+
+function withOrgStateSavedAt(
+  state: StoredOrgState,
+  savedAt = new Date().toISOString(),
+): StoredOrgState {
+  return { ...state, savedAt };
+}
+
 function getLocalOrgFilePath(projectRoot: string): string {
   return path.join(projectRoot, ORG_DIR, ORG_STATE_FILENAME);
 }
@@ -51,7 +64,28 @@ export function readServerOrgState(projectRoot: string): StoredOrgState | null {
 
 export function writeServerOrgState(projectRoot: string, state: StoredOrgState): void {
   ensureOrgStoreDir(projectRoot);
-  fs.writeFileSync(getLocalOrgFilePath(projectRoot), JSON.stringify(state, null, 2), 'utf8');
+  const stamped = state.savedAt ? state : withOrgStateSavedAt(state);
+  fs.writeFileSync(getLocalOrgFilePath(projectRoot), JSON.stringify(stamped, null, 2), 'utf8');
+}
+
+function fileMtimeMs(filePath: string | null): number {
+  if (!filePath || !fs.existsSync(filePath)) return 0;
+  return fs.statSync(filePath).mtime.getTime();
+}
+
+function pickNewerOrgState(
+  localState: StoredOrgState | null,
+  driveState: StoredOrgState | null,
+  projectRoot: string,
+): StoredOrgState | null {
+  if (!localState) return driveState;
+  if (!driveState) return localState;
+
+  const localAt = getOrgStateSavedAtMs(localState) || fileMtimeMs(getLocalOrgFilePath(projectRoot));
+  const driveAt =
+    getOrgStateSavedAtMs(driveState) || fileMtimeMs(getDriveCacheOrgFilePath(projectRoot));
+
+  return localAt >= driveAt ? localState : driveState;
 }
 
 export interface ServerOrgMeta {
@@ -75,6 +109,21 @@ export function getServerOrgMeta(projectRoot: string): ServerOrgMeta {
   const localPath = getLocalOrgFilePath(projectRoot);
   const driveCacheStat = resolveOrgFileStat(driveCachePath);
   const localStat = resolveOrgFileStat(localPath);
+
+  if (driveCacheStat.exists && localStat.exists) {
+    const driveState = readJsonFile<StoredOrgState>(driveCachePath);
+    const localState = readServerOrgState(projectRoot);
+    const newer = pickNewerOrgState(localState, driveState, projectRoot);
+    const useLocal = newer === localState;
+    return {
+      exists: true,
+      updatedAt: useLocal ? localStat.updatedAt : driveCacheStat.updatedAt,
+      dataSource: useLocal ? 'local' : 'drive-cache',
+      driveConfigured,
+      driveUploadConfigured: isNexusDriveUploadConfigured(projectRoot),
+      lastDriveSyncAt: loadDriveSyncMeta(projectRoot)?.syncedAt,
+    };
+  }
 
   if (driveCacheStat.exists) {
     return {
@@ -101,7 +150,7 @@ export async function syncAndReadServerOrgState(projectRoot: string): Promise<St
   const driveCachePath = getDriveCacheOrgFilePath(projectRoot);
   const driveState = driveCachePath ? readJsonFile<StoredOrgState>(driveCachePath) : null;
   const localState = readServerOrgState(projectRoot);
-  const existing = driveState ?? localState;
+  const existing = pickNewerOrgState(localState, driveState, projectRoot);
 
   const config = getNexusDriveConfig(projectRoot);
   if (config.enabled) {
@@ -124,7 +173,7 @@ export async function syncAndReadServerOrgState(projectRoot: string): Promise<St
     }
     const refreshedPath = getDriveCacheOrgFilePath(projectRoot);
     const refreshed = refreshedPath ? readJsonFile<StoredOrgState>(refreshedPath) : null;
-    return refreshed ?? localState;
+    return pickNewerOrgState(localState, refreshed, projectRoot) ?? localState;
   }
 
   return localState;
@@ -134,9 +183,10 @@ export async function writeServerOrgStateWithDriveSync(
   projectRoot: string,
   state: StoredOrgState,
 ): Promise<ServerOrgMeta> {
-  writeServerOrgState(projectRoot, state);
+  const stamped = state.savedAt ? state : withOrgStateSavedAt(state);
+  writeServerOrgState(projectRoot, stamped);
 
-  const serialized = JSON.stringify(state, null, 2);
+  const serialized = JSON.stringify(stamped, null, 2);
   const buffer = Buffer.from(serialized, 'utf8');
   const config = getNexusDriveConfig(projectRoot);
 
@@ -148,11 +198,13 @@ export async function writeServerOrgStateWithDriveSync(
     }
 
     if (isNexusDriveUploadConfigured(projectRoot)) {
-      void uploadOrUpdateNexusDriveFile(projectRoot, ORG_STATE_FILENAME, buffer, 'application/json', {
-        subfolderKey: 'organization',
-      }).catch(() => {
+      try {
+        await uploadOrUpdateNexusDriveFile(projectRoot, ORG_STATE_FILENAME, buffer, 'application/json', {
+          subfolderKey: 'organization',
+        });
+      } catch {
         // 로컬·캐시 저장은 유지. Drive 업로드 실패는 meta로만 표시.
-      });
+      }
     }
   }
 

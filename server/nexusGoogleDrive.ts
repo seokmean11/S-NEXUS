@@ -3,6 +3,12 @@ import path from 'node:path';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { google, type drive_v3 } from 'googleapis';
+import {
+  formatGoogleOAuthError,
+  getGoogleOAuthCredentials,
+  hasGoogleOAuthCredentials,
+  probeGoogleOAuthUploadAccess,
+} from './googleDriveOAuth';
 
 const DATA_EXTENSIONS = ['.csv', '.xlsx', '.xls'] as const;
 const SYNC_META_FILE = '.sync-meta.json';
@@ -45,6 +51,7 @@ export interface NexusDriveStatus {
   lastSync?: NexusDriveSyncMeta;
   uploadConfigured?: boolean;
   uploadMethod?: 'oauth' | 'unavailable';
+  uploadError?: string;
   error?: string;
 }
 
@@ -66,24 +73,8 @@ function readEnvValues(root: string): Record<string, string> {
   return {};
 }
 
-function getOAuthCredentials(projectRoot: string): {
-  clientId: string | null;
-  clientSecret: string | null;
-  refreshToken: string | null;
-} {
-  const fromEnv = readEnvValues(projectRoot);
-  return {
-    clientId: process.env.GOOGLE_OAUTH_CLIENT_ID?.trim() || fromEnv.GOOGLE_OAUTH_CLIENT_ID || null,
-    clientSecret:
-      process.env.GOOGLE_OAUTH_CLIENT_SECRET?.trim() || fromEnv.GOOGLE_OAUTH_CLIENT_SECRET || null,
-    refreshToken:
-      process.env.GOOGLE_OAUTH_REFRESH_TOKEN?.trim() || fromEnv.GOOGLE_OAUTH_REFRESH_TOKEN || null,
-  };
-}
-
 export function isNexusDriveUploadConfigured(projectRoot: string): boolean {
-  const oauth = getOAuthCredentials(projectRoot);
-  return Boolean(oauth.clientId && oauth.clientSecret && oauth.refreshToken);
+  return hasGoogleOAuthCredentials(projectRoot);
 }
 
 function isDataFileName(name: string): boolean {
@@ -160,23 +151,24 @@ async function createDriveClient(keyPath: string): Promise<drive_v3.Drive> {
 }
 
 async function createOAuthDriveClient(projectRoot: string): Promise<drive_v3.Drive> {
-  const oauth = getOAuthCredentials(projectRoot);
+  const oauth = getGoogleOAuthCredentials(projectRoot);
   if (!oauth.clientId || !oauth.clientSecret || !oauth.refreshToken) {
     throw new Error(
-      'Google Drive 업로드 OAuth가 설정되지 않았습니다. GOOGLE_OAUTH_CLIENT_ID / SECRET / REFRESH_TOKEN을 .env에 추가하고 npm run google-drive-oauth를 실행하세요.',
+      'Google Drive 업로드 OAuth가 설정되지 않았습니다. GOOGLE_OAUTH_CLIENT_ID / SECRET를 .env에 추가하고 Drive OAuth 재연결(또는 npm run google-drive-oauth)을 실행하세요.',
     );
   }
   const auth = new google.auth.OAuth2(oauth.clientId, oauth.clientSecret);
   auth.setCredentials({ refresh_token: oauth.refreshToken });
+  try {
+    await auth.getAccessToken();
+  } catch (error) {
+    throw new Error(formatGoogleOAuthError(error));
+  }
   return google.drive({ version: 'v3', auth });
 }
 
 export function formatDriveUploadError(error: unknown): string {
-  const message = error instanceof Error ? error.message : String(error);
-  if (message.includes('storage quota') || message.includes('Service Accounts do not have storage')) {
-    return '개인 Google Drive는 서비스 계정으로 파일을 올릴 수 없습니다. OAuth 업로드 설정(GOOGLE_OAUTH_*)을 추가한 뒤 npm run google-drive-oauth를 실행하세요.';
-  }
-  return message;
+  return formatGoogleOAuthError(error);
 }
 
 async function findSubfolderId(
@@ -316,6 +308,27 @@ export async function listNexusDriveFiles(
     }));
 }
 
+function shouldKeepNewerLocalOrgState(
+  subfolderKey: NexusDriveSubfolderKey,
+  fileName: string,
+  targetPath: string,
+  driveModifiedTime: string,
+): boolean {
+  if (subfolderKey !== 'organization' || fileName !== 'state.json') return false;
+  if (!fs.existsSync(targetPath)) return false;
+  try {
+    const parsed = JSON.parse(fs.readFileSync(targetPath, 'utf8')) as { savedAt?: string };
+    if (!parsed.savedAt) return false;
+    const localAt = Date.parse(parsed.savedAt);
+    const driveAt = Date.parse(driveModifiedTime);
+    if (!Number.isFinite(localAt)) return false;
+    if (!Number.isFinite(driveAt)) return true;
+    return localAt >= driveAt;
+  } catch {
+    return false;
+  }
+}
+
 async function downloadDriveFile(
   drive: drive_v3.Drive,
   file: NexusDriveFileInfo,
@@ -378,6 +391,10 @@ export async function syncNexusDriveCache(
   const syncedFiles: NexusDriveSyncMeta['files'] = [];
   for (const file of files) {
     const targetPath = path.join(cacheDir, file.name);
+    if (shouldKeepNewerLocalOrgState(subfolderKey, file.name, targetPath, file.modifiedTime)) {
+      syncedFiles.push({ name: file.name, modifiedTime: file.modifiedTime });
+      continue;
+    }
     await downloadDriveFile(drive, file, targetPath);
     syncedFiles.push({ name: file.name, modifiedTime: file.modifiedTime });
   }
@@ -528,13 +545,28 @@ export function getNexusDriveStatus(projectRoot: string): NexusDriveStatus {
     };
   }
 
+  const hasUploadCreds = isNexusDriveUploadConfigured(projectRoot);
   return {
     configured: true,
     folderId: config.folderId,
     cacheDir: config.cacheDir,
     lastSync: loadSyncMeta(getSubfolderCacheDir(config, 'outsourcing')) ?? undefined,
-    uploadConfigured: isNexusDriveUploadConfigured(projectRoot),
-    uploadMethod: isNexusDriveUploadConfigured(projectRoot) ? 'oauth' : 'unavailable',
+    uploadConfigured: hasUploadCreds,
+    uploadMethod: hasUploadCreds ? 'oauth' : 'unavailable',
+  };
+}
+
+/** 상태 API용 — OAuth 토큰 유효성까지 확인 (팀 공용 업로드 가능 여부). */
+export async function getNexusDriveStatusLive(projectRoot: string): Promise<NexusDriveStatus> {
+  const base = getNexusDriveStatus(projectRoot);
+  if (!base.configured) return base;
+
+  const probe = await probeGoogleOAuthUploadAccess(projectRoot);
+  return {
+    ...base,
+    uploadConfigured: probe.ok,
+    uploadMethod: probe.ok ? 'oauth' : 'unavailable',
+    uploadError: probe.ok ? undefined : probe.error,
   };
 }
 
