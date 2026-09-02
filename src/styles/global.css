@@ -7420,18 +7420,61 @@ body {
   display: grid;
   grid-template-columns: 1fr;
   gap: 10px;
+  min-width: 0;
 }
 
 .outsourcing-budget-chart__rate-card {
   display: flex;
-  flex-direction: column;
-  gap: 6px;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
   min-height: 118px;
   padding: 12px 14px;
   border: 2px solid var(--color-border);
   border-radius: var(--radius-md);
   background: #fff;
   box-shadow: 0 1px 3px rgba(15, 23, 42, 0.06);
+}
+
+.outsourcing-budget-chart__rate-main {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  flex: 0 0 auto;
+}
+
+.outsourcing-budget-chart__rate-amounts {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px 16px;
+  margin: 0;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.outsourcing-budget-chart__rate-amounts > div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.outsourcing-budget-chart__rate-amounts dt {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--color-text-muted);
+}
+
+.outsourcing-budget-chart__rate-amounts dd {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text);
+  word-break: break-all;
 }
 
 .outsourcing-budget-chart__rate-card--internal {
@@ -7565,8 +7608,8 @@ body {
 }
 
 .outsourcing-budget-chart__bar-group--single .outsourcing-chart__bar {
-  width: 72%;
-  max-width: 88px;
+  width: 56%;
+  max-width: 120px;
 }
 
 .outsourcing-budget-chart__bar-pair {
@@ -7666,12 +7709,6 @@ body {
   display: flex;
   flex-direction: column;
   container-type: inline-size;
-}
-
-@container (min-width: 360px) {
-  .outsourcing-budget-chart__rate-cards {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
 }
 
 .outsourcing-chart__legend-swatch {

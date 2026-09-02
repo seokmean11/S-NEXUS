@@ -25,13 +25,6 @@ const CHART_BARS = [
     legendClass: 'outsourcing-budget-chart__legend-swatch--contract',
   },
   {
-    key: 'execution',
-    label: '실행예산',
-    amountKey: 'totalExecutionAmount' as const,
-    barClass: 'outsourcing-chart__bar--execution',
-    legendClass: 'outsourcing-budget-chart__legend-swatch--execution',
-  },
-  {
     key: 'outsourcing',
     label: '외주금액',
     amountKey: 'totalOutsourcingAmount' as const,
@@ -82,29 +75,32 @@ export function OutsourcingBudgetExecutionChart({ summary }: OutsourcingBudgetEx
       className="outsourcing-chart-card outsourcing-budget-chart-card"
     >
       {!hasData ? (
-        <p className="outsourcing-chart__empty">표시할 계약·실행·외주 비교 데이터가 없습니다.</p>
+        <p className="outsourcing-chart__empty">표시할 계약·외주 비교 데이터가 없습니다.</p>
       ) : (
         <div className="outsourcing-budget-chart">
           <div className="outsourcing-budget-chart__rate-section">
             <div className="outsourcing-budget-chart__rate-cards">
-              <article className="outsourcing-budget-chart__rate-card outsourcing-budget-chart__rate-card--internal">
-                <span className="outsourcing-budget-chart__rate-card-label">실행률(내부)</span>
-                <strong
-                  className={`outsourcing-budget-chart__rate-value ${rateValueClass(summary.internalExecutionRatePercent)}`}
-                >
-                  {formatExecutionRatePercent(summary.internalExecutionRatePercent)}
-                </strong>
-                <span className="outsourcing-budget-chart__rate-card-formula">실행금액 ÷ 계약금액</span>
-              </article>
-
               <article className="outsourcing-budget-chart__rate-card outsourcing-budget-chart__rate-card--outsourcing">
-                <span className="outsourcing-budget-chart__rate-card-label">실행률(외주)</span>
-                <strong
-                  className={`outsourcing-budget-chart__rate-value ${rateValueClass(summary.outsourcingExecutionRatePercent, true)}`}
-                >
-                  {formatExecutionRatePercent(summary.outsourcingExecutionRatePercent)}
-                </strong>
-                <span className="outsourcing-budget-chart__rate-card-formula">외주금액 ÷ 계약금액</span>
+                <div className="outsourcing-budget-chart__rate-main">
+                  <span className="outsourcing-budget-chart__rate-card-label">실행률(외주)</span>
+                  <strong
+                    className={`outsourcing-budget-chart__rate-value ${rateValueClass(summary.outsourcingExecutionRatePercent, true)}`}
+                  >
+                    {formatExecutionRatePercent(summary.outsourcingExecutionRatePercent)}
+                  </strong>
+                  <span className="outsourcing-budget-chart__rate-card-formula">외주금액 ÷ 계약금액</span>
+                </div>
+
+                <dl className="outsourcing-budget-chart__rate-amounts">
+                  <div>
+                    <dt>계약금액</dt>
+                    <dd>{formatOutsourcingAmount(summary.totalContractAmount)}</dd>
+                  </div>
+                  <div>
+                    <dt>외주금액</dt>
+                    <dd>{formatOutsourcingAmount(summary.totalOutsourcingAmount)}</dd>
+                  </div>
+                </dl>
               </article>
             </div>
 

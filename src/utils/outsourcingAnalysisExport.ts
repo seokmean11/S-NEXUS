@@ -87,9 +87,7 @@ export function buildOutsourcingExecutionRateExportTable(
     headers: ['항목', '값'],
     rows: [
       ['계약금액', String(Math.round(summary.totalContractAmount))],
-      ['실행예산', String(Math.round(summary.totalExecutionAmount))],
       ['외주금액', String(Math.round(summary.totalOutsourcingAmount))],
-      ['실행률(내부)', formatExecutionRatePercent(summary.internalExecutionRatePercent)],
       ['실행률(외주)', formatExecutionRatePercent(summary.outsourcingExecutionRatePercent)],
     ],
   };
