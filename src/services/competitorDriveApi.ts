@@ -42,8 +42,25 @@ async function readResponsePayload<T>(response: Response): Promise<T & { error?:
   }
 }
 
+function toCompetitorApiError(error: unknown): Error {
+  if (
+    error instanceof TypeError &&
+    /failed to fetch|networkerror|load failed|network request failed/i.test(error.message)
+  ) {
+    return new Error(
+      '분석 서버에 연결하지 못했습니다. 화면 주소의 포트가 실행 중인 서버와 같은지 확인하세요. (개발: npm run dev → 5173, 서비스웹: npm run service → 4173) 기성관리와 경쟁사 분석 API는 분리되어 있습니다.',
+    );
+  }
+  return error instanceof Error ? error : new Error(String(error));
+}
+
 async function readJson<T>(url: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(url, init);
+  let response: Response;
+  try {
+    response = await fetch(url, init);
+  } catch (error) {
+    throw toCompetitorApiError(error);
+  }
   const payload = await readResponsePayload<T>(response);
   if (!response.ok) {
     throw new Error(payload.error ?? `요청 실패 (${response.status})`);
@@ -85,10 +102,15 @@ export async function uploadCompetitorDriveFile(
   formData.append('file', file);
   formData.append('year', String(year));
   formData.append('sector', sector);
-  const response = await fetch('/api/competitor/upload', {
-    method: 'POST',
-    body: formData,
-  });
+  let response: Response;
+  try {
+    response = await fetch('/api/competitor/upload', {
+      method: 'POST',
+      body: formData,
+    });
+  } catch (error) {
+    throw toCompetitorApiError(error);
+  }
   const payload = await readResponsePayload<{
     ok: boolean;
     file: CompetitorDriveFileInfo;

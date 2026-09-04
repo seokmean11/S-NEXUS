@@ -16,6 +16,7 @@ import {
   type OutsourcingLoadResult,
   type OutsourcingLocalInfo,
 } from '@/services/outsourcingLocalData';
+import { uploadNexusDataFolderFile } from '@/services/nexusDataFolderApi';
 import {
   EMPTY_OUTSOURCING_DATE_RANGE,
   EMPTY_OUTSOURCING_FILTERS,
@@ -43,8 +44,10 @@ interface OutsourcingSearchContextValue {
     filters: OutsourcingFilters | ((prev: OutsourcingFilters) => OutsourcingFilters),
   ) => void;
   setDateRange: (dateRange: OutsourcingDateRange) => void;
-  loadFromLocalFolder: () => Promise<void>;
+  loadFromLocalFolder: (force?: boolean) => Promise<void>;
   handleFilePick: (file: File) => Promise<void>;
+  handleDriveUpload: (file: File) => Promise<void>;
+  driveUploading: boolean;
 }
 
 const OutsourcingSearchContext = createContext<OutsourcingSearchContextValue | null>(null);
@@ -60,6 +63,7 @@ export function OutsourcingSearchProvider({ children }: { children: ReactNode })
   const [localInfo, setLocalInfo] = useState<OutsourcingLocalInfo | null>(null);
   const [setupOpen, setSetupOpen] = useState(false);
   const [dbStatsOpen, setDbStatsOpen] = useState(false);
+  const [driveUploading, setDriveUploading] = useState(false);
 
   const loadResultRef = useRef<OutsourcingLoadResult | null>(null);
   const initialLoadStartedRef = useRef(false);
@@ -79,12 +83,12 @@ export function OutsourcingSearchProvider({ children }: { children: ReactNode })
     });
   }, []);
 
-  const loadFromLocalFolder = useCallback(async () => {
+  const loadFromLocalFolder = useCallback(async (force = false) => {
     setLoading(true);
     setError(null);
     setNotice(null);
     try {
-      const info = await fetchLocalOutsourcingInfo();
+      const info = await fetchLocalOutsourcingInfo(force);
       setLocalInfo(info);
 
       if (!info.configured) {
@@ -98,7 +102,7 @@ export function OutsourcingSearchProvider({ children }: { children: ReactNode })
         throw new Error(info.error);
       }
 
-      const result = await fetchLocalOutsourcingRecords();
+      const result = await fetchLocalOutsourcingRecords(force);
       applyLoadResult(result);
     } catch (loadError) {
       try {
@@ -182,6 +186,42 @@ export function OutsourcingSearchProvider({ children }: { children: ReactNode })
     [applyLoadResult],
   );
 
+  const handleDriveUpload = useCallback(
+    async (file: File) => {
+      const lower = file.name.toLowerCase();
+      if (!lower.endsWith('.csv') && !lower.endsWith('.xlsx') && !lower.endsWith('.xls')) {
+        setError('CSV 또는 Excel(xlsx, xls) 파일만 업로드할 수 있습니다.');
+        return;
+      }
+
+      setDriveUploading(true);
+      setLoading(true);
+      setError(null);
+      setNotice(null);
+      try {
+        await uploadNexusDataFolderFile(file, 'outsourcing');
+        const info = await fetchLocalOutsourcingInfo(true);
+        setLocalInfo(info);
+        if (info.error) throw new Error(info.error);
+        const result = await fetchLocalOutsourcingRecords(true);
+        applyLoadResult(result);
+        setNotice(
+          `${file.name}을 NEXUS > 외주정보데이터에 저장했고, 최신 파일로 검색 데이터를 반영했습니다.`,
+        );
+      } catch (uploadError) {
+        setError(
+          uploadError instanceof Error
+            ? uploadError.message
+            : 'Google Drive 업로드에 실패했습니다.',
+        );
+      } finally {
+        setDriveUploading(false);
+        setLoading(false);
+      }
+    },
+    [applyLoadResult],
+  );
+
   const value: OutsourcingSearchContextValue = {
     records,
     filters,
@@ -199,6 +239,8 @@ export function OutsourcingSearchProvider({ children }: { children: ReactNode })
     setDateRange,
     loadFromLocalFolder,
     handleFilePick,
+    handleDriveUpload,
+    driveUploading,
   };
 
   return (

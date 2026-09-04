@@ -11,6 +11,9 @@ import { ProjectManagementLayout } from '@/pages/ProjectManagementLayout';
 import { PurchaseLayout } from '@/pages/PurchaseLayout';
 import { BidManagementPage } from '@/pages/BidManagementPage';
 import { OutsourcingSearchPage } from '@/pages/OutsourcingSearchPage';
+import { FundManagementLayout } from '@/pages/FundManagementLayout';
+import { FundBillingPage } from '@/pages/FundBillingPage';
+import { FundBillingDetailPage } from '@/pages/FundBillingDetailPage';
 import { MiscInfoLayout } from '@/pages/MiscInfoLayout';
 import { ExhibitionBusinessCostPage } from '@/pages/ExhibitionBusinessCostPage';
 import { CompetitorAnalysisPage } from '@/pages/CompetitorAnalysisPage';
@@ -82,6 +85,18 @@ export function AppRoutes() {
           <Route index element={<Navigate to="bidding" replace />} />
           <Route path="bidding" element={<BidManagementPage />} />
           <Route path="outsourcing" element={<Navigate to="/outsourcing" replace />} />
+        </Route>
+        <Route
+          path="fund"
+          element={
+            <ErrorBoundary fallbackTitle="자금관리 화면 오류">
+              <FundManagementLayout />
+            </ErrorBoundary>
+          }
+        >
+          <Route index element={<Navigate to="billing" replace />} />
+          <Route path="billing" element={<FundBillingPage />} />
+          <Route path="billing/:projectId" element={<FundBillingDetailPage />} />
         </Route>
         <Route
           path="misc-info"

@@ -15,6 +15,7 @@ import {
   canShowSidebarNavItem,
   shouldShowCompetitorNav,
   shouldShowDataFolderNav,
+  shouldShowFundNav,
   shouldShowMiscInfoNav,
   shouldShowPurchaseNav,
   shouldShowPurchaseSubItem,
@@ -24,6 +25,10 @@ import {
 } from '@/utils/menuAccess';
 
 import type { PermissionFlags, RoleConfig } from '@/types';
+import {
+  FUND_MANAGEMENT_SUB_ITEMS,
+  isFundManagementSectionPath,
+} from '@/constants/fundManagementNav';
 import { MISC_INFO_SUB_ITEMS } from '@/constants/miscInfoNav';
 import {
   isProjectManagementSectionPath,
@@ -72,6 +77,7 @@ export function AppLayout() {
   const [ppmMessage, setPpmMessage] = useState('');
 
   const [purchaseOpen, setPurchaseOpen] = useState(() => isPurchaseSectionPath(location.pathname));
+  const [fundOpen, setFundOpen] = useState(() => isFundManagementSectionPath(location.pathname));
   const [miscInfoOpen, setMiscInfoOpen] = useState(() => isMiscInfoSectionPath(location.pathname));
   const [projectOpen, setProjectOpen] = useState(() =>
     isProjectManagementSectionPath(location.pathname),
@@ -88,6 +94,7 @@ export function AppLayout() {
       : shouldShowPurchaseNav(menuPermissions, false);
   const showCompetitorNav = shouldShowCompetitorNav(menuPermissions, isDeveloper);
   const purchaseActive = isPurchaseSectionPath(location.pathname);
+  const fundActive = isFundManagementSectionPath(location.pathname);
   const miscInfoActive = isMiscInfoSectionPath(location.pathname);
   const projectActive = isProjectManagementSectionPath(location.pathname);
 
@@ -98,6 +105,10 @@ export function AppLayout() {
   useEffect(() => {
     if (purchaseActive) setPurchaseOpen(true);
   }, [purchaseActive]);
+
+  useEffect(() => {
+    if (fundActive) setFundOpen(true);
+  }, [fundActive]);
 
   useEffect(() => {
     if (miscInfoActive) setMiscInfoOpen(true);
@@ -174,6 +185,7 @@ export function AppLayout() {
     canShowSidebarNavItem(item.path, menuPermissions, isDeveloper),
   );
 
+  const showFundNav = shouldShowFundNav(isDeveloper);
   const showMiscInfoNav = shouldShowMiscInfoNav(isDeveloper);
   const showDataFolderNav = shouldShowDataFolderNav(isDeveloper);
   const showProjectNav = shouldShowProjectManagementNav(projectRoleFlags, isDeveloper);
@@ -396,6 +408,37 @@ export function AppLayout() {
 
               </div>
 
+            )}
+
+            {showFundNav && (
+              <div className={`lnb__group ${fundActive ? 'lnb__group--active' : ''}`}>
+                <button
+                  type="button"
+                  className={`lnb__group-toggle ${fundActive ? 'lnb__group-toggle--active' : ''}`}
+                  onClick={() => setFundOpen((open) => !open)}
+                  aria-expanded={fundOpen}
+                >
+                  <span className="lnb__icon">💰</span>
+                  <span className="lnb__group-label">자금관리</span>
+                  <span className="lnb__group-chevron">{fundOpen ? '▾' : '▸'}</span>
+                </button>
+
+                {fundOpen && (
+                  <div className="lnb__subnav">
+                    {FUND_MANAGEMENT_SUB_ITEMS.map((item) => (
+                      <NavLink
+                        key={item.path}
+                        to={item.path}
+                        className={({ isActive }) =>
+                          `lnb__sublink ${isActive ? 'lnb__sublink--active' : ''}`
+                        }
+                      >
+                        {item.label}
+                      </NavLink>
+                    ))}
+                  </div>
+                )}
+              </div>
             )}
 
             {showCompetitorNav && (

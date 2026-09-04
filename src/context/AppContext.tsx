@@ -53,9 +53,9 @@ import {
 import { logHistory } from '@/utils/historyLogger';
 import { loadHistoryEvents, saveHistoryEvents } from '@/utils/historyStorage';
 import {
-  isRemoteOrgStateNewer,
   loadAppState,
   loadOrgState,
+  shouldApplyRemoteOrgState,
   normalizeExecutiveOffice,
   repairStoredData,
   saveAppState,
@@ -96,7 +96,6 @@ import {
 } from '@/utils/platformSuperAdmin';
 import { webAccessRoleToSystemRole } from '@/utils/webAccessRole';
 import {
-  fetchNexusOrgMeta,
   fetchNexusOrgState,
   ORG_AUTO_REFRESH_INTERVAL_MS,
   saveNexusOrgState,
@@ -473,8 +472,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
         if (cancelled) return;
 
         if (serverState) {
-          const localStamp = { savedAt: orgSavedAtRef.current } as StoredOrgState;
-          if (!isRemoteOrgStateNewer(serverState, localStamp)) return;
           applyOrgStatePayload(serverState);
           remoteOrgUpdatedAtRef.current = meta?.updatedAt ?? null;
         }
@@ -494,18 +491,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const syncIfRemoteUpdated = async () => {
       if (Date.now() - lastLocalOrgSaveAtRef.current < 3000) return;
 
-      const meta = await fetchNexusOrgMeta();
-      if (!meta?.driveConfigured || !meta.updatedAt) return;
-      if (meta.updatedAt === remoteOrgUpdatedAtRef.current) return;
-
       const { state: serverState, meta: nextMeta } = await fetchNexusOrgState();
       if (!serverState) return;
 
-      const localStamp = { savedAt: orgSavedAtRef.current } as StoredOrgState;
-      if (!isRemoteOrgStateNewer(serverState, localStamp)) return;
+      const stored = loadOrgState();
+      const localCompare = {
+        ...(stored ?? {}),
+        savedAt: orgSavedAtRef.current ?? stored?.savedAt,
+      } as StoredOrgState;
+      if (!shouldApplyRemoteOrgState(serverState, localCompare)) return;
 
       applyOrgStatePayload(serverState);
-      remoteOrgUpdatedAtRef.current = nextMeta?.updatedAt ?? meta.updatedAt;
+      remoteOrgUpdatedAtRef.current = nextMeta?.updatedAt ?? null;
     };
 
     const timer = window.setInterval(() => {

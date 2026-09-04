@@ -43,6 +43,29 @@ export function isRemoteOrgStateNewer(
   return remoteAt > localAt;
 }
 
+function orgPersonnelSignature(state: StoredOrgState | null | undefined): string {
+  if (!state) return '';
+  const adminIds = (state.executiveOffice?.admins ?? []).map((admin) => admin.id).sort();
+  const employeeKeys = (state.employees ?? [])
+    .map((employee) => `${employee.id}:${employee.divisionId}:${employee.teamId}`)
+    .sort();
+  return `${adminIds.join(',')}|${employeeKeys.join(',')}`;
+}
+
+/**
+ * 서버 조직을 화면에 적용할지.
+ * savedAt만 보면, 빠진 인원이 같은 시각으로 localStorage에 남아
+ * localhost와 10.1.2.61 origin이 어긋난다.
+ */
+export function shouldApplyRemoteOrgState(
+  remote: StoredOrgState | null | undefined,
+  local: StoredOrgState | null | undefined,
+): boolean {
+  if (!remote) return false;
+  if (isRemoteOrgStateNewer(remote, local)) return true;
+  return orgPersonnelSignature(remote) !== orgPersonnelSignature(local);
+}
+
 export function withOrgStateSavedAt(
   state: StoredOrgState,
   savedAt = new Date().toISOString(),

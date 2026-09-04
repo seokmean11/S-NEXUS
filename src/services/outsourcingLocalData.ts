@@ -38,13 +38,15 @@ async function readJson<T>(url: string): Promise<T> {
   return payload;
 }
 
-export async function fetchLocalOutsourcingInfo(): Promise<OutsourcingLocalInfo> {
-  return readJson<OutsourcingLocalInfo>('/api/outsourcing/local/info');
+export async function fetchLocalOutsourcingInfo(force = false): Promise<OutsourcingLocalInfo> {
+  const query = force ? '?force=1' : '';
+  return readJson<OutsourcingLocalInfo>(`/api/outsourcing/local/info${query}`);
 }
 
-export async function fetchLocalOutsourcingRecords(): Promise<OutsourcingLoadResult> {
+export async function fetchLocalOutsourcingRecords(force = false): Promise<OutsourcingLoadResult> {
+  const query = force ? '?force=1' : '';
   const payload = await readJson<OutsourcingLocalPayload & { dataSource?: 'google-drive' | 'local' }>(
-    '/api/outsourcing/local',
+    `/api/outsourcing/local${query}`,
   );
   const records = await parseOutsourcingCsvAsync(payload.csv);
   if (records.length === 0) {
@@ -97,7 +99,7 @@ export async function parseOutsourcingUploadFile(file: File): Promise<Outsourcin
 
 export function getLocalOutsourcingSetupHint(): string {
   return [
-    '1. Google Drive NEXUS 폴더 연동(권장): 좌측 「데이터폴더」에서 CSV/Excel 업로드',
+    '1. Google Drive NEXUS 폴더 연동(권장): 외주정보검색 화면에서 CSV/Excel 업로드',
     '2. 또는 AppSheet CSV를 PC 폴더에 저장 → outsourcing-data.path / OUTSOURCING_DATA_PATH',
     '3. 폴더 지정 시 수정한 날짜 기준 최신 .csv / .xlsx 자동 선택',
     '4. npm run dev 재시작 → 외주정보검색에서 「폴더 새로고침」',

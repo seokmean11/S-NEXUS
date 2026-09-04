@@ -4018,6 +4018,7 @@ body {
   margin: 0 0 20px;
   color: var(--color-text-secondary);
   line-height: 1.5;
+  white-space: pre-line;
 }
 
 .confirm-dialog__actions {
@@ -6597,6 +6598,99 @@ body {
   display: none;
 }
 
+.outsourcing-drive-upload-card {
+  max-width: 520px;
+  margin-bottom: 12px;
+  background: #eef4fb;
+  border: 1px solid #7a9cc8;
+  box-shadow: none;
+}
+
+.outsourcing-drive-upload-card .card__header {
+  padding: 8px 12px;
+  background: #1b4f8a;
+  border-bottom: 0;
+  color: #fff;
+}
+
+.outsourcing-drive-upload-card .card__title {
+  color: #fff;
+  font-size: 14px;
+}
+
+.outsourcing-drive-upload-card .card__subtitle {
+  color: rgba(255, 255, 255, 0.82);
+  font-size: 12px;
+}
+
+.outsourcing-drive-upload-card .card__header .btn {
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.35);
+  background: transparent;
+}
+
+.outsourcing-drive-upload-card .card__header .btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.outsourcing-drive-upload-card .card__body {
+  padding: 10px 12px;
+}
+
+.outsourcing-drive-upload-card__help {
+  margin: 0 0 8px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: #35506b;
+}
+
+.outsourcing-drive-upload-card__warn {
+  margin: 0 0 8px;
+  font-size: 12px;
+  color: #b42318;
+}
+
+.outsourcing-drive-upload-card__dropzone {
+  border: 1px dashed #4d7ab0;
+  border-radius: 8px;
+  background: #f7faff;
+  overflow: hidden;
+}
+
+.outsourcing-drive-upload-card__dropzone--active {
+  border-color: #1b4f8a;
+  background: #dce8f5;
+}
+
+.outsourcing-drive-upload-card__dropzone--disabled {
+  opacity: 0.65;
+}
+
+.outsourcing-drive-upload-card__prompt {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 52px;
+  padding: 10px 12px;
+  cursor: pointer;
+  text-align: center;
+  font-size: 12px;
+  font-weight: 600;
+  color: #1b4f8a;
+}
+
+.outsourcing-drive-upload-card__prompt input[type='file'] {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.outsourcing-drive-upload-card__dropzone--disabled .outsourcing-drive-upload-card__prompt {
+  cursor: not-allowed;
+}
+
 .outsourcing-search-results-export {
   display: flex;
   flex-direction: column;
@@ -8597,4 +8691,886 @@ body {
   color: rgba(255, 255, 255, 0.82);
   font-size: 0.88rem;
   line-height: 1.45;
+}
+
+.fund-management-page {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.main-content:has(.fund-billing-page),
+.main-content:has(.fund-billing-detail) {
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  padding: 24px 8px 24px 8px;
+}
+
+.fund-billing-page {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.fund-billing-page__header {
+  flex-shrink: 0;
+  margin-bottom: 0;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.fund-billing-page__body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-top: 16px;
+  padding-right: 4px;
+}
+
+.fund-billing-page__body > .fund-billing-section:last-of-type,
+.fund-billing-page__body > .fund-billing-list-card {
+  margin-bottom: 16px;
+}
+
+.fund-billing-list-card {
+  margin-bottom: 0;
+}
+
+.fund-billing-list-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.fund-billing-list-card > .card__body {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.fund-billing-section {
+  margin-bottom: 16px;
+}
+
+.fund-billing-section .card__header {
+  padding: 12px 16px 0;
+}
+
+.fund-billing-section .card__body {
+  padding: 12px 16px 16px;
+}
+
+.fund-billing-kpis {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 0;
+}
+
+.fund-billing-kpis--detail {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  margin-bottom: 16px;
+}
+
+.fund-billing-kpi .card__body {
+  padding: 10px 12px;
+}
+
+.fund-billing-kpis .stat-card__label {
+  font-size: 12px;
+  margin-bottom: 2px;
+}
+
+.fund-billing-kpis .stat-card__value {
+  font-size: 16px;
+}
+
+.fund-billing-kpi--warn .stat-card__value {
+  color: #b45309;
+}
+
+.fund-billing-kpi--danger .stat-card__value {
+  color: #c62828;
+}
+
+.fund-billing-kpi--ok .stat-card__value {
+  color: #0f766e;
+}
+
+.fund-billing-toolbar {
+  display: grid;
+  grid-template-columns: minmax(180px, 1.4fr) minmax(160px, 0.8fr) minmax(280px, 1.4fr);
+  gap: 12px;
+  margin-bottom: 16px;
+  align-items: end;
+}
+
+.fund-billing-chips__row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.fund-billing-chip {
+  border: 1px solid var(--color-border);
+  background: #fff;
+  color: var(--color-text-muted);
+  border-radius: 999px;
+  padding: 6px 10px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.fund-billing-chip--active {
+  border-color: #1b64da;
+  background: #e8f3ff;
+  color: #1b64da;
+  font-weight: 600;
+}
+
+.fund-billing-table-wrap {
+  overflow: auto;
+  max-height: min(52vh, 640px);
+  overscroll-behavior: contain;
+}
+
+.fund-billing-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 13px;
+  min-width: 1480px;
+}
+
+.fund-billing-table th,
+.fund-billing-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--color-border);
+  text-align: left;
+  white-space: nowrap;
+}
+
+.fund-billing-table th {
+  background: var(--color-bg);
+  font-weight: 600;
+}
+
+.fund-billing-table thead tr:first-child th {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+}
+
+.fund-billing-table thead tr:nth-child(2) th {
+  position: sticky;
+  top: 37px;
+  z-index: 3;
+}
+
+.fund-billing-table thead .fund-billing-table__sticky {
+  position: sticky;
+  top: 0;
+  left: 0;
+  z-index: 5;
+  background: var(--color-bg);
+}
+
+.fund-billing-table__group {
+  text-align: center;
+  background: #f8fafc;
+}
+
+.fund-billing-table__num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.fund-billing-table__sticky {
+  position: sticky;
+  left: 0;
+  background: #fff;
+  min-width: 180px;
+  z-index: 1;
+}
+
+.fund-billing-table__sub {
+  display: block;
+  margin-top: 3px;
+  font-size: 12px;
+  color: var(--color-text-muted);
+  font-weight: 400;
+}
+
+.fund-billing-table__empty {
+  text-align: center;
+  color: var(--color-text-muted);
+  padding: 28px;
+}
+
+.fund-billing-table__row {
+  cursor: pointer;
+}
+
+.fund-billing-table__row:hover td {
+  background: #f8fafc;
+}
+
+.fund-billing-table__row:hover .fund-billing-table__sticky {
+  background: #f8fafc;
+}
+
+.fund-billing-table__neg {
+  color: #c62828;
+  font-weight: 600;
+}
+
+.fund-billing-table--detail {
+  min-width: 720px;
+}
+
+.fund-billing-detail {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.fund-billing-detail__header {
+  flex-shrink: 0;
+  margin-bottom: 0;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.fund-billing-detail__body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding-top: 12px;
+  padding-bottom: 8px;
+}
+
+.fund-billing-detail__canvas {
+  min-width: 1920px;
+  width: max(100%, 1920px);
+}
+
+.fund-billing-detail__crumb {
+  margin: 0 0 6px;
+  font-size: 13px;
+  color: var(--color-text-muted);
+}
+
+.fund-billing-detail__crumb a {
+  color: #1b64da;
+  text-decoration: none;
+}
+
+.fund-billing-alert {
+  margin-bottom: 16px;
+  padding: 12px 14px;
+  border-radius: 8px;
+  background: #fff1f0;
+  border: 1px solid #f5c2c0;
+  color: #c62828;
+  font-size: 13px;
+}
+
+.fund-billing-tabs {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.fund-billing-tabs__btn {
+  border: 1px solid var(--color-border);
+  background: #fff;
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 13px;
+  cursor: pointer;
+  color: var(--color-text-muted);
+}
+
+.fund-billing-tabs__btn--active {
+  border-color: #1b64da;
+  background: #e8f3ff;
+  color: #1b64da;
+  font-weight: 600;
+}
+
+.fund-billing-info {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px 24px;
+  margin: 0;
+}
+
+.fund-billing-info dt {
+  font-size: 12px;
+  color: var(--color-text-muted);
+  margin-bottom: 4px;
+}
+
+.fund-billing-info dd {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.fund-billing-info-card {
+  margin-bottom: 12px;
+  width: 66.666%;
+  max-width: 66.666%;
+}
+
+.fund-billing-info-card .card__header {
+  padding: 10px 16px 0;
+}
+
+.fund-billing-info-card .card__title {
+  font-size: 14px;
+}
+
+.fund-billing-info-card .card__body {
+  padding: 8px 16px 10px;
+}
+
+.fund-billing-info-form {
+  display: grid;
+  grid-template-columns: minmax(200px, 1.15fr) repeat(3, minmax(140px, 1fr));
+  gap: 8px 12px;
+  align-items: end;
+}
+
+.fund-billing-project-field {
+  min-width: 0;
+}
+
+.fund-billing-project-field > .form-field__label {
+  margin-bottom: 3px;
+  font-size: 12px;
+}
+
+.fund-billing-project-field__row {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+}
+
+.fund-billing-project-field__row .project-name-search,
+.fund-billing-project-field__row > .form-field__input {
+  flex: 1;
+  min-width: 0;
+}
+
+.fund-billing-project-field .form-field {
+  margin-bottom: 0;
+}
+
+.fund-billing-mode-toggle {
+  display: inline-flex;
+  flex-shrink: 0;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.fund-billing-mode-toggle button {
+  border: 0;
+  background: #fff;
+  padding: 0 10px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+
+.fund-billing-mode-toggle button.is-active {
+  background: #1b64da;
+  color: #fff;
+}
+
+.fund-billing-info-hint {
+  margin: 8px 0 0;
+  padding-top: 8px;
+  border-top: 1px solid var(--color-border);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--color-text-muted);
+}
+
+.fund-billing-info-hint strong {
+  color: var(--color-text-secondary);
+}
+
+.fund-billing-info-form .form-field {
+  margin-bottom: 0;
+}
+
+.fund-billing-info-form .form-field__label {
+  margin-bottom: 3px;
+  font-size: 12px;
+}
+
+.fund-billing-info-form .form-field__input {
+  padding: 6px 10px;
+  font-size: 13px;
+}
+
+.fund-billing-info-form .project-name-search__toggle {
+  padding: 6px 10px;
+  font-size: 12px;
+}
+
+.fund-sheet__meta-wrap {
+  width: 66.666%;
+  max-width: 66.666%;
+  margin: 16px 0 16px;
+  background: #fff;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  padding: 16px;
+  box-sizing: border-box;
+}
+
+.fund-sheet {
+  margin-top: 0;
+  background: #fff;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  padding: 16px;
+}
+
+.fund-sheet--summary {
+  width: 66.666%;
+  max-width: 66.666%;
+  margin-bottom: 16px;
+  box-sizing: border-box;
+}
+
+.fund-sheet__table-wrap--summary {
+  overflow: hidden;
+}
+
+.fund-sheet__meta {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 0;
+  font-size: 13px;
+  table-layout: fixed;
+}
+
+.fund-sheet__meta th,
+.fund-sheet__meta td {
+  border: 1px solid #cfd8e3;
+  padding: 8px 10px;
+  vertical-align: middle;
+  text-align: center;
+}
+
+.fund-sheet__meta th {
+  background: #eef3f8;
+  font-weight: 700;
+  white-space: nowrap;
+  width: 9%;
+}
+
+.fund-sheet__meta .fund-sheet__num,
+.fund-sheet__meta .fund-sheet__input--num {
+  text-align: center;
+}
+
+.fund-sheet__meta .fund-sheet__meta-total {
+  width: 14%;
+  min-width: 140px;
+}
+
+.fund-sheet__cash-rate {
+  font-weight: 800;
+  text-align: center !important;
+  letter-spacing: 0.02em;
+}
+
+.fund-sheet__cash-rate--plus {
+  background: #067a4f;
+  color: #fff;
+}
+
+.fund-sheet__cash-rate--minus {
+  background: #c62828;
+  color: #fff;
+}
+
+.fund-sheet__title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin: 0 0 10px;
+  font-size: 16px;
+}
+
+.fund-sheet__budget-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+}
+
+.fund-sheet__budget-input {
+  width: 168px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  padding: 5px 8px;
+  font-size: 13px;
+  font-weight: 700;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.fund-sheet__table-wrap {
+  overflow: visible;
+}
+
+.fund-sheet__section-banner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  background: #1e3a5f;
+  color: #fff;
+  text-align: center;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  padding: 10px 12px 10px 250px;
+  border: 1px solid #1e3a5f;
+  border-top-width: 3px;
+}
+
+.fund-sheet__toolbar {
+  position: absolute;
+  left: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  z-index: 4;
+}
+
+.fund-sheet__add {
+  position: relative;
+}
+
+.fund-sheet__add-btn {
+  border: 2px solid #fff;
+  background: linear-gradient(180deg, #ffe566 0%, #ff9100 55%, #f57c00 100%);
+  color: #1a1200;
+  border-radius: 8px;
+  padding: 8px 18px;
+  font-size: 14px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+  box-shadow: 0 0 0 3px #ff6d00, 0 6px 16px rgba(255, 109, 0, 0.55);
+}
+
+.fund-sheet__add-btn:hover {
+  background: linear-gradient(180deg, #fff176 0%, #ffab40 55%, #ff6d00 100%);
+}
+
+.fund-sheet__undo-btn {
+  border: 1px solid #d7e0ea;
+  background: #fff;
+  color: #1e3a5f;
+  border-radius: 8px;
+  padding: 7px 12px;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.fund-sheet__undo-btn:hover:not(:disabled) {
+  background: #eef3f8;
+}
+
+.fund-sheet__undo-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.fund-sheet__add-menu {
+  position: absolute;
+  left: 0;
+  top: calc(100% + 4px);
+  z-index: 6;
+  min-width: 108px;
+  background: #fff;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.12);
+  overflow: hidden;
+}
+
+.fund-sheet__add-menu button {
+  display: block;
+  width: 100%;
+  border: 0;
+  background: #fff;
+  padding: 8px 12px;
+  text-align: left;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.fund-sheet__add-menu button:hover {
+  background: #eef3f8;
+}
+
+.fund-sheet__spacer td {
+  height: 14px;
+  padding: 0;
+  background: #f4f7fa;
+  border-left: 0;
+  border-right: 0;
+}
+
+.fund-sheet__table--frozen {
+  margin: 0;
+}
+
+.fund-sheet__frozen-wrap {
+  padding-right: 14px;
+  box-sizing: border-box;
+  background: #e8eef4;
+}
+
+.fund-sheet__exec-pane {
+  max-height: min(48vh, 520px);
+  overflow-y: scroll;
+  overflow-x: hidden;
+  box-sizing: border-box;
+  scrollbar-width: auto;
+  scrollbar-color: #6d8499 #e8eef4;
+}
+
+.fund-sheet__exec-pane::-webkit-scrollbar {
+  width: 14px;
+}
+
+.fund-sheet__exec-pane::-webkit-scrollbar-track {
+  background: #e8eef4;
+  border-left: 1px solid #cfd8e3;
+}
+
+.fund-sheet__exec-pane::-webkit-scrollbar-thumb {
+  background: #6d8499;
+  border-radius: 8px;
+  border: 2px solid #e8eef4;
+}
+
+.fund-sheet__table {
+  width: 100%;
+  min-width: 1920px;
+  table-layout: fixed;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.fund-sheet__table.fund-sheet__table--summary {
+  min-width: 0;
+  width: 100%;
+  table-layout: fixed;
+}
+
+.fund-sheet__table--summary th,
+.fund-sheet__table--summary td {
+  padding: 6px 6px;
+}
+
+.fund-sheet__table--summary thead th {
+  white-space: normal;
+  line-height: 1.3;
+}
+
+.fund-sheet__table--summary .fund-sheet__input {
+  min-width: 0;
+}
+
+.fund-sheet__col-action {
+  width: 9%;
+}
+
+.fund-sheet__col-no {
+  width: 4.5%;
+}
+
+.fund-sheet__col-trade {
+  width: 11%;
+}
+
+.fund-sheet__col-vendor {
+  width: 11%;
+}
+
+.fund-sheet__col-money {
+  width: 8.5%;
+}
+
+.fund-sheet__col-pct {
+  width: 4.5%;
+}
+
+.fund-sheet__actions {
+  text-align: center;
+  white-space: nowrap;
+  padding: 4px 6px;
+}
+
+.fund-sheet__actions button {
+  border: 1px solid var(--color-border);
+  background: #fff;
+  border-radius: 4px;
+  padding: 2px 6px;
+  margin: 0 2px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.fund-sheet__actions button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.fund-sheet__actions-del {
+  color: #c62828;
+}
+
+.fund-sheet__actions-save {
+  background: #1b64da !important;
+  border-color: #1b64da !important;
+  color: #fff;
+}
+
+.fund-sheet__table th,
+.fund-sheet__table td {
+  border: 1px solid #cfd8e3;
+  padding: 6px 10px;
+}
+
+.fund-sheet__table td:nth-child(2),
+.fund-sheet__table td:nth-child(3) {
+  overflow-wrap: anywhere;
+}
+
+.fund-sheet__table thead th,
+.fund-sheet__table tbody th {
+  background: #eef3f8;
+  text-align: center;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.fund-sheet__num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.fund-sheet__pct {
+  margin-left: 8px;
+  color: var(--color-text-muted);
+}
+
+.fund-sheet__neg {
+  color: #c62828;
+  font-weight: 700;
+}
+
+.fund-sheet__total td {
+  background: #fff;
+  font-weight: 700;
+}
+
+.fund-sheet__subtotal td {
+  background: #fff;
+  font-weight: 600;
+}
+
+.fund-sheet__overhead td {
+  background: #fff;
+}
+
+.fund-sheet__section-end td {
+  border-bottom: 3px solid #1e3a5f;
+}
+
+.fund-sheet__section-title td {
+  border-top: 3px solid #1e3a5f;
+  background: #1e3a5f;
+  color: #fff;
+  text-align: center;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  padding: 8px;
+}
+
+.fund-sheet__table thead th.fund-sheet__edit-head,
+.fund-sheet__table tbody th.fund-sheet__edit-head {
+  background: #eef8e4;
+}
+
+.fund-sheet__label-merge {
+  text-align: center;
+  font-weight: 600;
+}
+
+.fund-sheet__edit {
+  background: #fff8c5 !important;
+}
+
+.fund-sheet__input {
+  width: 100%;
+  min-width: 72px;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  padding: 0;
+}
+
+.fund-sheet__input--num {
+  text-align: right;
+}
+
+.fund-sheet__input:focus {
+  outline: 1px solid #1b64da;
+  background: #fff;
+}
+
+@media (max-width: 1100px) {
+  .fund-billing-kpis,
+  .fund-billing-kpis--detail,
+  .fund-billing-toolbar,
+  .fund-billing-info,
+  .fund-billing-info-form {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+@media (max-width: 640px) {
+  .fund-billing-kpis,
+  .fund-billing-kpis--detail,
+  .fund-billing-toolbar,
+  .fund-billing-info,
+  .fund-billing-info-form {
+    grid-template-columns: 1fr;
+  }
 }

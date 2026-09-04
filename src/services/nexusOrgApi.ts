@@ -9,7 +9,7 @@ export interface NexusOrgMeta {
   lastDriveSyncAt?: string;
 }
 
-const ORG_AUTO_REFRESH_INTERVAL_MS = 60_000;
+const ORG_AUTO_REFRESH_INTERVAL_MS = 15_000;
 
 export { ORG_AUTO_REFRESH_INTERVAL_MS };
 

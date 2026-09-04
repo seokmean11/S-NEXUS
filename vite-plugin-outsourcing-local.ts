@@ -60,15 +60,24 @@ function getLocalConfiguredPath(root: string): string | null {
   return candidates[0] ?? null;
 }
 
+function parseForceFlag(reqUrl: string | undefined): boolean {
+  try {
+    return new URL(reqUrl ?? '', 'http://localhost').searchParams.get('force') === '1';
+  } catch {
+    return false;
+  }
+}
+
 async function resolveOutsourcingDataPath(
   root: string,
+  force = false,
 ): Promise<{ path: string; source: 'google-drive' | 'local' } | null> {
   try {
     const { getNexusDriveConfig, syncNexusDriveCache, resolveNexusOutsourcingCacheDir } =
       await import('./server/nexusGoogleDrive');
     const driveConfig = getNexusDriveConfig(root);
     if (driveConfig.enabled) {
-      await syncNexusDriveCache(root, { subfolderKey: 'outsourcing' });
+      await syncNexusDriveCache(root, { subfolderKey: 'outsourcing', force });
       const cacheDir = resolveNexusOutsourcingCacheDir(root);
       if (cacheDir) {
         return { path: cacheDir, source: 'google-drive' };
@@ -105,6 +114,32 @@ function readDataFileAsCsv(filePath: string): string {
   throw new Error(`지원하지 않는 외주 데이터 파일 형식입니다: ${path.basename(filePath)}`);
 }
 
+function parseFileNameDateMs(fileName: string): number {
+  const match = fileName.match(/(\d{4}-\d{2}-\d{2})/);
+  if (!match) return 0;
+  const parsed = Date.parse(`${match[1]}T00:00:00.000Z`);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function loadDriveModifiedMs(dir: string): Map<string, number> {
+  const metaPath = path.join(dir, '.sync-meta.json');
+  const times = new Map<string, number>();
+  if (!fs.existsSync(metaPath)) return times;
+  try {
+    const meta = JSON.parse(fs.readFileSync(metaPath, 'utf8')) as {
+      files?: Array<{ name?: string; modifiedTime?: string }>;
+    };
+    for (const file of meta.files ?? []) {
+      if (!file.name || !file.modifiedTime) continue;
+      const parsed = Date.parse(file.modifiedTime);
+      if (Number.isFinite(parsed)) times.set(file.name, parsed);
+    }
+  } catch {
+    return times;
+  }
+  return times;
+}
+
 function resolveDataFile(dataPath: string): ResolvedDataFile {
   const resolved = path.resolve(dataPath);
   if (!fs.existsSync(resolved)) {
@@ -126,21 +161,26 @@ function resolveDataFile(dataPath: string): ResolvedDataFile {
   }
 
   if (stat.isDirectory()) {
+    const driveModifiedMs = loadDriveModifiedMs(resolved);
     const dataFiles = fs
       .readdirSync(resolved)
       .filter((name) => isDataFileName(name))
       .map((name) => {
         const filePath = path.join(resolved, name);
         const fileStat = fs.statSync(filePath);
+        const driveMs = driveModifiedMs.get(name) ?? 0;
         return {
           filePath,
           fileName: name,
           sourcePath: filePath,
-          updatedAt: fileStat.mtime.toISOString(),
-          mtimeMs: fileStat.mtimeMs,
+          updatedAt: driveMs ? new Date(driveMs).toISOString() : fileStat.mtime.toISOString(),
+          rankMs: driveMs || parseFileNameDateMs(name) || fileStat.mtimeMs,
         };
       })
-      .sort((a, b) => b.mtimeMs - a.mtimeMs);
+      .sort((a, b) => {
+        if (a.rankMs !== b.rankMs) return b.rankMs - a.rankMs;
+        return b.fileName.localeCompare(a.fileName);
+      });
 
     if (dataFiles.length === 0) {
       throw new Error(`폴더에 CSV/Excel 파일이 없습니다: ${resolved}`);
@@ -171,7 +211,7 @@ function attachRoutes(server: { middlewares: { use: Function } }, root: string) 
       return;
     }
 
-    const resolved = await resolveOutsourcingDataPath(root);
+    const resolved = await resolveOutsourcingDataPath(root, parseForceFlag(req.url));
     if (!resolved) {
       sendJson(res, 200, {
         configured: false,
@@ -207,7 +247,7 @@ function attachRoutes(server: { middlewares: { use: Function } }, root: string) 
       return;
     }
 
-    const resolved = await resolveOutsourcingDataPath(root);
+    const resolved = await resolveOutsourcingDataPath(root, parseForceFlag(req.url));
     if (!resolved) {
       sendJson(res, 404, {
         error:

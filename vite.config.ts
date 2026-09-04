@@ -5,6 +5,7 @@ import { claudeProxyPlugin } from './vite-plugin-claude-proxy';
 import { outsourcingLocalPlugin } from './vite-plugin-outsourcing-local';
 import { nexusDataFolderPlugin } from './vite-plugin-nexus-data-folder';
 import { nexusOrgPlugin } from './vite-plugin-nexus-org';
+import { fundBillingPlugin } from './vite-plugin-fund-billing';
 import { competitorDrivePlugin } from './vite-plugin-competitor-drive';
 
 export default defineConfig(({ mode }) => {
@@ -32,7 +33,7 @@ export default defineConfig(({ mode }) => {
   }
 
   return {
-    plugins: [react(), claudeProxyPlugin(), nexusDataFolderPlugin(), nexusOrgPlugin(), outsourcingLocalPlugin(), competitorDrivePlugin()],
+    plugins: [react(), claudeProxyPlugin(), nexusDataFolderPlugin(), nexusOrgPlugin(), fundBillingPlugin(), outsourcingLocalPlugin(), competitorDrivePlugin()],
     resolve: {
       alias: {
         '@': fileURLToPath(new URL('./src', import.meta.url)),

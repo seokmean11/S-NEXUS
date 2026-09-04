@@ -4,6 +4,8 @@ import { ErrorBoundary } from '@/components/ErrorBoundary';
 
 import { OutsourcingDbStatsPanel } from '@/components/purchase/OutsourcingDbStatsPanel';
 
+import { OutsourcingDriveUploadCard } from '@/components/purchase/OutsourcingDriveUploadCard';
+
 import { OutsourcingFilterPanel } from '@/components/purchase/OutsourcingFilterPanel';
 
 import { OutsourcingSearchResults } from '@/components/purchase/OutsourcingSearchResults';
@@ -90,6 +92,10 @@ export function OutsourcingSearchPage() {
     loadFromLocalFolder,
 
     handleFilePick,
+
+    handleDriveUpload,
+
+    driveUploading,
 
   } = useOutsourcingSearch();
 
@@ -249,7 +255,7 @@ export function OutsourcingSearchPage() {
                 CSV 파일 선택
               </Button>
 
-              <Button variant="ghost" size="sm" onClick={() => void loadFromLocalFolder()}>
+              <Button variant="ghost" size="sm" onClick={() => void loadFromLocalFolder(true)}>
                 폴더 새로고침
               </Button>
 
@@ -265,6 +271,12 @@ export function OutsourcingSearchPage() {
         )}
 
         <div className="outsourcing-search-page__body" ref={bodyRef}>
+
+        <OutsourcingDriveUploadCard
+          uploading={driveUploading}
+          onUpload={handleDriveUpload}
+          onRefreshFromDrive={() => loadFromLocalFolder(true)}
+        />
 
         {showStaleDataAlert && (
           <div className="outsourcing-stale-data-alert no-print" role="alert">
@@ -384,7 +396,7 @@ export function OutsourcingSearchPage() {
 
             <p className="outsourcing-status outsourcing-status--error">{error}</p>
 
-            <Button variant="outline" size="sm" onClick={() => void loadFromLocalFolder()}>
+            <Button variant="outline" size="sm" onClick={() => void loadFromLocalFolder(true)}>
 
               다시 불러오기
 

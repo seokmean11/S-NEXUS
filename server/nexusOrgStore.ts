@@ -15,12 +15,6 @@ export const ORG_STATE_FILENAME = 'state.json';
 const ORG_DIR = '.data/nexus-org';
 const SYNC_META_FILE = '.sync-meta.json';
 
-function getOrgStateSavedAtMs(state: StoredOrgState | null | undefined): number {
-  if (!state?.savedAt) return 0;
-  const value = Date.parse(state.savedAt);
-  return Number.isFinite(value) ? value : 0;
-}
-
 function withOrgStateSavedAt(
   state: StoredOrgState,
   savedAt = new Date().toISOString(),
@@ -68,26 +62,6 @@ export function writeServerOrgState(projectRoot: string, state: StoredOrgState):
   fs.writeFileSync(getLocalOrgFilePath(projectRoot), JSON.stringify(stamped, null, 2), 'utf8');
 }
 
-function fileMtimeMs(filePath: string | null): number {
-  if (!filePath || !fs.existsSync(filePath)) return 0;
-  return fs.statSync(filePath).mtime.getTime();
-}
-
-function pickNewerOrgState(
-  localState: StoredOrgState | null,
-  driveState: StoredOrgState | null,
-  projectRoot: string,
-): StoredOrgState | null {
-  if (!localState) return driveState;
-  if (!driveState) return localState;
-
-  const localAt = getOrgStateSavedAtMs(localState) || fileMtimeMs(getLocalOrgFilePath(projectRoot));
-  const driveAt =
-    getOrgStateSavedAtMs(driveState) || fileMtimeMs(getDriveCacheOrgFilePath(projectRoot));
-
-  return localAt >= driveAt ? localState : driveState;
-}
-
 export interface ServerOrgMeta {
   exists: boolean;
   updatedAt?: string;
@@ -110,21 +84,6 @@ export function getServerOrgMeta(projectRoot: string): ServerOrgMeta {
   const driveCacheStat = resolveOrgFileStat(driveCachePath);
   const localStat = resolveOrgFileStat(localPath);
 
-  if (driveCacheStat.exists && localStat.exists) {
-    const driveState = readJsonFile<StoredOrgState>(driveCachePath);
-    const localState = readServerOrgState(projectRoot);
-    const newer = pickNewerOrgState(localState, driveState, projectRoot);
-    const useLocal = newer === localState;
-    return {
-      exists: true,
-      updatedAt: useLocal ? localStat.updatedAt : driveCacheStat.updatedAt,
-      dataSource: useLocal ? 'local' : 'drive-cache',
-      driveConfigured,
-      driveUploadConfigured: isNexusDriveUploadConfigured(projectRoot),
-      lastDriveSyncAt: loadDriveSyncMeta(projectRoot)?.syncedAt,
-    };
-  }
-
   if (driveCacheStat.exists) {
     return {
       exists: true,
@@ -146,37 +105,42 @@ export function getServerOrgMeta(projectRoot: string): ServerOrgMeta {
   };
 }
 
-export async function syncAndReadServerOrgState(projectRoot: string): Promise<StoredOrgState | null> {
+function readDriveCacheOrgState(projectRoot: string): StoredOrgState | null {
   const driveCachePath = getDriveCacheOrgFilePath(projectRoot);
-  const driveState = driveCachePath ? readJsonFile<StoredOrgState>(driveCachePath) : null;
-  const localState = readServerOrgState(projectRoot);
-  const existing = pickNewerOrgState(localState, driveState, projectRoot);
+  return driveCachePath ? readJsonFile<StoredOrgState>(driveCachePath) : null;
+}
 
+function mirrorDriveStateToLocal(projectRoot: string, driveState: StoredOrgState): void {
+  const localState = readServerOrgState(projectRoot);
+  if (localState?.savedAt === driveState.savedAt) return;
+  writeServerOrgState(projectRoot, driveState);
+}
+
+export async function syncAndReadServerOrgState(projectRoot: string): Promise<StoredOrgState | null> {
   const config = getNexusDriveConfig(projectRoot);
   if (config.enabled) {
-    const syncPromise = syncNexusDriveCache(projectRoot, { subfolderKey: 'organization' }).catch(
-      () => undefined,
-    );
-    if (existing) {
-      void syncPromise;
-      return existing;
-    }
     try {
       await Promise.race([
-        syncPromise,
+        syncNexusDriveCache(projectRoot, {
+          subfolderKey: 'organization',
+          minIntervalMs: 8_000,
+        }),
         new Promise<void>((resolve) => {
           setTimeout(resolve, 12_000);
         }),
       ]);
     } catch {
-      // Drive sync 실패 시 로컬 폴백
+      // Drive sync 실패 시 캐시·로컬 폴백
     }
-    const refreshedPath = getDriveCacheOrgFilePath(projectRoot);
-    const refreshed = refreshedPath ? readJsonFile<StoredOrgState>(refreshedPath) : null;
-    return pickNewerOrgState(localState, refreshed, projectRoot) ?? localState;
+
+    const driveState = readDriveCacheOrgState(projectRoot);
+    if (driveState) {
+      mirrorDriveStateToLocal(projectRoot, driveState);
+      return driveState;
+    }
   }
 
-  return localState;
+  return readServerOrgState(projectRoot);
 }
 
 export async function writeServerOrgStateWithDriveSync(

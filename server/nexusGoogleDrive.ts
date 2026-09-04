@@ -18,6 +18,7 @@ const SYNC_MIN_INTERVAL_MS = 55_000;
 export const NEXUS_DRIVE_SUBFOLDERS = {
   outsourcing: '외주정보데이터',
   organization: '조직인원데이터',
+  fundBilling: '기성관리데이터',
 } as const;
 
 export type NexusDriveSubfolderKey = keyof typeof NEXUS_DRIVE_SUBFOLDERS;
@@ -85,6 +86,10 @@ function isDataFileName(name: string): boolean {
 function isSyncFileName(name: string, subfolderKey: NexusDriveSubfolderKey): boolean {
   if (subfolderKey === 'organization') {
     return name.toLowerCase() === 'state.json';
+  }
+  if (subfolderKey === 'fundBilling') {
+    const lower = name.toLowerCase();
+    return lower.endsWith('.json') || lower.endsWith('.xlsx') || lower.endsWith('.xls');
   }
   return isDataFileName(name);
 }
@@ -345,7 +350,7 @@ async function downloadDriveFile(
 
 export async function syncNexusDriveCache(
   projectRoot: string,
-  options?: { force?: boolean; subfolderKey?: NexusDriveSubfolderKey },
+  options?: { force?: boolean; subfolderKey?: NexusDriveSubfolderKey; minIntervalMs?: number },
 ): Promise<NexusDriveSyncMeta> {
   const config = getNexusDriveConfig(projectRoot);
   if (!config.enabled || !config.folderId || !config.keyPath) {
@@ -359,9 +364,10 @@ export async function syncNexusDriveCache(
   const cacheDir = getSubfolderCacheDir(config, subfolderKey);
 
   const previous = loadSyncMeta(cacheDir);
+  const minIntervalMs = options?.minIntervalMs ?? SYNC_MIN_INTERVAL_MS;
   if (!options?.force && previous?.syncedAt) {
     const elapsed = Date.now() - new Date(previous.syncedAt).getTime();
-    if (elapsed < SYNC_MIN_INTERVAL_MS) {
+    if (elapsed < minIntervalMs) {
       return previous;
     }
   }

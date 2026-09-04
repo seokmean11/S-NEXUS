@@ -10,10 +10,6 @@ const root = path.join(__dirname, '..');
 
 const AFFILIATE_DIVISION_PATTERN = /시공문화|아이스크림미디어/i;
 const AFFILIATE_TEAM_PATTERN = /시공문화|아이스크림미디어|^경영관리실$/i;
-const AFFILIATE_EMPLOYEE_NAMES = new Set([
-  '허주환', '현준우', '김형준', '장재영', '문희아', '윤지예', '우해준', '이안나', '이두연',
-  '김효진', '노영준', '이성준', '한정화', '박재용', '이영미',   '이정수', '최현규',
-]);
 
 function filterAffiliateOrg(org) {
   const excludedDivisionIds = new Set(
@@ -25,14 +21,11 @@ function filterAffiliateOrg(org) {
       .map((t) => t.id),
   );
   const employees = org.employees.filter(
-    (e) =>
-      !excludedDivisionIds.has(e.divisionId) &&
-      !excludedTeamIds.has(e.teamId) &&
-      !AFFILIATE_EMPLOYEE_NAMES.has(e.name),
+    (e) => !excludedDivisionIds.has(e.divisionId) && !excludedTeamIds.has(e.teamId),
   );
   const teams = org.teams.filter((t) => !excludedTeamIds.has(t.id));
   const divisions = org.divisions.filter((d) => !excludedDivisionIds.has(d.id));
-  const admins = (org.executiveOffice.admins ?? []).filter((a) => !AFFILIATE_EMPLOYEE_NAMES.has(a.name));
+  const admins = org.executiveOffice.admins ?? [];
   return {
     ...org,
     executiveOffice: { admins },
