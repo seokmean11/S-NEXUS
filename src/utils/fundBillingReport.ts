@@ -10,7 +10,7 @@ import {
   IMPORTED_FUND_BILLING_AS_OF,
   getImportedFundBillingProjects,
 } from '@/utils/fundBillingImported';
-import { formatIsoToKoreanDate, parseKoreanDateToIso } from '@/utils/formatInput';
+import { formatIsoToKoreanDate, formatMonthKeyToKorean, parseKoreanDateToIso } from '@/utils/formatInput';
 
 const OVERHEAD_TEMPLATES = [
   { key: 'directExpense', label: '직접경비' },
@@ -157,10 +157,11 @@ export function seedFundBillingReportsFromImported(): FundBillingReport[] {
 
 export function createEmptyFundBillingReport(): FundBillingReport {
   const now = new Date();
-  const writtenDate = formatIsoToKoreanDate(now.toISOString().slice(0, 10)) || '';
+  const monthKey = now.toISOString().slice(0, 7);
+  const writtenDate = writtenDateForMonthKey(monthKey);
   return {
     id: `fund-new-${now.getTime()}`,
-    monthKey: monthKeyFromWrittenDate(writtenDate),
+    monthKey,
     projectName: '',
     projectCode: '',
     department: mapTextToFundBillingDepartment('전시'),
@@ -230,10 +231,7 @@ export function findLatestReport(
 }
 
 export function writtenDateForMonthKey(monthKey: string): string {
-  return (
-    formatIsoToKoreanDate(`${monthKey}-01`) ||
-    `${monthKey.slice(0, 4)}년 ${monthKey.slice(5, 7)}월 01일`
-  );
+  return formatMonthKeyToKorean(monthKey) || `${monthKey.slice(0, 4)}년 ${monthKey.slice(5, 7)}월`;
 }
 
 export function reportsForProject(reports: FundBillingReport[], projectId: string): FundBillingReport[] {
@@ -438,7 +436,8 @@ export function reportToSummaryRow(report: FundBillingReport): FundBillingProjec
   const netCash = collectedTotal - spentTotal;
   const startIso = parseKoreanDateToIso(report.startDate) ?? '';
   const endIso = parseKoreanDateToIso(report.endDate) ?? undefined;
-  const asOf = parseKoreanDateToIso(report.writtenDate) ?? report.monthKey;
+  const asOf =
+    parseKoreanDateToIso(report.writtenDate) ?? (report.monthKey ? `${report.monthKey}-01` : '');
   const uncollected = Math.max(0, report.contractAmount - collectedTotal);
   const periodEnded = Boolean(endIso && asOf && endIso < asOf);
   const completed = uncollected <= 0 && periodEnded;

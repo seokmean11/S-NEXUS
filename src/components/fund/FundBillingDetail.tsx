@@ -26,11 +26,11 @@ import {
   reportsForProject,
   resolveCommonInspected,
 } from '@/utils/fundBillingReport';
-import { formatAmountInput, parseAmountInput, parseKoreanDateToIso } from '@/utils/formatInput';
+import { formatAmountInput, formatMonthKeyToKorean, parseAmountInput, parseKoreanDateToIso } from '@/utils/formatInput';
 import { buildPersonnelRows } from '@/utils/personnelSearch';
 import {
   clearFundBillingSessionDraft,
-  loadFundBillingSessionDraft,
+  resolveFundBillingSessionDraft,
   saveFundBillingSessionDraft,
 } from '@/utils/fundBillingSessionDraft';
 
@@ -113,7 +113,9 @@ export function FundBillingDetail({ report, onCommit, onCreateNew }: FundBilling
     [reports],
   );
 
-  const sessionDraft = useRef(loadFundBillingSessionDraft(report.id, report.monthKey)).current;
+  const sessionDraft = useRef(
+    resolveFundBillingSessionDraft(report.id, report.monthKey, report.updatedAt),
+  ).current;
 
   const [projectMode, setProjectMode] = useState<'existing' | 'new'>(
     sessionDraft?.projectMode ??
@@ -136,7 +138,7 @@ export function FundBillingDetail({ report, onCommit, onCreateNew }: FundBilling
   const [startDate, setStartDate] = useState(sessionDraft?.startDate ?? report.startDate);
   const [endDate, setEndDate] = useState(sessionDraft?.endDate ?? report.endDate);
   const [pmName, setPmName] = useState(sessionDraft?.pmName ?? report.pmName);
-  const [writtenDate, setWrittenDate] = useState(sessionDraft?.writtenDate ?? report.writtenDate);
+  const writtenDate = formatMonthKeyToKorean(report.monthKey);
   const [collectedPrior, setCollectedPrior] = useState(sessionDraft?.collectedPrior ?? report.collectedPrior);
   const [expectedCollection, setExpectedCollection] = useState(
     sessionDraft?.expectedCollection ?? report.expectedCollection,
@@ -158,6 +160,7 @@ export function FundBillingDetail({ report, onCommit, onCreateNew }: FundBilling
   const liveUndoTimerRef = useRef<number>();
   const [lineDialog, setLineDialog] = useState<{ action: 'edit' | 'delete'; id: string } | null>(null);
   const [commonInspectedConfirmOpen, setCommonInspectedConfirmOpen] = useState(false);
+  const [subcontractExceedOpen, setSubcontractExceedOpen] = useState(false);
   const [monthPickerOpen, setMonthPickerOpen] = useState(
     Boolean((location.state as FundBillingLocationState | null)?.writePanelOpen),
   );
@@ -168,7 +171,14 @@ export function FundBillingDetail({ report, onCommit, onCreateNew }: FundBilling
   const [editDraft, setEditDraft] = useState<SpendLine | null>(null);
 
   const collectedTotal = collectedPrior + expectedCollection;
-  const vendorTotals = useMemo(() => summarizeLines(lines), [lines]);
+  const comparableLines = useMemo(
+    () =>
+      editingId && editDraft
+        ? lines.map((line) => (line.id === editingId ? editDraft : line))
+        : lines,
+    [editingId, editDraft, lines],
+  );
+  const vendorTotals = useMemo(() => summarizeLines(comparableLines), [comparableLines]);
   const displayOverheads = useMemo(() => {
     const commonInspected = resolveCommonInspected(overheads, vendorTotals.inspected, directCostBudget);
     return overheads.map((line) => {
@@ -193,9 +203,10 @@ export function FundBillingDetail({ report, onCommit, onCreateNew }: FundBilling
     [reports, report.id, report.monthKey],
   );
   const [editUnlocked, setEditUnlocked] = useState(() => {
-    if (locationGate === 'past') return false;
+    if (locationGate === 'past' || report.monthKey < latestMonthKey) return false;
+    if (locationGate === 'ask-edit') return false;
     if (sessionDraft?.editUnlocked) return true;
-    return locationGate === 'edit';
+    return true;
   });
   const readOnly = report.monthKey < latestMonthKey || !editUnlocked;
 
@@ -241,13 +252,6 @@ export function FundBillingDetail({ report, onCommit, onCreateNew }: FundBilling
     updatedAt: new Date().toISOString(),
   });
 
-  const comparableLines = useMemo(
-    () =>
-      editingId && editDraft
-        ? lines.map((line) => (line.id === editingId ? editDraft : line))
-        : lines,
-    [editingId, editDraft, lines],
-  );
   const currentFingerprint = useMemo(
     () =>
       fingerprintBillingDraft({
@@ -299,7 +303,7 @@ export function FundBillingDetail({ report, onCommit, onCreateNew }: FundBilling
     null,
   );
   sessionDraftPayloadRef.current = {
-    save: Boolean(editUnlocked),
+    save: currentFingerprint !== (savedFingerprint ?? driveFingerprint),
     draft: {
       id: report.id,
       monthKey: report.monthKey,
@@ -319,6 +323,8 @@ export function FundBillingDetail({ report, onCommit, onCreateNew }: FundBilling
       overheads: displayOverheads,
       lines: comparableLines,
       editUnlocked,
+      dirty: true,
+      capturedAt: new Date().toISOString(),
     },
   };
 
@@ -563,7 +569,7 @@ export function FundBillingDetail({ report, onCommit, onCreateNew }: FundBilling
           <p>담당자가 프로젝트별 월 기성을 입력하는 화면입니다. 프로젝트 등록 메뉴가 열리면 검색 선택과 직접 입력을 함께 사용합니다.</p>
           {driveWritable ? null : (
             <p className="fund-billing-sandbox-note">
-              개발웹입니다. 저장해도 공용 드라이브 원본은 바뀌지 않습니다.
+              개발웹입니다. 화면 기능은 서비스웹과 같고, 저장해도 공용 드라이브는 바뀌지 않습니다. 새로고침하면 서비스웹이 저장한 공용 드라이브 원장을 다시 불러옵니다.
             </p>
           )}
         </div>
@@ -696,7 +702,16 @@ export function FundBillingDetail({ report, onCommit, onCreateNew }: FundBilling
           </div>
           <KoreanDateInput label="계약 시작" value={startDate} onChange={setStartDate} />
           <KoreanDateInput label="계약 종료" value={endDate} onChange={setEndDate} />
-          <KoreanDateInput label="작성일자" value={writtenDate} onChange={setWrittenDate} />
+          <div className="form-field">
+            <span className="form-field__label">작성일</span>
+            <input
+              className="form-field__input"
+              value={writtenDate || '-'}
+              readOnly
+              tabIndex={-1}
+              aria-label="작성일"
+            />
+          </div>
           <FundBillingPmSearch people={personnel} value={pmName} onChange={setPmName} />
         </div>
         <p className="fund-billing-info-hint">
@@ -717,7 +732,7 @@ export function FundBillingDetail({ report, onCommit, onCreateNew }: FundBilling
                 {startDate || '-'}
                 {endDate ? ` ~ ${endDate}` : ''}
               </td>
-              <th>작성일자</th>
+              <th>작성일</th>
               <td>{writtenDate || '-'}</td>
             </tr>
             <tr>
@@ -805,6 +820,7 @@ export function FundBillingDetail({ report, onCommit, onCreateNew }: FundBilling
                         : 'default'
                   }
                   commonInspectedManual={Boolean(line.commonInspectedManual)}
+                  onExceed={() => setSubcontractExceedOpen(true)}
                   onChange={(patch) => updateOverhead(line.id, patch)}
                   onRequestCommonInspectedEdit={
                     isFundBillingCommonLine(line) ? requestCommonInspectedEdit : undefined
@@ -867,6 +883,19 @@ export function FundBillingDetail({ report, onCommit, onCreateNew }: FundBilling
               </thead>
             </table>
           </div>
+          <div className="fund-sheet__frozen-wrap fund-sheet__frozen-wrap--totals">
+            <table className="fund-sheet__table fund-sheet__table--frozen">
+              <ExecColGroup />
+              <tbody>
+                <SummaryRow
+                  label="직접공사비 합계"
+                  values={vendorTotals}
+                  className="fund-sheet__exec-total"
+                  showActions
+                />
+              </tbody>
+            </table>
+          </div>
           <div className="fund-sheet__exec-pane" tabIndex={0} aria-label="직접공사비 집행 공종 목록">
             <table className="fund-sheet__table">
               <ExecColGroup />
@@ -880,9 +909,10 @@ export function FundBillingDetail({ report, onCommit, onCreateNew }: FundBilling
                     <SpendLineRow
                       key={row.line.id}
                       line={editingId === row.line.id && editDraft ? editDraft : row.line}
-                      showActions={!readOnly}
+                      showActions
                       readOnly={readOnly}
                       isEditing={editingId === row.line.id}
+                      onExceed={() => setSubcontractExceedOpen(true)}
                       onChange={(patch) => {
                         if (editingId === row.line.id) {
                           setEditDraft((current) =>
@@ -985,6 +1015,15 @@ export function FundBillingDetail({ report, onCommit, onCreateNew }: FundBilling
         message="해당 집행건을 모두 삭제하시겠습니까?"
         onConfirm={confirmLineDialog}
         onCancel={() => setLineDialog(null)}
+      />
+      <ConfirmDialog
+        open={subcontractExceedOpen}
+        title={SUBCONTRACT_EXCEED_TITLE}
+        message={SUBCONTRACT_EXCEED_MESSAGE}
+        confirmLabel="확인"
+        hideCancel
+        onConfirm={() => setSubcontractExceedOpen(false)}
+        onCancel={() => setSubcontractExceedOpen(false)}
       />
       <ConfirmDialog
         open={newProjectConfirmOpen}
@@ -1116,7 +1155,7 @@ function fingerprintFromSavedReport(report: FundBillingReport): string {
     contractAmount: report.contractAmount,
     startDate: report.startDate,
     endDate: report.endDate,
-    writtenDate: report.writtenDate,
+    writtenDate: formatMonthKeyToKorean(report.monthKey),
     pmName: report.pmName,
     collectedPrior: report.collectedPrior,
     expectedCollection: report.expectedCollection,
@@ -1176,12 +1215,39 @@ function fingerprintBillingDraft(draft: {
   });
 }
 
+const SUBCONTRACT_EXCEED_TITLE = '하도급금액 초과';
+const SUBCONTRACT_EXCEED_MESSAGE =
+  '누계금액이 하도급금액을 초과합니다. 하도급금액을 넘는 금액은 입력할 수 없습니다. 확인을 누른 뒤 금액을 다시 입력해 주세요.';
+
+function finiteSpendAmount(value: number | undefined): number {
+  return Math.max(0, Number.isFinite(value) ? Number(value) : 0);
+}
+
+function spendPatchExceedsSubcontract(line: SpendLine, patch: Partial<SpendLine> = {}): boolean {
+  const next = { ...line, ...patch };
+  if (isFundBillingDirectExpenseLine(next)) return false;
+  const cap = finiteSpendAmount(next.contractAmount);
+  const prior = finiteSpendAmount(next.priorPaid);
+  const inspected = finiteSpendAmount(next.inspected);
+  const monthClaim = finiteSpendAmount(next.monthClaim);
+  return prior > cap || inspected > cap || monthClaim > cap || prior + inspected > cap;
+}
+
 function clampSpendLineToContract(line: SpendLine, patch: Partial<SpendLine> = {}): SpendLine {
   const next = { ...line, ...patch };
-  const cap = Number.isFinite(next.contractAmount) ? Math.max(0, next.contractAmount) : 0;
-  const priorPaid = Math.max(0, Number.isFinite(next.priorPaid) ? next.priorPaid : 0);
-  const inspectedRaw = Math.max(0, Number.isFinite(next.inspected) ? next.inspected : 0);
-  const monthClaimRaw = Math.max(0, Number.isFinite(next.monthClaim) ? next.monthClaim : 0);
+  if (isFundBillingDirectExpenseLine(next)) {
+    return {
+      ...next,
+      contractAmount: finiteSpendAmount(next.contractAmount),
+      priorPaid: finiteSpendAmount(next.priorPaid),
+      inspected: finiteSpendAmount(next.inspected),
+      monthClaim: finiteSpendAmount(next.monthClaim),
+    };
+  }
+  const cap = finiteSpendAmount(next.contractAmount);
+  const priorPaid = finiteSpendAmount(next.priorPaid);
+  const inspectedRaw = finiteSpendAmount(next.inspected);
+  const monthClaimRaw = finiteSpendAmount(next.monthClaim);
   const prior = Math.min(priorPaid, cap);
   const inspected = Math.min(inspectedRaw, Math.max(0, cap - prior));
   const monthClaim = Math.min(monthClaimRaw, cap);
@@ -1194,13 +1260,43 @@ function clampSpendLineToContract(line: SpendLine, patch: Partial<SpendLine> = {
   };
 }
 
-function AmountInput({ value, onChange }: { value: number; onChange: (value: number) => void }) {
+function AmountInput({
+  value,
+  onChange,
+  wouldReject,
+  onReject,
+}: {
+  value: number;
+  onChange: (value: number) => void;
+  wouldReject?: (next: number) => boolean;
+  onReject?: () => void;
+}) {
+  const [draft, setDraft] = useState<string | null>(null);
+  const shown = draft ?? formatAmountInput(value);
+
   return (
     <input
       className="fund-sheet__input fund-sheet__input--num"
       inputMode="numeric"
-      value={formatAmountInput(value)}
-      onChange={(event) => onChange(parseAmountInput(event.target.value) ?? 0)}
+      value={shown}
+      onChange={(event) => {
+        const parsed = parseAmountInput(event.target.value);
+        if (wouldReject) {
+          setDraft(parsed === undefined ? '' : formatAmountInput(parsed));
+          return;
+        }
+        onChange(parsed ?? 0);
+      }}
+      onBlur={() => {
+        if (!wouldReject) return;
+        const parsed = parseAmountInput(draft ?? formatAmountInput(value)) ?? 0;
+        setDraft(null);
+        if (wouldReject(parsed)) {
+          onReject?.();
+          return;
+        }
+        if (parsed !== value) onChange(parsed);
+      }}
     />
   );
 }
@@ -1218,13 +1314,16 @@ function SummaryRow({
   label,
   values,
   className,
+  showActions,
 }: {
   label: string;
   values: ReturnType<typeof summarizeLines>;
   className: string;
+  showActions?: boolean;
 }) {
   return (
     <tr className={className}>
+      {showActions ? <td className="fund-sheet__actions" /> : null}
       <td colSpan={3} className="fund-sheet__label-merge">{label}</td>
       <td className="fund-sheet__num">{won(values.contractAmount)}</td>
       <AmountPair amount={values.priorPaid} base={values.contractAmount} />
@@ -1247,6 +1346,7 @@ function SpendLineRow({
   entryMode = 'default',
   commonInspectedManual = false,
   onRequestCommonInspectedEdit,
+  onExceed,
   onEdit,
   onSave,
   onCancelEdit,
@@ -1262,6 +1362,7 @@ function SpendLineRow({
   entryMode?: 'default' | 'cumulative' | 'common';
   commonInspectedManual?: boolean;
   onRequestCommonInspectedEdit?: () => void;
+  onExceed?: () => void;
   onEdit?: () => void;
   onSave?: () => void;
   onCancelEdit?: () => void;
@@ -1274,27 +1375,40 @@ function SpendLineRow({
   const commonInspectLocked = !readOnly && entryMode === 'common' && !commonInspectedManual;
   const inspectedLocked = readOnly || entryMode === 'cumulative' || commonInspectLocked;
 
+  const rejectExceed = () => onExceed?.();
+  const applyPatch = (patch: Partial<SpendLine>) => {
+    if (spendPatchExceedsSubcontract(line, patch)) {
+      rejectExceed();
+      return;
+    }
+    onChange(patch);
+  };
+
   return (
     <tr className={className}>
       {showActions ? (
         <td className="fund-sheet__actions">
-          {isEditing ? (
+          {readOnly ? null : (
             <>
-              <button type="button" className="fund-sheet__actions-save" onClick={onSave}>
-                저장
-              </button>
-              <button type="button" onClick={onCancelEdit}>
-                취소
+              {isEditing ? (
+                <>
+                  <button type="button" className="fund-sheet__actions-save" onClick={onSave}>
+                    저장
+                  </button>
+                  <button type="button" onClick={onCancelEdit}>
+                    취소
+                  </button>
+                </>
+              ) : (
+                <button type="button" onClick={onEdit}>
+                  수정
+                </button>
+              )}
+              <button type="button" className="fund-sheet__actions-del" onClick={onDelete}>
+                삭제
               </button>
             </>
-          ) : (
-            <button type="button" onClick={onEdit}>
-              수정
-            </button>
           )}
-          <button type="button" className="fund-sheet__actions-del" onClick={onDelete}>
-            삭제
-          </button>
         </td>
       ) : null}
       {hideVendor ? (
@@ -1307,7 +1421,7 @@ function SpendLineRow({
               <input
                 className="fund-sheet__input"
                 value={line.tradeType}
-                onChange={(event) => onChange({ tradeType: event.target.value })}
+                onChange={(event) => applyPatch({ tradeType: event.target.value })}
                 placeholder="공종"
               />
             ) : (
@@ -1319,7 +1433,7 @@ function SpendLineRow({
               <input
                 className="fund-sheet__input"
                 value={line.vendorName}
-                onChange={(event) => onChange({ vendorName: event.target.value })}
+                onChange={(event) => applyPatch({ vendorName: event.target.value })}
                 placeholder="업체명"
               />
             ) : (
@@ -1333,12 +1447,19 @@ function SpendLineRow({
           unlocked={unlocked}
           contractAmount={line.contractAmount}
           history={line.contractAmountHistory}
-          onCommit={(next) => onChange(next)}
+          cumulativeAmount={cumulative}
+          onExceed={rejectExceed}
+          onCommit={(next) => applyPatch(next)}
         />
       </td>
       <td className={`fund-sheet__num${unlocked ? ' fund-sheet__edit' : ' fund-sheet__fixed'}`}>
         {unlocked ? (
-          <AmountInput value={line.priorPaid} onChange={(value) => onChange({ priorPaid: value })} />
+          <AmountInput
+            value={line.priorPaid}
+            wouldReject={(value) => spendPatchExceedsSubcontract(line, { priorPaid: value })}
+            onReject={rejectExceed}
+            onChange={(value) => applyPatch({ priorPaid: value })}
+          />
         ) : (
           won(line.priorPaid)
         )}
@@ -1348,7 +1469,12 @@ function SpendLineRow({
         {monthClaimLocked ? (
           won(line.monthClaim)
         ) : (
-          <AmountInput value={line.monthClaim} onChange={(value) => onChange({ monthClaim: value })} />
+          <AmountInput
+            value={line.monthClaim}
+            wouldReject={(value) => spendPatchExceedsSubcontract(line, { monthClaim: value })}
+            onReject={rejectExceed}
+            onChange={(value) => applyPatch({ monthClaim: value })}
+          />
         )}
       </td>
       <td className="fund-sheet__num">{ratioText(line.monthClaim, line.contractAmount)}</td>
@@ -1368,8 +1494,10 @@ function SpendLineRow({
         ) : (
           <AmountInput
             value={line.inspected}
+            wouldReject={(value) => spendPatchExceedsSubcontract(line, { inspected: value })}
+            onReject={rejectExceed}
             onChange={(value) =>
-              onChange(
+              applyPatch(
                 entryMode === 'common'
                   ? { inspected: value, commonInspectedManual: true }
                   : { inspected: value },
@@ -1383,10 +1511,13 @@ function SpendLineRow({
         {entryMode === 'cumulative' ? (
           <AmountInput
             value={cumulative}
+            wouldReject={(value) =>
+              isFundBillingDirectExpenseLine(line) ? false : value > finiteSpendAmount(line.contractAmount)
+            }
+            onReject={rejectExceed}
             onChange={(value) => {
-              const capped = Math.min(Math.max(0, value), Math.max(0, line.contractAmount));
-              const delta = Math.max(0, capped - line.priorPaid);
-              onChange({ monthClaim: delta, inspected: delta });
+              const inspected = Math.max(0, value - line.priorPaid);
+              applyPatch({ monthClaim: inspected, inspected });
             }}
           />
         ) : (

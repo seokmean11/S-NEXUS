@@ -19,6 +19,7 @@ export interface NexusDriveStatus {
   cacheDir?: string;
   lastSync?: NexusDriveSyncMeta;
   uploadConfigured?: boolean;
+  writable?: boolean;
   uploadMethod?: 'oauth' | 'unavailable';
   uploadError?: string;
   error?: string;

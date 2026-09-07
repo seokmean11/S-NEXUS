@@ -17,7 +17,6 @@ import {
   ensureProjectMonthReport,
   findReportForMonth,
   sanitizeFundBillingReports,
-  seedFundBillingReportsFromImported,
   upsertFundBillingReport,
 } from '@/utils/fundBillingReport';
 
@@ -40,10 +39,16 @@ export function FundBillingProvider({ children }: { children: ReactNode }) {
   const [driveWritable, setDriveWritable] = useState(false);
   const persistTimer = useRef<number>();
   const pendingReportRef = useRef<FundBillingReport | null>(null);
+  const reportsRef = useRef<FundBillingReport[]>([]);
+  const driveWritableRef = useRef(false);
+  const localEditsRef = useRef(false);
+  reportsRef.current = reports;
 
   const persist = useCallback((next: FundBillingReport[]) => {
+    localEditsRef.current = true;
     if (persistTimer.current) window.clearTimeout(persistTimer.current);
     persistTimer.current = window.setTimeout(() => {
+      persistTimer.current = undefined;
       void saveFundBillingLedger({ reports: next, updatedAt: new Date().toISOString() });
     }, 500);
   }, []);
@@ -54,28 +59,30 @@ export function FundBillingProvider({ children }: { children: ReactNode }) {
       const remote = await fetchFundBillingLedger();
       if (cancelled) return;
       const writable = Boolean(remote?.writable);
+      driveWritableRef.current = writable;
       setDriveWritable(writable);
       if (remote?.ledger?.reports?.length) {
         const cleaned = sanitizeFundBillingReports(remote.ledger.reports);
         setReports(cleaned);
-        if (
-          cleaned.length !== remote.ledger.reports.length ||
-          cleaned.some((item, index) => item !== remote.ledger!.reports[index])
-        ) {
-          void saveFundBillingLedger({ reports: cleaned, updatedAt: new Date().toISOString() });
-        }
-      } else if (!writable) {
-        const seeded = seedFundBillingReportsFromImported();
-        setReports(seeded);
-        void saveFundBillingLedger({ reports: seeded, updatedAt: new Date().toISOString() });
+        localEditsRef.current = false;
       } else {
         setReports([]);
+        localEditsRef.current = false;
       }
       setReady(true);
     })();
     return () => {
       cancelled = true;
-      if (persistTimer.current) window.clearTimeout(persistTimer.current);
+      if (persistTimer.current) {
+        window.clearTimeout(persistTimer.current);
+        persistTimer.current = undefined;
+        if (localEditsRef.current) {
+          void saveFundBillingLedger({
+            reports: reportsRef.current,
+            updatedAt: new Date().toISOString(),
+          });
+        }
+      }
     };
   }, []);
 

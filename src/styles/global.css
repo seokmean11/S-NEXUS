@@ -5554,7 +5554,7 @@ body {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  overflow-x: hidden;
+  overflow-x: auto;
   padding: 16px 20px;
   display: flex;
   flex-direction: column;
@@ -7299,7 +7299,7 @@ body {
   gap: 6px;
   max-height: 104px;
   overflow-y: auto;
-  overflow-x: hidden;
+  overflow-x: auto;
   padding-right: 2px;
 }
 
@@ -9831,6 +9831,12 @@ body {
   font-size: 13px;
 }
 
+.fund-billing-info-form .form-field__input[readonly] {
+  background: #f5f6f8;
+  color: var(--color-text);
+  cursor: default;
+}
+
 .fund-billing-info-form .project-name-search__toggle {
   padding: 6px 10px;
   font-size: 12px;
@@ -10085,7 +10091,7 @@ body {
 .fund-sheet__exec-pane {
   max-height: min(48vh, 520px);
   overflow-y: scroll;
-  overflow-x: hidden;
+  overflow-x: auto;
   box-sizing: border-box;
   scrollbar-width: auto;
   scrollbar-color: #6d8499 #e8eef4;
@@ -10222,7 +10228,7 @@ body {
 .fund-sheet__exec-pane {
   max-height: min(48vh, 520px);
   overflow-y: scroll;
-  overflow-x: hidden;
+  overflow-x: auto;
   box-sizing: border-box;
   scrollbar-width: auto;
   scrollbar-color: #6d8499 #e8eef4;
@@ -10278,6 +10284,7 @@ body {
 
 .fund-sheet__col-action {
   width: 9%;
+  min-width: 120px;
 }
 
 .fund-sheet__col-no {
@@ -10492,9 +10499,15 @@ body {
   font-weight: 700;
 }
 
-.fund-sheet__subtotal td {
-  background: #fff;
-  font-weight: 600;
+.fund-sheet__frozen-wrap--totals {
+  padding-right: 14px;
+  border-bottom: 2px solid #1e3a5f;
+  background: #dfe8f1;
+}
+
+.fund-sheet__exec-total td {
+  background: #dfe8f1;
+  font-weight: 800;
 }
 
 .fund-sheet__overhead td {

@@ -172,6 +172,10 @@ export async function syncAndReadServerOrgState(
     }
   }
 
+  const serviceLocal = readServerOrgState(projectRoot, 'service');
+  if (serviceLocal) {
+    return { state: serviceLocal, source: 'local' };
+  }
   const local = readServerOrgState(projectRoot, role);
   return { state: local, source: role === 'dev' ? 'sandbox' : 'local' };
 }
