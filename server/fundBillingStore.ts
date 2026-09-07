@@ -92,23 +92,21 @@ export function readFundBillingLedger(
 
 export async function loadFundBillingLedger(
   root: string,
-  role: FundBillingRuntimeRole,
+  _role: FundBillingRuntimeRole,
 ): Promise<{ ledger: StoredFundBillingLedger | null; source: 'drive' | 'sandbox' | 'local' }> {
-  if (role === 'dev') {
-    return { ledger: readFundBillingLedger(root, 'dev'), source: 'sandbox' };
-  }
-
   try {
     await syncNexusDriveCache(root, { force: true, subfolderKey: 'fundBilling', minIntervalMs: 0 });
     const cached = driveCachedJsonPath(root);
     if (fs.existsSync(cached)) {
       ensureFundBillingStoreDir(root, 'service');
       fs.copyFileSync(cached, jsonPath(root, 'service'));
+      return { ledger: readFundBillingLedger(root, 'service'), source: 'drive' };
     }
-    return { ledger: readFundBillingLedger(root, 'service'), source: 'drive' };
   } catch {
-    return { ledger: readFundBillingLedger(root, 'service'), source: 'local' };
+    /* fall through to local service cache */
   }
+  const local = readFundBillingLedger(root, 'service');
+  return { ledger: local, source: local ? 'local' : 'drive' };
 }
 
 function lineCumulative(line: StoredSpendLine): number {
@@ -221,6 +219,7 @@ export async function writeFundBillingLedger(
   ledger: StoredFundBillingLedger,
   role: FundBillingRuntimeRole = 'service',
 ): Promise<{ updatedAt: string; driveSaved: boolean; driveError?: string; writable: boolean }> {
+  const writable = role === 'service';
   ensureFundBillingStoreDir(root, role);
   const stamped: StoredFundBillingLedger = {
     ...ledger,
@@ -231,23 +230,28 @@ export async function writeFundBillingLedger(
   const xlsx = await buildLedgerWorkbook(stamped);
   fs.writeFileSync(xlsxPath(root, role), xlsx);
 
-  const writable = role === 'service';
+  if (!writable) {
+    return {
+      updatedAt: stamped.updatedAt ?? new Date().toISOString(),
+      driveSaved: false,
+      writable: false,
+    };
+  }
+
   let driveSaved = false;
   let driveError: string | undefined;
-  if (writable) {
-    const config = getNexusDriveConfig(root);
-    if (config.enabled && isNexusDriveUploadConfigured(root)) {
-      try {
-        await uploadOrUpdateNexusDriveFile(root, JSON_FILE, Buffer.from(JSON.stringify(stamped, null, 2)), 'application/json', {
-          subfolderKey: 'fundBilling',
-        });
-        await uploadOrUpdateNexusDriveFile(root, XLSX_FILE, xlsx, XLSX_MIME, {
-          subfolderKey: 'fundBilling',
-        });
-        driveSaved = true;
-      } catch (error) {
-        driveError = error instanceof Error ? error.message : String(error);
-      }
+  const config = getNexusDriveConfig(root);
+  if (config.enabled && isNexusDriveUploadConfigured(root)) {
+    try {
+      await uploadOrUpdateNexusDriveFile(root, JSON_FILE, Buffer.from(JSON.stringify(stamped, null, 2)), 'application/json', {
+        subfolderKey: 'fundBilling',
+      });
+      await uploadOrUpdateNexusDriveFile(root, XLSX_FILE, xlsx, XLSX_MIME, {
+        subfolderKey: 'fundBilling',
+      });
+      driveSaved = true;
+    } catch (error) {
+      driveError = error instanceof Error ? error.message : String(error);
     }
   }
 
@@ -255,6 +259,6 @@ export async function writeFundBillingLedger(
     updatedAt: stamped.updatedAt ?? new Date().toISOString(),
     driveSaved,
     driveError,
-    writable,
+    writable: true,
   };
 }

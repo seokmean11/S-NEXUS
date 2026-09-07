@@ -24,6 +24,7 @@ import {
 } from '@/utils/fundBillingReport';
 import { formatMonthKeyToKorean } from '@/utils/formatInput';
 import { downloadCsv } from '@/utils/reportExport';
+import { loadLastFundBillingWriter } from '@/utils/fundBillingSessionDraft';
 
 const QUICK_FILTERS: { id: FundBillingQuickFilter; label: string }[] = [
   { id: 'all', label: '전체' },
@@ -290,6 +291,11 @@ export function FundBillingSummary({ variant = 'billing' }: { variant?: 'billing
                 onClick={(event) => {
                   event.preventDefault();
                   event.stopPropagation();
+                  const last = loadLastFundBillingWriter();
+                  if (last) {
+                    navigate(`/fund/billing/${last.id}?month=${last.monthKey}`);
+                    return;
+                  }
                   const created = createReport();
                   navigate(`/fund/billing/${created.id}?month=${created.monthKey}`);
                 }}

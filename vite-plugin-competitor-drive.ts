@@ -54,14 +54,23 @@ function parseSector(value: string | null) {
   return value;
 }
 
-function attachRoutes(server: { middlewares: { use: Function } }, root: string): void {
+function attachRoutes(
+  server: { middlewares: { use: Function } },
+  root: string,
+  role: 'dev' | 'service',
+): void {
+  const canWriteDrive = role === 'service';
   server.middlewares.use('/api/competitor/status', async (req, res) => {
     if (req.method !== 'GET') {
       sendJson(res, 405, { error: 'Method Not Allowed' });
       return;
     }
     try {
-      sendJson(res, 200, await getCompetitorDriveStatusLive(root));
+      const status = await getCompetitorDriveStatusLive(root);
+      sendJson(res, 200, {
+        ...status,
+        uploadConfigured: canWriteDrive && Boolean(status.uploadConfigured),
+      });
     } catch (error) {
       sendJson(res, 500, {
         error: error instanceof Error ? error.message : String(error),
@@ -150,6 +159,12 @@ function attachRoutes(server: { middlewares: { use: Function } }, root: string):
       }
 
       try {
+        if (!canWriteDrive) {
+          sendJson(res, 403, {
+            error: '개발웹에서는 공용 Google Drive에 업로드할 수 없습니다. 서비스웹에서 올리세요.',
+          });
+          return;
+        }
         const driveStatus = await getCompetitorDriveStatusLive(root);
         if (!driveStatus.configured) {
           sendJson(res, 503, {
@@ -255,7 +270,7 @@ function attachRoutes(server: { middlewares: { use: Function } }, root: string):
       const syncMeta = getCompetitorSyncMeta(root, year, sector);
       const structured = await loadCompetitorAnalysisData(root, year, sector, cacheDir, {
         rebuild: force,
-        uploadToDrive: driveStatus.uploadConfigured,
+        uploadToDrive: canWriteDrive && Boolean(driveStatus.uploadConfigured),
         folderId: syncMeta?.folderId,
       });
 
@@ -711,10 +726,10 @@ export function competitorDrivePlugin(): Plugin {
       projectRoot = config.root;
     },
     configureServer(server) {
-      attachRoutes(server, projectRoot);
+      attachRoutes(server, projectRoot, 'dev');
     },
     configurePreviewServer(server) {
-      attachRoutes(server, projectRoot);
+      attachRoutes(server, projectRoot, 'service');
     },
   };
 }

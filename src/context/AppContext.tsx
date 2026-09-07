@@ -489,7 +489,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [applyOrgStatePayload]);
 
   useEffect(() => {
-    if (!orgReady) return undefined;
+    if (!orgReady || !orgDriveWritable) return undefined;
 
     const syncIfRemoteUpdated = async () => {
       if (Date.now() - lastLocalOrgSaveAtRef.current < 3000) return;
@@ -518,7 +518,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return () => {
       window.clearInterval(timer);
     };
-  }, [applyOrgStatePayload, orgReady]);
+  }, [applyOrgStatePayload, orgReady, orgDriveWritable]);
 
   useEffect(() => {
     if (!orgReady) return;
@@ -550,8 +550,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
       return;
     }
 
-    if (!orgDriveWritable) return;
-
     void saveNexusOrgState(payload).then((meta) => {
       if (meta?.updatedAt) {
         remoteOrgUpdatedAtRef.current = meta.updatedAt;
@@ -565,7 +563,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
     personnelAuth,
     orgStorageMeta,
     orgReady,
-    orgDriveWritable,
   ]);
 
   useEffect(() => {

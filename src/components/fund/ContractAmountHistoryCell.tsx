@@ -20,6 +20,8 @@ interface ContractAmountHistoryCellProps {
   unlocked: boolean;
   contractAmount: number;
   history?: FundBillingContractRevision[];
+  cumulativeAmount?: number;
+  onExceed?: () => void;
   onCommit: (next: {
     contractAmount: number;
     contractAmountHistory: FundBillingContractRevision[];
@@ -30,6 +32,8 @@ export function ContractAmountHistoryCell({
   unlocked,
   contractAmount,
   history,
+  cumulativeAmount = 0,
+  onExceed,
   onCommit,
 }: ContractAmountHistoryCellProps) {
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -62,11 +66,19 @@ export function ContractAmountHistoryCell({
   };
 
   const saveNext = () => {
+    if (draftAmount < cumulativeAmount) {
+      onExceed?.();
+      return;
+    }
     onCommit(appendContractRevision(contractAmount, history, draftAmount));
     closeAll();
   };
 
   const saveEdited = (sequence: number) => {
+    if (editAmount < cumulativeAmount) {
+      onExceed?.();
+      return;
+    }
     onCommit(updateContractRevisionAmount(contractAmount, history, sequence, editAmount));
     setEditingSequence(null);
   };

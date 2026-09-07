@@ -7,6 +7,7 @@ import { GnbBrandMark } from '@/components/layout/GnbBrandMark';
 
 import { Button } from '@/components/ui/Button';
 
+import { FundBillingProvider } from '@/context/FundBillingContext';
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
 import {
@@ -59,7 +60,6 @@ function isMiscInfoSectionPath(pathname: string): boolean {
 
 
 export function AppLayout() {
-
   const { permissions, roleConfig, divisions, teams, role } = useApp();
   const { isDeveloper, menuPermissions, session, authPerson, logout, canAccessPath } = useAuth();
 
@@ -201,7 +201,7 @@ export function AppLayout() {
 
 
   return (
-
+    <FundBillingProvider>
     <div className="app-layout">
 
       <header className="gnb no-print">
@@ -485,7 +485,7 @@ export function AppLayout() {
       </div>
 
     </div>
-
+    </FundBillingProvider>
   );
 
 }

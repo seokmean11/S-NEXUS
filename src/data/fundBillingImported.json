@@ -949,10 +949,10 @@
         {
           "key": "directExpense",
           "label": "직접경비",
-          "contractAmount": 97920,
-          "priorPaid": 516000,
-          "monthClaim": 0,
-          "inspected": 97920,
+          "contractAmount": 0,
+          "priorPaid": 97920,
+          "monthClaim": 516000,
+          "inspected": 516000,
           "cumulative": 613920,
           "remain": -613920
         },

@@ -36,14 +36,24 @@ async function readJsonBody<T>(req: IncomingMessage): Promise<T> {
   return JSON.parse(raw) as T;
 }
 
-function attachRoutes(server: { middlewares: { use: Function } }, root: string): void {
+function attachRoutes(
+  server: { middlewares: { use: Function } },
+  root: string,
+  role: 'dev' | 'service',
+): void {
+  const canWriteDrive = role === 'service';
   server.middlewares.use('/api/nexus-data-folder/status', async (req, res) => {
     if (req.method !== 'GET') {
       sendJson(res, 405, { error: 'Method Not Allowed' });
       return;
     }
     try {
-      sendJson(res, 200, await getNexusDriveStatusLive(root));
+      const status = await getNexusDriveStatusLive(root);
+      sendJson(res, 200, {
+        ...status,
+        uploadConfigured: canWriteDrive && Boolean(status.uploadConfigured),
+        writable: canWriteDrive,
+      });
     } catch (error) {
       sendJson(res, 500, {
         error: error instanceof Error ? error.message : String(error),
@@ -78,9 +88,9 @@ function attachRoutes(server: { middlewares: { use: Function } }, root: string):
       const probe = await probeGoogleOAuthUploadAccess(root, { force: true });
       sendJson(res, 200, {
         ok: probe.ok,
-        uploadConfigured: probe.ok,
+        uploadConfigured: canWriteDrive && probe.ok,
         hasCredentials: probe.hasCredentials,
-        error: probe.error,
+        error: canWriteDrive ? probe.error : '개발웹에서는 공용 Drive에 업로드하지 않습니다.',
       });
     } catch (error) {
       sendJson(res, 500, { error: formatDriveUploadError(error) });
@@ -136,6 +146,12 @@ function attachRoutes(server: { middlewares: { use: Function } }, root: string):
       sendJson(res, 405, { error: 'Method Not Allowed' });
       return;
     }
+    if (!canWriteDrive) {
+      sendJson(res, 403, {
+        error: '개발웹에서는 공용 Google Drive에 업로드할 수 없습니다. 서비스웹에서 올리세요.',
+      });
+      return;
+    }
 
     const form = formidable({ multiples: false, maxFileSize: 120 * 1024 * 1024 });
     form.parse(req, async (err, fields, files) => {
@@ -185,10 +201,10 @@ export function nexusDataFolderPlugin(): Plugin {
       projectRoot = config.root;
     },
     configureServer(server) {
-      attachRoutes(server, projectRoot);
+      attachRoutes(server, projectRoot, 'dev');
     },
     configurePreviewServer(server) {
-      attachRoutes(server, projectRoot);
+      attachRoutes(server, projectRoot, 'service');
     },
   };
 }
