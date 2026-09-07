@@ -139,7 +139,7 @@ export const GOOGLE_DRIVE_SETUP_STEPS = [
   'Google Drive에 NEXUS / 외주정보데이터 폴더 생성 → NEXUS를 서비스 계정에 편집자 공유',
   'NEXUS 폴더 ID → .env GOOGLE_DRIVE_NEXUS_FOLDER_ID',
   'OAuth 클라이언트 ID(데스크톱) 생성 → .env GOOGLE_OAUTH_CLIENT_ID / SECRET',
-  '데이터폴더에서 「Drive OAuth 재연결」(또는 npm run google-drive-oauth) → Drive 소유자 계정으로 1회 허용',
+  '경쟁사 분석 Drive 연결에서 「Drive OAuth 재연결」(또는 npm run google-drive-oauth) → Drive 소유자 계정으로 1회 허용',
   '팀 사용 시 Google Cloud Console OAuth 동의 화면을 게시(프로덕션)로 전환 (테스트 모드는 약 7일 만료)',
 ];
 

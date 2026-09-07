@@ -1,6 +1,10 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { Plugin } from 'vite';
-import { readFundBillingLedger, writeFundBillingLedger } from './server/fundBillingStore';
+import {
+  loadFundBillingLedger,
+  writeFundBillingLedger,
+  type FundBillingRuntimeRole,
+} from './server/fundBillingStore';
 
 function sendJson(res: ServerResponse, status: number, payload: unknown): void {
   res.statusCode = status;
@@ -17,11 +21,22 @@ async function readJsonBody<T>(req: IncomingMessage): Promise<T> {
   return JSON.parse(raw) as T;
 }
 
-function attachRoutes(server: { middlewares: { use: Function } }, root: string): void {
+function attachRoutes(
+  server: { middlewares: { use: Function } },
+  root: string,
+  role: FundBillingRuntimeRole,
+): void {
+  const writable = role === 'service';
   server.middlewares.use('/api/fund-billing/ledger', async (req, res) => {
     if (req.method === 'GET') {
       try {
-        sendJson(res, 200, { ok: true, ledger: readFundBillingLedger(root) });
+        const loaded = await loadFundBillingLedger(root, role);
+        sendJson(res, 200, {
+          ok: true,
+          ledger: loaded.ledger,
+          writable,
+          source: loaded.source,
+        });
       } catch (error) {
         sendJson(res, 500, { error: error instanceof Error ? error.message : String(error) });
       }
@@ -35,7 +50,7 @@ function attachRoutes(server: { middlewares: { use: Function } }, root: string):
           sendJson(res, 400, { error: 'Invalid fund billing ledger' });
           return;
         }
-        const result = await writeFundBillingLedger(root, body.ledger as never);
+        const result = await writeFundBillingLedger(root, body.ledger as never, role);
         sendJson(res, 200, { ok: true, ...result });
       } catch (error) {
         sendJson(res, 500, { error: error instanceof Error ? error.message : String(error) });
@@ -55,10 +70,10 @@ export function fundBillingPlugin(): Plugin {
       projectRoot = config.root;
     },
     configureServer(server) {
-      attachRoutes(server, projectRoot);
+      attachRoutes(server, projectRoot, 'dev');
     },
     configurePreviewServer(server) {
-      attachRoutes(server, projectRoot);
+      attachRoutes(server, projectRoot, 'service');
     },
   };
 }

@@ -3,7 +3,7 @@ import { FundBillingSummary } from '@/components/fund/FundBillingSummary';
 import { useFundBilling } from '@/context/FundBillingContext';
 
 export function FundCashAnalysisPage() {
-  const { ready } = useFundBilling();
+  const { ready, driveWritable } = useFundBilling();
 
   return (
     <ErrorBoundary fallbackTitle="자금수지 화면 오류">
@@ -12,6 +12,11 @@ export function FundCashAnalysisPage() {
           <div>
             <h2>자금수지</h2>
             <p>연월은 필수입니다. 선택한 달의 월별 기성보고서만 자금수지 검색결과와 집계현황에 나타납니다.</p>
+            {driveWritable ? null : (
+              <p className="fund-billing-sandbox-note">
+                개발웹입니다. 공용 드라이브 원본은 수정되지 않습니다.
+              </p>
+            )}
           </div>
         </div>
 

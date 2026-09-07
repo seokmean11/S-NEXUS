@@ -59,7 +59,7 @@ export function OutsourcingDriveUploadCard({
 
       {uploadConfigured === false && (
         <p className="outsourcing-drive-upload-card__warn" role="alert">
-          Drive 업로드가 아직 연결되지 않았습니다. 데이터폴더에서 OAuth를 연결한 뒤 다시 시도하세요.
+          Drive 업로드가 아직 연결되지 않았습니다. 경쟁사 분석의 Drive 연결에서 OAuth를 재연결한 뒤 다시 시도하세요.
         </p>
       )}
 

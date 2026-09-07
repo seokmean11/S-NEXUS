@@ -21,6 +21,10 @@ import {
   formatCompetitorDocumentType,
   type CompetitorDriveStatus,
 } from '@/services/competitorDriveApi';
+import {
+  fetchGoogleDriveOAuthStatus,
+  startGoogleDriveOAuthReconnect,
+} from '@/services/nexusDataFolderApi';
 import type {
   CompetitorAnalysisSummary,
   CompetitorDriveSyncMeta,
@@ -236,6 +240,7 @@ export function CompetitorAnalysisDashboard() {
   const [dragOver, setDragOver] = useState(false);
   const [uploadNotice, setUploadNotice] = useState<string | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const [oauthConnecting, setOauthConnecting] = useState(false);
   const [analysisError, setAnalysisError] = useState<string | null>(null);
   const [uploadResults, setUploadResults] = useState<UploadResultItem[]>([]);
   const [uploadComplete, setUploadComplete] = useState(false);
@@ -360,6 +365,32 @@ export function CompetitorAnalysisDashboard() {
       .then(setDriveStatus)
       .catch(() => setDriveStatus(null));
   }, []);
+
+  const handleOAuthReconnect = async () => {
+    setOauthConnecting(true);
+    setUploadError(null);
+    setUploadNotice('브라우저에서 Drive 소유자 Google 계정으로 허용하세요. 완료되면 자동으로 반영됩니다…');
+    try {
+      const started = await startGoogleDriveOAuthReconnect();
+      window.open(started.authUrl, '_blank', 'noopener,noreferrer');
+      const startedAt = Date.now();
+      while (Date.now() - startedAt < 180_000) {
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+        const oauthStatus = await fetchGoogleDriveOAuthStatus();
+        if (oauthStatus.ok) {
+          setUploadNotice('Drive OAuth 재연결 완료. 로그인한 팀원 누구나 같은 Drive에 업로드할 수 있습니다.');
+          const nextStatus = await fetchCompetitorDriveStatus().catch(() => null);
+          setDriveStatus(nextStatus);
+          return;
+        }
+      }
+      setUploadError('OAuth 대기 시간이 초과되었습니다. 허용 후 다시 시도해 주세요.');
+    } catch (oauthError) {
+      setUploadError(oauthError instanceof Error ? oauthError.message : 'OAuth 재연결에 실패했습니다.');
+    } finally {
+      setOauthConnecting(false);
+    }
+  };
 
   const handleExecutiveSummaryEnriched = useCallback(
     (enriched: CompetitorExecutiveMultiYearSummary) => {
@@ -727,9 +758,18 @@ export function CompetitorAnalysisDashboard() {
                     '업로드·동기화를 사용하려면 Google Drive NEXUS 연동과 OAuth 업로드 설정이 필요합니다.'}
                 </p>
                 <p>
-                  관리자가 <a href="/data-folder">데이터 폴더</a>에서 「Drive OAuth 재연결」을 한 번
-                  완료하면, 로그인한 팀원 누구나 같은 Drive에 업로드할 수 있습니다.
+                  관리자가 아래 「Drive OAuth 재연결」을 한 번 완료하면, 로그인한 팀원 누구나 같은 Drive에
+                  업로드할 수 있습니다.
                 </p>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={oauthConnecting || !driveStatus.configured}
+                  onClick={() => void handleOAuthReconnect()}
+                >
+                  {oauthConnecting ? 'OAuth 연결 중…' : 'Drive OAuth 재연결'}
+                </Button>
               </div>
             )}
           </Card>

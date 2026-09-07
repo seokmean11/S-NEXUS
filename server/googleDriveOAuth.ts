@@ -143,7 +143,7 @@ export function formatGoogleOAuthError(error: unknown): string {
   ) {
     return (
       'Google Drive 공용 업로드 토큰이 만료되었거나 철회되었습니다. ' +
-      '관리자가 데이터폴더에서 「Drive OAuth 재연결」을 실행하거나 npm run google-drive-oauth로 재발급하세요. ' +
+      '관리자가 경쟁사 분석 Drive 연결에서 「Drive OAuth 재연결」을 실행하거나 npm run google-drive-oauth로 재발급하세요. ' +
       '(테스트 모드 OAuth 앱은 약 7일 후 만료되므로, 팀 사용 시 Google Cloud Console에서 게시(프로덕션)로 전환하세요.)'
     );
   }

@@ -243,6 +243,7 @@ interface AppContextValue {
   roleConfig: RoleConfig;
   permissions: ReturnType<typeof getPermissions>;
   orgReady: boolean;
+  orgDriveWritable: boolean;
   personnelAuth: PersonnelAuthMap;
   authPerson: PersonnelRow | null;
   setAuthPerson: (person: PersonnelRow | null) => void;
@@ -359,7 +360,6 @@ interface AppContextValue {
     },
     generalUpdates?: Partial<Project>,
   ) => void;
-  syncPPM: () => Promise<void>;
   saveAllocation: (
     projectId: string,
     track: 'bid' | 'design' | 'production',
@@ -393,6 +393,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     initialOrg.personnelAuth ?? {},
   );
   const [orgReady] = useState(true);
+  const [orgDriveWritable, setOrgDriveWritable] = useState(false);
   const [executiveOffice, setExecutiveOffice] = useState<ExecutiveOffice>(
     initialOrg.executiveOffice,
   );
@@ -471,6 +472,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         const { state: serverState, meta } = await fetchNexusOrgState();
         if (cancelled) return;
 
+        skipRemoteOrgSaveRef.current = true;
+        setOrgDriveWritable(meta?.writable === true);
         if (serverState) {
           applyOrgStatePayload(serverState);
           remoteOrgUpdatedAtRef.current = meta?.updatedAt ?? null;
@@ -492,6 +495,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (Date.now() - lastLocalOrgSaveAtRef.current < 3000) return;
 
       const { state: serverState, meta: nextMeta } = await fetchNexusOrgState();
+      if (nextMeta?.writable !== undefined) {
+        setOrgDriveWritable(nextMeta.writable === true);
+      }
       if (!serverState) return;
 
       const stored = loadOrgState();
@@ -544,6 +550,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       return;
     }
 
+    if (!orgDriveWritable) return;
+
     void saveNexusOrgState(payload).then((meta) => {
       if (meta?.updatedAt) {
         remoteOrgUpdatedAtRef.current = meta.updatedAt;
@@ -557,6 +565,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     personnelAuth,
     orgStorageMeta,
     orgReady,
+    orgDriveWritable,
   ]);
 
   useEffect(() => {
@@ -1592,16 +1601,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [contractAmendments, applyProjectUpdate, recordHistory],
   );
 
-  const syncPPM = useCallback(async () => {
-    await new Promise((resolve) => setTimeout(resolve, 800));
-    recordHistory({
-      category: 'project',
-      action: 'saved',
-      entityType: 'ppm_sync',
-      summary: 'PPM(DB) 동기화 실행',
-    });
-  }, [recordHistory]);
-
   const saveAllocation = useCallback(
     (
       projectId: string,
@@ -1740,6 +1739,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     roleConfig,
     permissions,
     orgReady,
+    orgDriveWritable,
     personnelAuth,
     authPerson,
     setAuthPerson,
@@ -1776,7 +1776,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
     deleteContractAmendment,
     saveContractAmendment,
     saveInitialContract,
-    syncPPM,
     saveAllocation,
     saveProjectTeamAllocation,
     setRiskScenario,

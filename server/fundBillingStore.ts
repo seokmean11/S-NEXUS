@@ -4,6 +4,8 @@ import ExcelJS from 'exceljs';
 import {
   getNexusDriveConfig,
   isNexusDriveUploadConfigured,
+  NEXUS_DRIVE_SUBFOLDERS,
+  syncNexusDriveCache,
   uploadOrUpdateNexusDriveFile,
 } from './nexusGoogleDrive';
 
@@ -46,34 +48,66 @@ export interface StoredFundBillingLedger {
   updatedAt?: string;
 }
 
-const STORE_DIR = '.data/fund-billing';
+export type FundBillingRuntimeRole = 'dev' | 'service';
+
+const PROD_STORE_DIR = '.data/fund-billing';
+const DEV_STORE_DIR = '.data/fund-billing-dev';
 const JSON_FILE = '월별기성원장.json';
 const XLSX_FILE = '월별기성원장.xlsx';
 const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 
-function storeDir(root: string): string {
-  return path.join(root, STORE_DIR);
+function storeDir(root: string, role: FundBillingRuntimeRole): string {
+  return path.join(root, role === 'dev' ? DEV_STORE_DIR : PROD_STORE_DIR);
 }
 
-function jsonPath(root: string): string {
-  return path.join(storeDir(root), JSON_FILE);
+function jsonPath(root: string, role: FundBillingRuntimeRole): string {
+  return path.join(storeDir(root, role), JSON_FILE);
 }
 
-function xlsxPath(root: string): string {
-  return path.join(storeDir(root), XLSX_FILE);
+function xlsxPath(root: string, role: FundBillingRuntimeRole): string {
+  return path.join(storeDir(root, role), XLSX_FILE);
 }
 
-export function ensureFundBillingStoreDir(root: string): void {
-  fs.mkdirSync(storeDir(root), { recursive: true });
+function driveCachedJsonPath(root: string): string {
+  const config = getNexusDriveConfig(root);
+  return path.join(config.cacheDir, NEXUS_DRIVE_SUBFOLDERS.fundBilling, JSON_FILE);
 }
 
-export function readFundBillingLedger(root: string): StoredFundBillingLedger | null {
-  const file = jsonPath(root);
+export function ensureFundBillingStoreDir(root: string, role: FundBillingRuntimeRole = 'service'): void {
+  fs.mkdirSync(storeDir(root, role), { recursive: true });
+}
+
+export function readFundBillingLedger(
+  root: string,
+  role: FundBillingRuntimeRole = 'service',
+): StoredFundBillingLedger | null {
+  const file = jsonPath(root, role);
   if (!fs.existsSync(file)) return null;
   try {
     return JSON.parse(fs.readFileSync(file, 'utf8')) as StoredFundBillingLedger;
   } catch {
     return null;
+  }
+}
+
+export async function loadFundBillingLedger(
+  root: string,
+  role: FundBillingRuntimeRole,
+): Promise<{ ledger: StoredFundBillingLedger | null; source: 'drive' | 'sandbox' | 'local' }> {
+  if (role === 'dev') {
+    return { ledger: readFundBillingLedger(root, 'dev'), source: 'sandbox' };
+  }
+
+  try {
+    await syncNexusDriveCache(root, { force: true, subfolderKey: 'fundBilling', minIntervalMs: 0 });
+    const cached = driveCachedJsonPath(root);
+    if (fs.existsSync(cached)) {
+      ensureFundBillingStoreDir(root, 'service');
+      fs.copyFileSync(cached, jsonPath(root, 'service'));
+    }
+    return { ledger: readFundBillingLedger(root, 'service'), source: 'drive' };
+  } catch {
+    return { ledger: readFundBillingLedger(root, 'service'), source: 'local' };
   }
 }
 
@@ -185,33 +219,42 @@ async function buildLedgerWorkbook(ledger: StoredFundBillingLedger): Promise<Buf
 export async function writeFundBillingLedger(
   root: string,
   ledger: StoredFundBillingLedger,
-): Promise<{ updatedAt: string; driveSaved: boolean; driveError?: string }> {
-  ensureFundBillingStoreDir(root);
+  role: FundBillingRuntimeRole = 'service',
+): Promise<{ updatedAt: string; driveSaved: boolean; driveError?: string; writable: boolean }> {
+  ensureFundBillingStoreDir(root, role);
   const stamped: StoredFundBillingLedger = {
     ...ledger,
     reports: Array.isArray(ledger.reports) ? ledger.reports : [],
     updatedAt: new Date().toISOString(),
   };
-  fs.writeFileSync(jsonPath(root), JSON.stringify(stamped, null, 2), 'utf8');
+  fs.writeFileSync(jsonPath(root, role), JSON.stringify(stamped, null, 2), 'utf8');
   const xlsx = await buildLedgerWorkbook(stamped);
-  fs.writeFileSync(xlsxPath(root), xlsx);
+  fs.writeFileSync(xlsxPath(root, role), xlsx);
 
+  const writable = role === 'service';
   let driveSaved = false;
   let driveError: string | undefined;
-  const config = getNexusDriveConfig(root);
-  if (config.enabled && isNexusDriveUploadConfigured(root)) {
-    try {
-      await uploadOrUpdateNexusDriveFile(root, JSON_FILE, Buffer.from(JSON.stringify(stamped, null, 2)), 'application/json', {
-        subfolderKey: 'fundBilling',
-      });
-      await uploadOrUpdateNexusDriveFile(root, XLSX_FILE, xlsx, XLSX_MIME, {
-        subfolderKey: 'fundBilling',
-      });
-      driveSaved = true;
-    } catch (error) {
-      driveError = error instanceof Error ? error.message : String(error);
+  if (writable) {
+    const config = getNexusDriveConfig(root);
+    if (config.enabled && isNexusDriveUploadConfigured(root)) {
+      try {
+        await uploadOrUpdateNexusDriveFile(root, JSON_FILE, Buffer.from(JSON.stringify(stamped, null, 2)), 'application/json', {
+          subfolderKey: 'fundBilling',
+        });
+        await uploadOrUpdateNexusDriveFile(root, XLSX_FILE, xlsx, XLSX_MIME, {
+          subfolderKey: 'fundBilling',
+        });
+        driveSaved = true;
+      } catch (error) {
+        driveError = error instanceof Error ? error.message : String(error);
+      }
     }
   }
 
-  return { updatedAt: stamped.updatedAt ?? new Date().toISOString(), driveSaved, driveError };
+  return {
+    updatedAt: stamped.updatedAt ?? new Date().toISOString(),
+    driveSaved,
+    driveError,
+    writable,
+  };
 }

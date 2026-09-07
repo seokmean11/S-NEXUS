@@ -16,9 +16,7 @@ import { FundBillingPage } from '@/pages/FundBillingPage';
 import { FundBillingDetailPage } from '@/pages/FundBillingDetailPage';
 import { FundCashAnalysisPage } from '@/pages/FundCashAnalysisPage';
 import { MiscInfoLayout } from '@/pages/MiscInfoLayout';
-import { ExhibitionBusinessCostPage } from '@/pages/ExhibitionBusinessCostPage';
 import { CompetitorAnalysisPage } from '@/pages/CompetitorAnalysisPage';
-import { DataFolderPage } from '@/pages/DataFolderPage';
 import { LoginPage } from '@/pages/LoginPage';
 
 export function AppRoutes() {
@@ -35,14 +33,7 @@ export function AppRoutes() {
             </ErrorBoundary>
           }
         />
-        <Route
-          path="data-folder"
-          element={
-            <ErrorBoundary fallbackTitle="데이터폴더 화면 오류">
-              <DataFolderPage />
-            </ErrorBoundary>
-          }
-        />
+        <Route path="data-folder" element={<Navigate to="/" replace />} />
         <Route path="admin" element={<Navigate to="/project/register" replace />} />
         <Route path="org" element={<OrgChartPage />} />
         <Route path="personnel" element={<Navigate to="/org" replace />} />
@@ -108,8 +99,8 @@ export function AppRoutes() {
             </ErrorBoundary>
           }
         >
-          <Route index element={<Navigate to="exhibition-business-cost" replace />} />
-          <Route path="exhibition-business-cost" element={<ExhibitionBusinessCostPage />} />
+          <Route index element={<Navigate to="competitor-analysis" replace />} />
+          <Route path="exhibition-business-cost" element={<Navigate to="/misc-info/competitor-analysis" replace />} />
           <Route path="competitor-analysis" element={<CompetitorAnalysisPage />} />
         </Route>
         <Route path="reports" element={<Navigate to="/" replace />} />

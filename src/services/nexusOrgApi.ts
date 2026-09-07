@@ -3,10 +3,12 @@ import type { StoredOrgState } from '@/utils/orgStorage';
 export interface NexusOrgMeta {
   exists: boolean;
   updatedAt?: string;
-  dataSource?: 'local' | 'drive-cache';
+  dataSource?: 'local' | 'drive-cache' | 'sandbox';
   driveConfigured?: boolean;
   driveUploadConfigured?: boolean;
   lastDriveSyncAt?: string;
+  writable?: boolean;
+  source?: 'drive' | 'sandbox' | 'local';
 }
 
 const ORG_AUTO_REFRESH_INTERVAL_MS = 15_000;

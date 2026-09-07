@@ -313,27 +313,6 @@ export async function listNexusDriveFiles(
     }));
 }
 
-function shouldKeepNewerLocalOrgState(
-  subfolderKey: NexusDriveSubfolderKey,
-  fileName: string,
-  targetPath: string,
-  driveModifiedTime: string,
-): boolean {
-  if (subfolderKey !== 'organization' || fileName !== 'state.json') return false;
-  if (!fs.existsSync(targetPath)) return false;
-  try {
-    const parsed = JSON.parse(fs.readFileSync(targetPath, 'utf8')) as { savedAt?: string };
-    if (!parsed.savedAt) return false;
-    const localAt = Date.parse(parsed.savedAt);
-    const driveAt = Date.parse(driveModifiedTime);
-    if (!Number.isFinite(localAt)) return false;
-    if (!Number.isFinite(driveAt)) return true;
-    return localAt >= driveAt;
-  } catch {
-    return false;
-  }
-}
-
 async function downloadDriveFile(
   drive: drive_v3.Drive,
   file: NexusDriveFileInfo,
@@ -397,10 +376,6 @@ export async function syncNexusDriveCache(
   const syncedFiles: NexusDriveSyncMeta['files'] = [];
   for (const file of files) {
     const targetPath = path.join(cacheDir, file.name);
-    if (shouldKeepNewerLocalOrgState(subfolderKey, file.name, targetPath, file.modifiedTime)) {
-      syncedFiles.push({ name: file.name, modifiedTime: file.modifiedTime });
-      continue;
-    }
     await downloadDriveFile(drive, file, targetPath);
     syncedFiles.push({ name: file.name, modifiedTime: file.modifiedTime });
   }

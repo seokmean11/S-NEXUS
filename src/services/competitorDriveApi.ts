@@ -402,7 +402,7 @@ export function getCompetitorUploadBlockReason(status: CompetitorDriveStatus | n
   if (!status.uploadConfigured) {
     return (
       status.uploadError ??
-      'Google Drive OAuth 업로드 설정이 필요합니다. 데이터폴더에서 Drive OAuth 재연결을 실행하세요.'
+      'Google Drive OAuth 업로드 설정이 필요합니다. 경쟁사 분석 Drive 연결에서 OAuth 재연결을 실행하세요.'
     );
   }
   return null;

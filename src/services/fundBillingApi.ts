@@ -1,11 +1,25 @@
 import type { FundBillingLedgerState } from '@/types/fundBillingReport';
 
-export async function fetchFundBillingLedger(): Promise<FundBillingLedgerState | null> {
+export interface FundBillingLedgerResponse {
+  ledger: FundBillingLedgerState | null;
+  writable: boolean;
+  source?: 'drive' | 'sandbox' | 'local';
+}
+
+export async function fetchFundBillingLedger(): Promise<FundBillingLedgerResponse | null> {
   try {
     const response = await fetch('/api/fund-billing/ledger');
     if (!response.ok) return null;
-    const payload = (await response.json()) as { ledger?: FundBillingLedgerState | null };
-    return payload.ledger ?? null;
+    const payload = (await response.json()) as {
+      ledger?: FundBillingLedgerState | null;
+      writable?: boolean;
+      source?: FundBillingLedgerResponse['source'];
+    };
+    return {
+      ledger: payload.ledger ?? null,
+      writable: payload.writable === true,
+      source: payload.source,
+    };
   } catch {
     return null;
   }

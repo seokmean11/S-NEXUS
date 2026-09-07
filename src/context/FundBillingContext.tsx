@@ -23,6 +23,7 @@ import {
 
 interface FundBillingContextValue {
   ready: boolean;
+  driveWritable: boolean;
   reports: FundBillingReport[];
   summaryRows: FundBillingProjectRow[];
   getReport: (projectId: string, monthKey?: string) => FundBillingReport | undefined;
@@ -36,6 +37,7 @@ const FundBillingContext = createContext<FundBillingContextValue | null>(null);
 export function FundBillingProvider({ children }: { children: ReactNode }) {
   const [reports, setReports] = useState<FundBillingReport[]>([]);
   const [ready, setReady] = useState(false);
+  const [driveWritable, setDriveWritable] = useState(false);
   const persistTimer = useRef<number>();
   const pendingReportRef = useRef<FundBillingReport | null>(null);
 
@@ -51,16 +53,23 @@ export function FundBillingProvider({ children }: { children: ReactNode }) {
     (async () => {
       const remote = await fetchFundBillingLedger();
       if (cancelled) return;
-      if (remote?.reports?.length) {
-        const cleaned = sanitizeFundBillingReports(remote.reports);
+      const writable = Boolean(remote?.writable);
+      setDriveWritable(writable);
+      if (remote?.ledger?.reports?.length) {
+        const cleaned = sanitizeFundBillingReports(remote.ledger.reports);
         setReports(cleaned);
-        if (cleaned.length !== remote.reports.length || cleaned.some((item, index) => item !== remote.reports[index])) {
+        if (
+          cleaned.length !== remote.ledger.reports.length ||
+          cleaned.some((item, index) => item !== remote.ledger!.reports[index])
+        ) {
           void saveFundBillingLedger({ reports: cleaned, updatedAt: new Date().toISOString() });
         }
-      } else {
+      } else if (!writable) {
         const seeded = seedFundBillingReportsFromImported();
         setReports(seeded);
         void saveFundBillingLedger({ reports: seeded, updatedAt: new Date().toISOString() });
+      } else {
+        setReports([]);
       }
       setReady(true);
     })();
@@ -125,6 +134,7 @@ export function FundBillingProvider({ children }: { children: ReactNode }) {
   const value = useMemo(
     () => ({
       ready,
+      driveWritable,
       reports,
       summaryRows,
       getReport,
@@ -132,7 +142,7 @@ export function FundBillingProvider({ children }: { children: ReactNode }) {
       createReport,
       ensureMonthReport,
     }),
-    [ready, reports, summaryRows, getReport, commitReport, createReport, ensureMonthReport],
+    [ready, driveWritable, reports, summaryRows, getReport, commitReport, createReport, ensureMonthReport],
   );
 
   return <FundBillingContext.Provider value={value}>{children}</FundBillingContext.Provider>;

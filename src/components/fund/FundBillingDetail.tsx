@@ -82,7 +82,7 @@ interface FundBillingDetailProps {
 export function FundBillingDetail({ report, onCommit, onCreateNew }: FundBillingDetailProps) {
   const navigate = useNavigate();
   const location = useLocation();
-  const { reports } = useFundBilling();
+  const { reports, driveWritable } = useFundBilling();
   const { employees, executiveOffice, divisions, teams } = useApp();
   const personnel = useMemo(
     () => buildPersonnelRows(executiveOffice.admins, employees, divisions, teams),
@@ -561,6 +561,11 @@ export function FundBillingDetail({ report, onCommit, onCreateNew }: FundBilling
           </p>
           <h2>월별 기성보고서 작성</h2>
           <p>담당자가 프로젝트별 월 기성을 입력하는 화면입니다. 프로젝트 등록 메뉴가 열리면 검색 선택과 직접 입력을 함께 사용합니다.</p>
+          {driveWritable ? null : (
+            <p className="fund-billing-sandbox-note">
+              개발웹입니다. 저장해도 공용 드라이브 원본은 바뀌지 않습니다.
+            </p>
+          )}
         </div>
         <div className="fund-billing-detail__toolbar">
           <div

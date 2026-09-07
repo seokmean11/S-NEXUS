@@ -175,7 +175,7 @@ export function buildExhibitionLocalResponse(
 
   return {
     text: [
-      '**유형별사업비(전시)** 메뉴 데이터 기준 집계입니다.',
+      '전시사업비 샘플 집계입니다.',
       summary,
     ].join('\n'),
     table,

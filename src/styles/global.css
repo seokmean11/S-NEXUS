@@ -9796,6 +9796,14 @@ body {
   color: #fff;
 }
 
+.fund-billing-sandbox-note {
+  margin: 8px 0 0;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.45;
+  color: #d32f2f;
+}
+
 .fund-billing-info-hint {
   margin: 8px 0 0;
   padding-top: 8px;

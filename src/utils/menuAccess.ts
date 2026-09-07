@@ -4,7 +4,6 @@ import { isMenuPermissionEnabled } from '@/utils/menuPermissions';
 
 /** 조직관리에서 부여하지 않은 메뉴 — 일반 사용자 기본 차단 */
 export function isRestrictedPathForRegularUser(pathname: string): boolean {
-  if (pathname.startsWith('/data-folder')) return true;
   if (pathname.startsWith('/fund')) return true;
   if (pathname.startsWith('/misc-info/competitor-analysis')) return false;
   if (pathname.startsWith('/misc-info')) return true;
@@ -140,10 +139,6 @@ export function shouldShowFundNav(isDeveloper: boolean): boolean {
 }
 
 export function shouldShowMiscInfoNav(isDeveloper: boolean): boolean {
-  return isDeveloper;
-}
-
-export function shouldShowDataFolderNav(isDeveloper: boolean): boolean {
   return isDeveloper;
 }
 
