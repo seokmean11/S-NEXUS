@@ -9,9 +9,10 @@ interface FundBillingProjectSearchProps {
   projects: Project[];
   value: string;
   selectedProjectId?: string;
-  onChange: (value: string) => void;
+  onChange?: (value: string) => void;
   onSelect: (project: Project) => void;
   hideLabel?: boolean;
+  startOpen?: boolean;
 }
 
 export function FundBillingProjectSearch({
@@ -21,35 +22,53 @@ export function FundBillingProjectSearch({
   onChange,
   onSelect,
   hideLabel,
+  startOpen = false,
 }: FundBillingProjectSearchProps) {
-  const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [dropdownOpen, setDropdownOpen] = useState(startOpen);
+  const [draft, setDraft] = useState(value);
   const rootRef = useRef<HTMLDivElement>(null);
   const { inputValue, onInputChange, onCompositionStart, onCompositionEnd } = useImeSafeInputValue(
-    value,
-    onChange,
+    draft,
+    setDraft,
   );
   const filteredProjects = useMemo(() => filterProjects(projects, inputValue), [projects, inputValue]);
 
   useEffect(() => {
+    setDraft(value);
+  }, [value]);
+
+  const closeDropdown = () => {
+    setDropdownOpen(false);
+    setDraft(value);
+  };
+
+  useEffect(() => {
     const handlePointerDown = (event: MouseEvent) => {
       if (!rootRef.current?.contains(event.target as Node)) {
-        setDropdownOpen(false);
+        closeDropdown();
       }
     };
     document.addEventListener('mousedown', handlePointerDown);
     return () => document.removeEventListener('mousedown', handlePointerDown);
-  }, []);
+  }, [value]);
 
   const handleSelect = (project: Project) => {
     onSelect(project);
-    onChange(project.name);
+    onChange?.(project.name);
+    setDraft(project.name);
     setDropdownOpen(false);
+  };
+
+  const selectFromPointer = (event: React.MouseEvent, project: Project) => {
+    event.preventDefault();
+    event.stopPropagation();
+    handleSelect(project);
   };
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
     if (isKeyboardComposing(event)) return;
     if (event.key === 'Escape') {
-      setDropdownOpen(false);
+      closeDropdown();
       return;
     }
     if (event.key === 'Enter' && filteredProjects.length > 0) {
@@ -71,7 +90,7 @@ export function FundBillingProjectSearch({
           type="text"
           className="form-field__input project-name-search__input"
           value={inputValue}
-          placeholder="프로젝트명·코드 검색 후 선택"
+          placeholder="월별 기성보고서 검색 후 선택"
           onChange={(event) => {
             onInputChange(event.target.value);
             setDropdownOpen(true);
@@ -87,7 +106,10 @@ export function FundBillingProjectSearch({
           variant="outline"
           size="sm"
           className="project-name-search__toggle"
-          onClick={() => setDropdownOpen((open) => !open)}
+          onClick={() => {
+            if (dropdownOpen) closeDropdown();
+            else setDropdownOpen(true);
+          }}
           aria-expanded={dropdownOpen}
         >
           {dropdownOpen ? '닫기' : '목록'}
@@ -96,21 +118,132 @@ export function FundBillingProjectSearch({
       {dropdownOpen && (
         <ul className="project-name-search__dropdown" role="listbox" aria-label="프로젝트 목록">
           {filteredProjects.length === 0 ? (
-            <li className="project-name-search__empty">계약 목록에 없습니다. 등록된 프로젝트면 검색어를 바꿔 보세요.</li>
+            <li className="project-name-search__empty">월별 기성보고서에 없습니다. 검색어를 바꿔 보세요.</li>
           ) : (
             filteredProjects.map((project) => (
-              <li key={project.id} role="option" aria-selected={selectedProjectId === project.id}>
+              <li
+                key={`${project.id}:${project.projectCode ?? ''}:${project.name}`}
+                role="option"
+                aria-selected={selectedProjectId === project.id}
+              >
                 <button
                   type="button"
                   className={`project-name-search__option ${
                     selectedProjectId === project.id ? 'project-name-search__option--active' : ''
                   }`}
-                  onClick={() => handleSelect(project)}
+                  onMouseDown={(event) => selectFromPointer(event, project)}
                 >
                   <span className="project-name-search__option-name">{project.name}</span>
                   {project.projectCode && (
                     <span className="project-name-search__option-meta">{project.projectCode}</span>
                   )}
+                </button>
+              </li>
+            ))
+          )}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+interface FundBillingSummaryProjectFilterProps {
+  projects: Array<{ id: string; name: string; projectCode?: string }>;
+  value: string;
+  onChange: (value: string) => void;
+  onSelectProject?: (project: { id: string; name: string }) => void;
+}
+
+export function FundBillingSummaryProjectFilter({
+  projects,
+  value,
+  onChange,
+  onSelectProject,
+}: FundBillingSummaryProjectFilterProps) {
+  const [dropdownOpen, setDropdownOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const { inputValue, onInputChange, onCompositionStart, onCompositionEnd } = useImeSafeInputValue(
+    value,
+    onChange,
+  );
+
+  const filteredProjects = useMemo(() => {
+    const keyword = inputValue.trim().toLowerCase();
+    const sorted = [...projects].sort((a, b) => a.name.localeCompare(b.name, 'ko'));
+    if (!keyword) return sorted;
+    return sorted.filter((project) => {
+      const haystack = `${project.name} ${project.projectCode ?? ''}`.toLowerCase();
+      return haystack.includes(keyword);
+    });
+  }, [projects, inputValue]);
+
+  useEffect(() => {
+    const handlePointerDown = (event: MouseEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) {
+        setDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handlePointerDown);
+    return () => document.removeEventListener('mousedown', handlePointerDown);
+  }, []);
+
+  const handleSelect = (project: { id: string; name: string }) => {
+    onChange(project.name);
+    onSelectProject?.(project);
+    setDropdownOpen(false);
+  };
+
+  return (
+    <div className="form-field project-name-search" ref={rootRef}>
+      <label htmlFor="fund-billing-summary-project-search" className="form-field__label">
+        프로젝트
+      </label>
+      <div className="project-name-search__bar">
+        <input
+          id="fund-billing-summary-project-search"
+          type="text"
+          className="form-field__input project-name-search__input"
+          value={inputValue}
+          placeholder="키워드 입력 또는 목록에서 선택"
+          onChange={(event) => {
+            onInputChange(event.target.value);
+            setDropdownOpen(true);
+          }}
+          onCompositionStart={onCompositionStart}
+          onCompositionEnd={(event) => onCompositionEnd(event.currentTarget.value)}
+          onFocus={() => setDropdownOpen(true)}
+          autoComplete="off"
+        />
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="project-name-search__toggle"
+          onClick={() => setDropdownOpen((open) => !open)}
+          aria-expanded={dropdownOpen}
+        >
+          {dropdownOpen ? '닫기' : '목록'}
+        </Button>
+      </div>
+      {dropdownOpen && (
+        <ul className="project-name-search__dropdown" role="listbox" aria-label="집계 프로젝트 목록">
+          {filteredProjects.length === 0 ? (
+            <li className="project-name-search__empty">해당 연월 집계에 없습니다.</li>
+          ) : (
+            filteredProjects.map((project) => (
+              <li key={project.id} role="option">
+                <button
+                  type="button"
+                  className="project-name-search__option"
+                  onMouseDown={(event) => {
+                    event.preventDefault();
+                    handleSelect(project);
+                  }}
+                >
+                  <span className="project-name-search__option-name">{project.name}</span>
+                  {project.projectCode ? (
+                    <span className="project-name-search__option-meta">{project.projectCode}</span>
+                  ) : null}
                 </button>
               </li>
             ))

@@ -19,6 +19,10 @@ import {
 } from '@/utils/authStorage';
 import { clearCompetitorAnalysisStorage } from '@/utils/competitorAnalysisStorage';
 import {
+  clearAllFundBillingSessionDrafts,
+  enableFundBillingSessionDrafts,
+} from '@/utils/fundBillingSessionDraft';
+import {
   findPersonnelById,
   isDeveloperPerson,
   isValidLoginPin,
@@ -174,6 +178,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       );
       if (!result.ok) return result.message;
 
+      enableFundBillingSessionDrafts();
       saveAuthSession(result.session);
       setSession(result.session);
       setAuthPerson(result.person);
@@ -199,6 +204,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 
   const logout = useCallback(() => {
+    clearAllFundBillingSessionDrafts();
     clearCompetitorAnalysisStorage();
     clearAuthSession();
     setSession(null);

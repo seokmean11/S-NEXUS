@@ -14,6 +14,7 @@ import { OutsourcingSearchPage } from '@/pages/OutsourcingSearchPage';
 import { FundManagementLayout } from '@/pages/FundManagementLayout';
 import { FundBillingPage } from '@/pages/FundBillingPage';
 import { FundBillingDetailPage } from '@/pages/FundBillingDetailPage';
+import { FundCashAnalysisPage } from '@/pages/FundCashAnalysisPage';
 import { MiscInfoLayout } from '@/pages/MiscInfoLayout';
 import { ExhibitionBusinessCostPage } from '@/pages/ExhibitionBusinessCostPage';
 import { CompetitorAnalysisPage } from '@/pages/CompetitorAnalysisPage';
@@ -97,6 +98,7 @@ export function AppRoutes() {
           <Route index element={<Navigate to="billing" replace />} />
           <Route path="billing" element={<FundBillingPage />} />
           <Route path="billing/:projectId" element={<FundBillingDetailPage />} />
+          <Route path="cash-analysis" element={<FundCashAnalysisPage />} />
         </Route>
         <Route
           path="misc-info"

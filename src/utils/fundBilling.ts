@@ -1,3 +1,4 @@
+import { mapTextToFundBillingDepartment } from '@/constants/fundBilling';
 import type { Project } from '@/types';
 import type {
   FundBillingKpis,
@@ -58,20 +59,36 @@ export function aggregateFundBillingRows(
 }
 
 export function summarizeFundBillingRows(rows: FundBillingProjectRow[]): FundBillingKpis {
+  const contractAmount = sum(rows.map((row) => row.contractAmount));
+  const collectedTotal = sum(rows.map((row) => row.collectedTotal));
+  const netCash = sum(rows.map((row) => row.netCash));
+  const spentPrior = sum(rows.map((row) => row.spentPrior ?? 0));
+  const monthSpendExpected = sum(rows.map((row) => row.monthSpendExpected ?? 0));
+  const executionBudget = sum(rows.map((row) => row.executionBudget ?? 0));
+  const spentTotal = collectedTotal - netCash;
+  const subcontractContractTotal = sum(rows.map((row) => row.subcontractContractTotal));
   return {
     projectCount: rows.length,
-    contractAmount: sum(rows.map((row) => row.contractAmount)),
+    contractAmount,
     collectedPrior: sum(rows.map((row) => row.collectedPrior)),
     expectedCollectionMonth: sum(rows.map((row) => row.expectedCollectionMonth)),
-    collectedTotal: sum(rows.map((row) => row.collectedTotal)),
+    collectedTotal,
     uncollected: sum(rows.map((row) => row.uncollected)),
     subcontractCount: sum(rows.map((row) => row.subcontractCount)),
-    subcontractContractTotal: sum(rows.map((row) => row.subcontractContractTotal)),
+    subcontractContractTotal,
     subcontractPriorBilling: sum(rows.map((row) => row.subcontractPriorBilling)),
     expectedBillingMonth: sum(rows.map((row) => row.expectedBillingMonth)),
     subcontractBillingTotal: sum(rows.map((row) => row.subcontractBillingTotal)),
     unpaid: sum(rows.map((row) => row.unpaid)),
-    netCash: sum(rows.map((row) => row.netCash)),
+    netCash,
+    spentTotal,
+    spentPrior,
+    monthSpendExpected,
+    executionBudget,
+    collectionRate: contractAmount > 0 ? (collectedTotal / contractAmount) * 100 : 0,
+    spendRate: executionBudget > 0 ? (spentTotal / executionBudget) * 100 : contractAmount > 0 ? (spentTotal / contractAmount) * 100 : 0,
+    cashRate: contractAmount > 0 ? ((collectedTotal - spentTotal) / contractAmount) * 100 : 0,
+    subcontractShareRate: contractAmount > 0 ? (subcontractContractTotal / contractAmount) * 100 : 0,
   };
 }
 
@@ -81,15 +98,24 @@ export function filterFundBillingRows(
     keyword: string;
     divisionId: string;
     quickFilter: FundBillingQuickFilter;
+    projectId?: string;
   },
 ): FundBillingProjectRow[] {
   const keyword = options.keyword.trim().toLowerCase();
 
   return rows.filter((row) => {
-    if (options.divisionId && row.divisionId !== options.divisionId) return false;
+    if (
+      options.divisionId &&
+      mapTextToFundBillingDepartment(row.divisionId, row.divisionName) !==
+        mapTextToFundBillingDepartment(options.divisionId)
+    ) {
+      return false;
+    }
 
-    if (keyword) {
-      const haystack = `${row.projectName} ${row.projectCode} ${row.clientName} ${row.pmName ?? ''}`.toLowerCase();
+    if (options.projectId) {
+      if (row.projectId !== options.projectId) return false;
+    } else if (keyword) {
+      const haystack = `${row.projectName} ${row.projectCode}`.toLowerCase();
       if (!haystack.includes(keyword)) return false;
     }
 
@@ -115,7 +141,7 @@ export function buildFundBillingExportTable(rows: FundBillingProjectRow[]): Expo
     headers: [
       '프로젝트명(집계)',
       '프로젝트명(기성시트)',
-      '사업부',
+      '사업유형',
       'PM',
       '상태',
       'PJT 계약총액',
@@ -176,5 +202,5 @@ function groupBy<T>(items: T[], keyOf: (item: T) => string): Map<string, T[]> {
 }
 
 function sum(values: number[]): number {
-  return values.reduce((total, value) => total + value, 0);
+  return values.reduce((total, value) => total + (Number.isFinite(value) ? value : 0), 0);
 }

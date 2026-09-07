@@ -7,6 +7,7 @@ interface ConfirmDialogProps {
   confirmLabel?: string;
   cancelLabel?: string;
   loading?: boolean;
+  hideCancel?: boolean;
   onConfirm: () => void;
   onCancel: () => void;
 }
@@ -17,6 +18,7 @@ export function ConfirmDialog({
   message,
   confirmLabel = '네',
   cancelLabel = '아니오',
+  hideCancel = false,
   loading = false,
   onConfirm,
   onCancel,
@@ -24,7 +26,7 @@ export function ConfirmDialog({
   if (!open) return null;
 
   return (
-    <div className="confirm-dialog-backdrop no-print" onClick={onCancel}>
+    <div className="confirm-dialog-backdrop no-print" onClick={hideCancel ? undefined : onCancel}>
       <div
         className="confirm-dialog"
         role="dialog"
@@ -37,9 +39,11 @@ export function ConfirmDialog({
         </h3>
         <p className="confirm-dialog__message">{message}</p>
         <div className="confirm-dialog__actions">
-          <Button variant="outline" onClick={onCancel} disabled={loading}>
-            {cancelLabel}
-          </Button>
+          {hideCancel ? null : (
+            <Button variant="outline" onClick={onCancel} disabled={loading}>
+              {cancelLabel}
+            </Button>
+          )}
           <Button variant="primary" onClick={onConfirm} loading={loading}>
             {confirmLabel}
           </Button>

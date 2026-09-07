@@ -1,34 +1,66 @@
 import { useEffect } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { FundBillingDetail } from '@/components/fund/FundBillingDetail';
 import { useFundBilling } from '@/context/FundBillingContext';
+import { createBlankMonthReportFromTemplate } from '@/utils/fundBillingReport';
 
 export function FundBillingDetailPage() {
   const { projectId } = useParams();
+  const [searchParams] = useSearchParams();
+  const monthKey = searchParams.get('month') ?? undefined;
   const navigate = useNavigate();
   const { ready, getReport, commitReport, createReport } = useFundBilling();
 
   useEffect(() => {
     if (!ready || projectId !== 'new') return;
     const created = createReport();
-    navigate(`/fund/billing/${created.id}`, { replace: true });
+    navigate(`/fund/billing/${created.id}?month=${created.monthKey}`, { replace: true });
   }, [ready, projectId, createReport, navigate]);
 
-  if (!ready || projectId === 'new') {
+  useEffect(() => {
+    if (!ready || !projectId || projectId === 'new') return;
+    if (monthKey) return;
+    const latest = getReport(projectId);
+    if (latest?.monthKey) {
+      navigate(`/fund/billing/${projectId}?month=${latest.monthKey}`, { replace: true });
+    }
+  }, [ready, projectId, monthKey, getReport, navigate]);
+
+  if (!ready || !projectId || projectId === 'new') {
     return (
       <div className="page-header">
-        <h2>월별 기성보고서</h2>
+        <h2>월별 기성보고서 작성</h2>
         <p>불러오는 중입니다.</p>
       </div>
     );
   }
 
-  const report = projectId ? getReport(projectId) : undefined;
+  const exact = monthKey ? getReport(projectId, monthKey) : undefined;
+  const latest = getReport(projectId);
+  const viewingPastWithoutData = Boolean(
+    monthKey && latest && !exact && monthKey < latest.monthKey,
+  );
+  const waitingForFuture = Boolean(
+    monthKey && latest && !exact && monthKey > latest.monthKey,
+  );
+
+  if (!monthKey || waitingForFuture) {
+    return (
+      <div className="page-header">
+        <h2>월별 기성보고서 작성</h2>
+        <p>불러오는 중입니다.</p>
+      </div>
+    );
+  }
+
+  const report = exact ?? (viewingPastWithoutData && latest && monthKey
+    ? createBlankMonthReportFromTemplate(latest, monthKey)
+    : latest);
   if (!report) {
     return (
       <div className="page-header">
-        <h2>기성관리</h2>
+        <h2>월별 기성보고서 작성</h2>
         <p>해당 프로젝트를 찾을 수 없습니다.</p>
         <p>
           <Link to="/fund/billing">집계현황으로 돌아가기</Link>

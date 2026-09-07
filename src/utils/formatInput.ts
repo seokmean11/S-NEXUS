@@ -90,6 +90,34 @@ export function parseKoreanDateToIso(value: string): string | null {
   return `${y}-${m}-${d}`;
 }
 
+/** YYYY-MM → 2026년 09월 */
+export function formatMonthKeyToKorean(monthKey?: string): string {
+  if (!monthKey) return '';
+  const [year, month] = monthKey.split('-');
+  if (!year || !month) return '';
+  return `${year}년 ${month}월`;
+}
+
+/** 2026년 09월 / 202609 → YYYY-MM */
+export function parseKoreanYearMonthToKey(value: string): string | null {
+  const digits = value.replace(/\D/g, '').slice(0, 6);
+  if (digits.length !== 6) return null;
+  const year = digits.slice(0, 4);
+  const month = Number(digits.slice(4, 6));
+  if (month < 1 || month > 12) return null;
+  return `${year}-${String(month).padStart(2, '0')}`;
+}
+
+/** 입력 중 한국식 연월 포맷 */
+export function formatKoreanYearMonthInput(raw: string): string {
+  const digits = raw.replace(/\D/g, '').slice(0, 6);
+  if (!digits) return '';
+  const year = digits.slice(0, 4);
+  if (digits.length <= 4) return digits.length === 4 ? `${year}년 ` : year;
+  const month = digits.slice(4, 6);
+  return digits.length === 6 ? `${year}년 ${month}월` : `${year}년 ${month}`;
+}
+
 export function isCompleteKoreanDate(value: string): boolean {
   return parseKoreanDateToIso(value) !== null;
 }

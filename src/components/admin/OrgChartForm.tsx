@@ -5,7 +5,10 @@ export function OrgChartForm() {
     <div className="org-page">
       <div className="page-header no-print org-page__header">
         <h2>조직관리</h2>
-        <p>인원 검색 · 등록 · 수정 · 전출 및 조직 구조 변경은 자동 기록되며 분석 보고서에서 확인할 수 있습니다.</p>
+        <p>
+          S-NEXUS 메뉴를 개인별로 부여하는 화면입니다. 인원별로 사용 가능한 메뉴와 읽기·수정 권한을
+          설정합니다.
+        </p>
       </div>
 
       <PersonnelDashboard embedded />

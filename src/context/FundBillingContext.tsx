@@ -14,7 +14,9 @@ import { fetchFundBillingLedger, saveFundBillingLedger } from '@/services/fundBi
 import {
   buildSummaryRowsFromLedger,
   createEmptyFundBillingReport,
-  findLatestReport,
+  ensureProjectMonthReport,
+  findReportForMonth,
+  sanitizeFundBillingReports,
   seedFundBillingReportsFromImported,
   upsertFundBillingReport,
 } from '@/utils/fundBillingReport';
@@ -23,9 +25,10 @@ interface FundBillingContextValue {
   ready: boolean;
   reports: FundBillingReport[];
   summaryRows: FundBillingProjectRow[];
-  getReport: (projectId: string) => FundBillingReport | undefined;
+  getReport: (projectId: string, monthKey?: string) => FundBillingReport | undefined;
   commitReport: (report: FundBillingReport) => void;
   createReport: () => FundBillingReport;
+  ensureMonthReport: (projectId: string, monthKey: string) => void;
 }
 
 const FundBillingContext = createContext<FundBillingContextValue | null>(null);
@@ -34,6 +37,7 @@ export function FundBillingProvider({ children }: { children: ReactNode }) {
   const [reports, setReports] = useState<FundBillingReport[]>([]);
   const [ready, setReady] = useState(false);
   const persistTimer = useRef<number>();
+  const pendingReportRef = useRef<FundBillingReport | null>(null);
 
   const persist = useCallback((next: FundBillingReport[]) => {
     if (persistTimer.current) window.clearTimeout(persistTimer.current);
@@ -48,7 +52,11 @@ export function FundBillingProvider({ children }: { children: ReactNode }) {
       const remote = await fetchFundBillingLedger();
       if (cancelled) return;
       if (remote?.reports?.length) {
-        setReports(remote.reports);
+        const cleaned = sanitizeFundBillingReports(remote.reports);
+        setReports(cleaned);
+        if (cleaned.length !== remote.reports.length || cleaned.some((item, index) => item !== remote.reports[index])) {
+          void saveFundBillingLedger({ reports: cleaned, updatedAt: new Date().toISOString() });
+        }
       } else {
         const seeded = seedFundBillingReportsFromImported();
         setReports(seeded);
@@ -64,6 +72,7 @@ export function FundBillingProvider({ children }: { children: ReactNode }) {
 
   const commitReport = useCallback(
     (report: FundBillingReport) => {
+      pendingReportRef.current = report;
       setReports((current) => {
         const next = upsertFundBillingReport(current, report);
         persist(next);
@@ -75,12 +84,36 @@ export function FundBillingProvider({ children }: { children: ReactNode }) {
 
   const createReport = useCallback(() => {
     const created = createEmptyFundBillingReport();
+    pendingReportRef.current = created;
     commitReport(created);
     return created;
   }, [commitReport]);
 
+  const ensureMonthReport = useCallback(
+    (projectId: string, monthKey: string) => {
+      setReports((current) => {
+        const result = ensureProjectMonthReport(current, projectId, monthKey);
+        if (result.created) persist(result.reports);
+        return result.reports;
+      });
+    },
+    [persist],
+  );
+
   const getReport = useCallback(
-    (projectId: string) => findLatestReport(reports, projectId),
+    (projectId: string, monthKey?: string) => {
+      const found = findReportForMonth(reports, projectId, monthKey);
+      if (found) return found;
+      const pending = pendingReportRef.current;
+      if (
+        pending &&
+        pending.id === projectId &&
+        (!monthKey || pending.monthKey === monthKey)
+      ) {
+        return pending;
+      }
+      return undefined;
+    },
     [reports],
   );
 
@@ -90,8 +123,16 @@ export function FundBillingProvider({ children }: { children: ReactNode }) {
   );
 
   const value = useMemo(
-    () => ({ ready, reports, summaryRows, getReport, commitReport, createReport }),
-    [ready, reports, summaryRows, getReport, commitReport, createReport],
+    () => ({
+      ready,
+      reports,
+      summaryRows,
+      getReport,
+      commitReport,
+      createReport,
+      ensureMonthReport,
+    }),
+    [ready, reports, summaryRows, getReport, commitReport, createReport, ensureMonthReport],
   );
 
   return <FundBillingContext.Provider value={value}>{children}</FundBillingContext.Provider>;

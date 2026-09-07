@@ -64,6 +64,8 @@ export interface FundBillingProjectRow {
   status: ProjectStatus;
   startDate: string;
   endDate?: string;
+  monthKey?: string;
+  writtenDate?: string;
   pmName?: string;
   contractAmount: number;
   billedTotal: number;
@@ -72,6 +74,9 @@ export interface FundBillingProjectRow {
   expectedCollectionMonth: number;
   uncollected: number;
   collectionRate: number;
+  spentPrior?: number;
+  monthSpendExpected?: number;
+  executionBudget?: number;
   subcontractCount: number;
   subcontractContractTotal: number;
   subcontractPriorBilling: number;
@@ -97,4 +102,12 @@ export interface FundBillingKpis {
   subcontractBillingTotal: number;
   unpaid: number;
   netCash: number;
+  spentTotal: number;
+  spentPrior: number;
+  monthSpendExpected: number;
+  executionBudget: number;
+  collectionRate: number;
+  spendRate: number;
+  cashRate: number;
+  subcontractShareRate: number;
 }

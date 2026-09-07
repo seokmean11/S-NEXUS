@@ -1,9 +1,12 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { FundBillingSummaryProjectFilter } from '@/components/fund/FundBillingSearchFields';
+import { KoreanYearMonthInput } from '@/components/admin/KoreanYearMonthInput';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
-import { Input, Select } from '@/components/ui/Input';
-import { formatCurrency } from '@/data/mockData';
+import { Select } from '@/components/ui/Input';
+import { FUND_BILLING_DEPARTMENTS } from '@/constants/fundBilling';
+import { useFundBilling } from '@/context/FundBillingContext';
 import type { FundBillingProjectRow, FundBillingQuickFilter } from '@/types/fundBilling';
 import {
   buildFundBillingExportTable,
@@ -12,37 +15,98 @@ import {
   remainingBilling,
   summarizeFundBillingRows,
 } from '@/utils/fundBilling';
+import {
+  buildCashAnalysisSummaryRows,
+  buildSummaryRowsFromLedger,
+  latestCashAnalysisMonthKey,
+  latestMonthKey,
+  reportsForCashAnalysisMonth,
+} from '@/utils/fundBillingReport';
+import { formatMonthKeyToKorean } from '@/utils/formatInput';
 import { downloadCsv } from '@/utils/reportExport';
 
 const QUICK_FILTERS: { id: FundBillingQuickFilter; label: string }[] = [
   { id: 'all', label: '전체' },
   { id: 'active', label: '진행' },
   { id: 'completed', label: '완료' },
-  { id: 'uncollected', label: '미수금' },
-  { id: 'unpaid', label: '미지급' },
   { id: 'cashShort', label: '순자금 부족' },
 ];
 
-interface FundBillingSummaryProps {
-  rows: FundBillingProjectRow[];
-  divisions: { id: string; name: string }[];
-}
-
-export function FundBillingSummary({ rows, divisions }: FundBillingSummaryProps) {
+export function FundBillingSummary({ variant = 'billing' }: { variant?: 'billing' | 'analysis' }) {
   const navigate = useNavigate();
+  const { reports, createReport } = useFundBilling();
   const [keyword, setKeyword] = useState('');
+  const [selectedProjectId, setSelectedProjectId] = useState('');
   const [divisionId, setDivisionId] = useState('');
+  const [monthKey, setMonthKey] = useState('');
   const [quickFilter, setQuickFilter] = useState<FundBillingQuickFilter>('all');
 
+  const divisions = useMemo(
+    () => FUND_BILLING_DEPARTMENTS.map((name) => ({ id: name, name })),
+    [],
+  );
+
+  const fallbackMonth =
+    variant === 'analysis' ? latestCashAnalysisMonthKey(reports) : reports.length ? latestMonthKey(reports) : '';
+  const selectedMonth = variant === 'analysis' ? monthKey : monthKey || fallbackMonth;
+
+  useEffect(() => {
+    if (variant !== 'analysis') return;
+    if (monthKey || !fallbackMonth) return;
+    setMonthKey(fallbackMonth);
+  }, [variant, monthKey, fallbackMonth]);
+
+  const monthRows = useMemo(() => {
+    if (variant === 'analysis') {
+      if (!selectedMonth) return [];
+      return buildCashAnalysisSummaryRows(reports, selectedMonth);
+    }
+    return buildSummaryRowsFromLedger({ reports });
+  }, [reports, selectedMonth, variant]);
+  const projectLocked = Boolean(selectedProjectId);
   const filteredRows = useMemo(
-    () => filterFundBillingRows(rows, { keyword, divisionId, quickFilter }),
-    [rows, keyword, divisionId, quickFilter],
+    () =>
+      filterFundBillingRows(monthRows, {
+        keyword,
+        divisionId,
+        projectId: selectedProjectId || undefined,
+        quickFilter: projectLocked ? 'all' : quickFilter,
+      }),
+    [monthRows, keyword, divisionId, selectedProjectId, projectLocked, quickFilter],
   );
   const kpis = useMemo(() => summarizeFundBillingRows(filteredRows), [filteredRows]);
+  const listTotals = useMemo(
+    () => ({
+      contractAmount: filteredRows.reduce((sum, row) => sum + row.contractAmount, 0),
+      collectedPrior: filteredRows.reduce((sum, row) => sum + row.collectedPrior, 0),
+      expectedCollectionMonth: filteredRows.reduce((sum, row) => sum + row.expectedCollectionMonth, 0),
+      collectedTotal: filteredRows.reduce((sum, row) => sum + row.collectedTotal, 0),
+      uncollected: filteredRows.reduce((sum, row) => sum + row.uncollected, 0),
+      subcontractContractTotal: filteredRows.reduce((sum, row) => sum + row.subcontractContractTotal, 0),
+      subcontractPriorBilling: filteredRows.reduce((sum, row) => sum + row.subcontractPriorBilling, 0),
+      expectedBillingMonth: filteredRows.reduce((sum, row) => sum + row.expectedBillingMonth, 0),
+      billedCumulative: filteredRows.reduce((sum, row) => sum + cumulativeSubcontractBilling(row), 0),
+      remaining: filteredRows.reduce((sum, row) => sum + remainingBilling(row), 0),
+    }),
+    [filteredRows],
+  );
+
+  const projectChoices = useMemo(
+    () =>
+      (divisionId
+        ? monthRows.filter((row) => row.divisionId === divisionId || row.divisionName === divisionId)
+        : monthRows
+      ).map((row) => ({
+        id: row.projectId,
+        name: row.projectName,
+        projectCode: row.projectCode,
+      })),
+    [monthRows, divisionId],
+  );
 
   const divisionOptions = useMemo(
     () => [
-          { value: '', label: '전체 사업부' },
+      { value: '', label: '전체 본부' },
       ...divisions.map((division) => ({ value: division.id, label: division.name })),
     ],
     [divisions],
@@ -53,43 +117,186 @@ export function FundBillingSummary({ rows, divisions }: FundBillingSummaryProps)
     downloadCsv(`기성관리_집계_${today}.csv`, buildFundBillingExportTable(filteredRows));
   };
 
+  const resultMeta = useMemo(() => {
+    const types = [...new Set(filteredRows.map((row) => row.divisionName).filter(Boolean))];
+    return {
+      department: types.length === 0 ? '-' : types.length === 1 ? types[0] : types.join(' · '),
+      asOf: formatMonthKeyToKorean(selectedMonth) || '-',
+    };
+  }, [filteredRows, selectedMonth]);
+
+  const availableMonthKeys = useMemo(() => {
+    const keys = [...new Set(reports.map((item) => item.monthKey).filter(Boolean))].sort();
+    if (variant !== 'analysis') return keys;
+    return keys.filter((key) => reportsForCashAnalysisMonth(reports, key).length > 0);
+  }, [reports, variant]);
+  const monthHasReports = variant !== 'analysis' || monthRows.length > 0;
+  const showCashPanels = variant === 'analysis';
+
   return (
     <>
-      <Card title="수금현황" className="fund-billing-section">
-        <div className="fund-billing-kpis">
-          <KpiCard label="프로젝트 건수" value={`${kpis.projectCount.toLocaleString('ko-KR')}건`} />
-          <KpiCard label="PJT 계약총액" value={formatCurrency(kpis.contractAmount)} />
-          <KpiCard label="전회수령누계" value={formatCurrency(kpis.collectedPrior)} />
-          <KpiCard label="금회수령 예정" value={formatCurrency(kpis.expectedCollectionMonth)} />
-          <KpiCard label="누계 수령금액" value={formatCurrency(kpis.collectedTotal)} />
-          <KpiCard label="잔여 수령액" value={formatCurrency(kpis.uncollected)} tone="warn" />
-        </div>
-      </Card>
-
-      <Card title="집행현황(하도급)" className="fund-billing-section">
-        <div className="fund-billing-kpis">
-          <KpiCard label="계약건수" value={`${kpis.subcontractCount.toLocaleString('ko-KR')}건`} />
-          <KpiCard label="하도급 계약총액" value={formatCurrency(kpis.subcontractContractTotal)} />
-          <KpiCard label="전회기성누계" value={formatCurrency(kpis.subcontractPriorBilling)} />
-          <KpiCard label="금회기성 예정" value={formatCurrency(kpis.expectedBillingMonth)} />
-          <KpiCard label="기성금액 누계" value={formatCurrency(kpis.subcontractPriorBilling + kpis.expectedBillingMonth)} />
-          <KpiCard
-            label="잔여 기성"
-            value={formatCurrency(Math.max(0, kpis.subcontractContractTotal - (kpis.subcontractPriorBilling + kpis.expectedBillingMonth)))}
-            tone="warn"
+      {showCashPanels ? (
+        <>
+      <Card title="자금수지 현황 검색" className="fund-billing-section fund-billing-search-card">
+        <div className="fund-billing-toolbar no-print">
+          <KoreanYearMonthInput
+            label="연월검색 (필수)"
+            value={selectedMonth}
+            existingMonthKeys={availableMonthKeys}
+            onChange={(next) => {
+              setMonthKey(next);
+              setKeyword('');
+              setSelectedProjectId('');
+              setDivisionId('');
+              setQuickFilter('all');
+            }}
           />
+          <Select
+            label="사업유형"
+            value={divisionId}
+            onChange={(event) => {
+              setDivisionId(event.target.value);
+              setKeyword('');
+              setSelectedProjectId('');
+            }}
+            options={divisionOptions}
+          />
+          <FundBillingSummaryProjectFilter
+            projects={projectChoices}
+            value={keyword}
+            onChange={(next) => {
+              setKeyword(next);
+              setSelectedProjectId('');
+            }}
+            onSelectProject={(project) => {
+              setKeyword(project.name);
+              setSelectedProjectId(project.id);
+              setQuickFilter('all');
+            }}
+          />
+          <div className={`fund-billing-chips${projectLocked ? ' is-disabled' : ''}`}>
+            <span className="form-field__label">빠른 필터</span>
+            <div className="fund-billing-chips__row">
+              {QUICK_FILTERS.map((filter) => (
+                <button
+                  key={filter.id}
+                  type="button"
+                  disabled={projectLocked}
+                  className={`fund-billing-chip ${!projectLocked && quickFilter === filter.id ? 'fund-billing-chip--active' : ''}`}
+                  onClick={() => {
+                    if (projectLocked) return;
+                    setQuickFilter(filter.id);
+                  }}
+                >
+                  {filter.label}
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
       </Card>
 
       <Card
+        title="자금수지 검색결과"
+        className="fund-billing-section fund-billing-result-card"
+        subtitle="검색한 연월의 월별 기성보고서 수금·집행·수지입니다. 해당 월 데이터가 없으면 결과가 없습니다."
+      >
+        <div className={`fund-billing-result-stat ${kpis.netCash < 0 ? 'is-minus' : 'is-plus'}`}>
+          <div className="fund-billing-result-stat__item">
+            <span className="fund-billing-result-stat__label">수지금액</span>
+            <strong className="fund-billing-result-stat__value">{won(kpis.netCash)}</strong>
+            <span className="fund-billing-result-stat__hint">수금누계 − 지출누계</span>
+          </div>
+          <div className="fund-billing-result-stat__divider" aria-hidden="true" />
+          <div className="fund-billing-result-stat__item">
+            <span className="fund-billing-result-stat__label">수지율</span>
+            <strong className="fund-billing-result-stat__value">
+              {kpis.contractAmount ? formatCashRate(kpis.cashRate) : '-'}
+            </strong>
+            <span className="fund-billing-result-stat__hint">(수금누계 − 지출누계) ÷ 수주총액</span>
+          </div>
+        </div>
+        <div className="fund-billing-result-wrap">
+          <table className="fund-sheet__meta">
+            <tbody>
+              <tr>
+                <th>사업유형</th>
+                <td>{resultMeta.department}</td>
+                <th>기준일</th>
+                <td colSpan={6}>{resultMeta.asOf}</td>
+              </tr>
+              <tr>
+                <th className="fund-billing-result-th-stack">
+                  프로젝트
+                  <span className="fund-billing-result-th-note">
+                    검색결과 건수 {filteredRows.length}건
+                  </span>
+                </th>
+                <th>수주총액</th>
+                <td className="fund-sheet__num">{won(kpis.contractAmount)}</td>
+                <th>기수금액</th>
+                <td className="fund-sheet__num">{won(kpis.collectedPrior)}</td>
+                <th>금월수금예정</th>
+                <td className="fund-sheet__num">{won(kpis.expectedCollectionMonth)}</td>
+                <th>수금누계</th>
+                <td className="fund-sheet__num fund-sheet__meta-total">
+                  {won(kpis.collectedTotal)}
+                  {kpis.contractAmount ? (
+                    <span className="fund-sheet__pct">{formatRate(kpis.collectionRate)}</span>
+                  ) : null}
+                </td>
+              </tr>
+              <tr>
+                <th>집행현황</th>
+                <th className="fund-billing-result-th-stack">
+                  실행예산총액
+                  <span className="fund-billing-result-th-note">(직접원가)</span>
+                </th>
+                <td className="fund-sheet__num">{won(kpis.executionBudget)}</td>
+                <th>기지출금액</th>
+                <td className="fund-sheet__num">{won(kpis.spentPrior)}</td>
+                <th>금월지출예정</th>
+                <td className="fund-sheet__num">{won(kpis.monthSpendExpected)}</td>
+                <th>지출누계</th>
+                <td className="fund-sheet__num fund-sheet__meta-total">
+                  {won(kpis.spentTotal)}
+                  {kpis.executionBudget || kpis.contractAmount ? (
+                    <span className="fund-sheet__pct">{formatRate(kpis.spendRate)}</span>
+                  ) : null}
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </Card>
+        </>
+      ) : null}
+
+      <Card
         title="집계현황"
         className="fund-billing-list-card"
-        subtitle="월별 기성보고서에서 작성한 프로젝트별 최신 내용입니다. 행을 누르면 해당 보고서로 이동합니다."
+        subtitle={
+          variant === 'analysis'
+            ? '자금수지 현황 검색 조건(연월 필수)에 맞는 해당 월 보고서입니다.'
+            : '월별 기성보고서에서 작성한 프로젝트별 최신 내용입니다. 행을 누르면 해당 보고서로 이동합니다.'
+        }
         headerAction={
           <div className="fund-billing-list-actions">
-            <Button variant="primary" size="sm" onClick={() => navigate('/fund/billing/new')}>
-              신규 월별 기성보고서
-            </Button>
+            {variant === 'billing' ? (
+              <Button
+                variant="primary"
+                size="sm"
+                type="button"
+                onClick={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  const created = createReport();
+                  navigate(`/fund/billing/${created.id}?month=${created.monthKey}`);
+                }}
+              >
+                월별 기성보고서 작성
+              </Button>
+            ) : null}
             <Button
               variant="outline"
               size="sm"
@@ -101,42 +308,12 @@ export function FundBillingSummary({ rows, divisions }: FundBillingSummaryProps)
           </div>
         }
       >
-        <div className="fund-billing-toolbar no-print">
-          <Input
-            label="검색"
-            value={keyword}
-            onChange={(event) => setKeyword(event.target.value)}
-            placeholder="집계명, 기성시트명, PM"
-          />
-          <Select
-            label="사업부"
-            value={divisionId}
-            onChange={(event) => setDivisionId(event.target.value)}
-            options={divisionOptions}
-          />
-          <div className="fund-billing-chips">
-            <span className="form-field__label">빠른 필터</span>
-            <div className="fund-billing-chips__row">
-              {QUICK_FILTERS.map((filter) => (
-                <button
-                  key={filter.id}
-                  type="button"
-                  className={`fund-billing-chip ${quickFilter === filter.id ? 'fund-billing-chip--active' : ''}`}
-                  onClick={() => setQuickFilter(filter.id)}
-                >
-                  {filter.label}
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
-
         <div className="fund-billing-table-wrap">
           <table className="fund-billing-table">
             <thead>
               <tr>
                 <th className="fund-billing-table__sticky" rowSpan={2}>프로젝트</th>
-                <th rowSpan={2}>사업부</th>
+                <th rowSpan={2}>사업유형</th>
                 <th rowSpan={2}>상태</th>
                 <th className="fund-billing-table__group" colSpan={5}>수금현황</th>
                 <th className="fund-billing-table__group" colSpan={5}>집행현황(하도급)</th>
@@ -158,20 +335,58 @@ export function FundBillingSummary({ rows, divisions }: FundBillingSummaryProps)
               {filteredRows.length === 0 ? (
                 <tr>
                   <td colSpan={13} className="fund-billing-table__empty">
-                    조건에 맞는 프로젝트가 없습니다.
+                    {variant === 'analysis' && !monthHasReports
+                      ? '선택한 연월에 작성된 월별 기성보고서가 없습니다.'
+                      : '조건에 맞는 프로젝트가 없습니다.'}
                   </td>
                 </tr>
               ) : (
-                filteredRows.map((row) => (
+                <>
+                  {variant === 'billing' ? (
+                    <tr className="fund-billing-table__total">
+                      <td className="fund-billing-table__sticky">
+                        <strong>합계</strong>
+                        <span className="fund-billing-table__sub">{filteredRows.length}건</span>
+                      </td>
+                      <td colSpan={2} />
+                      <td className="fund-billing-table__num">{won(listTotals.contractAmount)}</td>
+                      <td className="fund-billing-table__num">{won(listTotals.collectedPrior)}</td>
+                      <td className="fund-billing-table__num">
+                        {won(listTotals.expectedCollectionMonth)}
+                      </td>
+                      <td className="fund-billing-table__num">{won(listTotals.collectedTotal)}</td>
+                      <td className="fund-billing-table__num">{won(listTotals.uncollected)}</td>
+                      <td className="fund-billing-table__num">
+                        {won(listTotals.subcontractContractTotal)}
+                      </td>
+                      <td className="fund-billing-table__num">
+                        {won(listTotals.subcontractPriorBilling)}
+                      </td>
+                      <td className="fund-billing-table__num">
+                        {won(listTotals.expectedBillingMonth)}
+                      </td>
+                      <td className="fund-billing-table__num">
+                        {won(listTotals.billedCumulative)}
+                      </td>
+                      <td className="fund-billing-table__num">{won(listTotals.remaining)}</td>
+                    </tr>
+                  ) : null}
+                  {filteredRows.map((row) => (
                   <tr
                     key={row.projectId}
                     tabIndex={0}
                     className="fund-billing-table__row"
-                    onClick={() => navigate(`/fund/billing/${row.projectId}`)}
+                    onClick={() =>
+                      navigate(
+                        `/fund/billing/${row.projectId}?month=${row.monthKey || selectedMonth}`,
+                      )
+                    }
                     onKeyDown={(event) => {
                       if (event.key === 'Enter' || event.key === ' ') {
                         event.preventDefault();
-                        navigate(`/fund/billing/${row.projectId}`);
+                        navigate(
+                          `/fund/billing/${row.projectId}?month=${row.monthKey || selectedMonth}`,
+                        );
                       }
                     }}
                   >
@@ -185,20 +400,21 @@ export function FundBillingSummary({ rows, divisions }: FundBillingSummaryProps)
                         {billingStatusLabel(row.status)}
                       </span>
                     </td>
-                    <td className="fund-billing-table__num">{formatCurrency(row.contractAmount)}</td>
-                    <td className="fund-billing-table__num">{formatCurrency(row.collectedPrior)}</td>
-                    <td className="fund-billing-table__num">{formatCurrency(row.expectedCollectionMonth)}</td>
-                    <td className="fund-billing-table__num">{formatCurrency(row.collectedTotal)}</td>
-                    <td className="fund-billing-table__num">{formatAmountAlert(row.uncollected)}</td>
-                    <td className="fund-billing-table__num">{formatCurrency(row.subcontractContractTotal)}</td>
-                    <td className="fund-billing-table__num">{formatCurrency(row.subcontractPriorBilling)}</td>
-                    <td className="fund-billing-table__num">{formatCurrency(row.expectedBillingMonth)}</td>
+                    <td className="fund-billing-table__num">{won(row.contractAmount)}</td>
+                    <td className="fund-billing-table__num">{won(row.collectedPrior)}</td>
+                    <td className="fund-billing-table__num">{won(row.expectedCollectionMonth)}</td>
+                    <td className="fund-billing-table__num">{won(row.collectedTotal)}</td>
+                    <td className="fund-billing-table__num">{won(row.uncollected)}</td>
+                    <td className="fund-billing-table__num">{won(row.subcontractContractTotal)}</td>
+                    <td className="fund-billing-table__num">{won(row.subcontractPriorBilling)}</td>
+                    <td className="fund-billing-table__num">{won(row.expectedBillingMonth)}</td>
                     <td className="fund-billing-table__num">
-                      {formatCurrency(cumulativeSubcontractBilling(row))}
+                      {won(cumulativeSubcontractBilling(row))}
                     </td>
-                    <td className="fund-billing-table__num">{formatAmountAlert(remainingBilling(row))}</td>
+                    <td className="fund-billing-table__num">{won(remainingBilling(row))}</td>
                   </tr>
-                ))
+                ))}
+                </>
               )}
             </tbody>
           </table>
@@ -208,25 +424,22 @@ export function FundBillingSummary({ rows, divisions }: FundBillingSummaryProps)
   );
 }
 
-function KpiCard({
-  label,
-  value,
-  tone,
-}: {
-  label: string;
-  value: string;
-  tone?: 'ok' | 'warn' | 'danger';
-}) {
-  return (
-    <Card className={`stat-card fund-billing-kpi ${tone ? `fund-billing-kpi--${tone}` : ''}`}>
-      <span className="stat-card__label">{label}</span>
-      <strong className="stat-card__value">{value}</strong>
-    </Card>
-  );
+function won(value: number): string {
+  return Number.isFinite(value) ? value.toLocaleString('ko-KR') : '0';
 }
 
-function formatAmountAlert(value: number): string {
-  return value > 0 ? formatCurrency(value) : '-';
+function formatRate(value: number): string {
+  if (!Number.isFinite(value)) return '-';
+  const rounded = Math.abs(value - Math.round(value)) < 0.05 ? Math.round(value) : Number(value.toFixed(1));
+  return `${rounded}%`;
+}
+
+function formatCashRate(value: number): string {
+  if (!Number.isFinite(value)) return '-';
+  const rounded = Math.abs(value - Math.round(value)) < 0.05 ? Math.round(value) : Number(value.toFixed(1));
+  if (rounded > 0) return `+${rounded}%`;
+  if (rounded < 0) return `${rounded}%`;
+  return '0%';
 }
 
 function billingStatusLabel(status: FundBillingProjectRow['status']): string {

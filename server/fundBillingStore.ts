@@ -14,9 +14,11 @@ export interface StoredSpendLine {
   tradeType: string;
   vendorName: string;
   contractAmount: number;
+  contractAmountHistory?: Array<{ sequence: number; label: string; amount: number; changedAt: string }>;
   priorPaid: number;
   monthClaim: number;
   inspected: number;
+  commonInspectedManual?: boolean;
 }
 
 export interface StoredFundBillingReport {
@@ -100,7 +102,7 @@ async function buildLedgerWorkbook(ledger: StoredFundBillingLedger): Promise<Buf
     { header: '기성월', key: 'monthKey', width: 12 },
     { header: '프로젝트명', key: 'projectName', width: 32 },
     { header: '프로젝트코드', key: 'projectCode', width: 18 },
-    { header: '사업부', key: 'department', width: 16 },
+    { header: '사업유형', key: 'department', width: 16 },
     { header: '수주금액', key: 'contractAmount', width: 16 },
     { header: '계약시작', key: 'startDate', width: 16 },
     { header: '계약종료', key: 'endDate', width: 16 },
