@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { FundBillingSummaryProjectFilter } from '@/components/fund/FundBillingSearchFields';
 import { KoreanYearMonthInput } from '@/components/admin/KoreanYearMonthInput';
@@ -7,12 +7,12 @@ import { Button } from '@/components/ui/Button';
 import { Select } from '@/components/ui/Input';
 import { FUND_BILLING_DEPARTMENTS } from '@/constants/fundBilling';
 import { useFundBilling } from '@/context/FundBillingContext';
+import { useFitTableCellText } from '@/hooks/useFitTableCellText';
 import type { FundBillingProjectRow, FundBillingQuickFilter } from '@/types/fundBilling';
 import {
   buildFundBillingExportTable,
   cumulativeSubcontractBilling,
   filterFundBillingRows,
-  remainingBilling,
   summarizeFundBillingRows,
 } from '@/utils/fundBilling';
 import {
@@ -36,6 +36,8 @@ const QUICK_FILTERS: { id: FundBillingQuickFilter; label: string }[] = [
 export function FundBillingSummary({ variant = 'billing' }: { variant?: 'billing' | 'analysis' }) {
   const navigate = useNavigate();
   const { reports, createReport } = useFundBilling();
+  const tablesRef = useRef<HTMLDivElement>(null);
+  useFitTableCellText(tablesRef);
   const [keyword, setKeyword] = useState('');
   const [selectedProjectId, setSelectedProjectId] = useState('');
   const [divisionId, setDivisionId] = useState('');
@@ -49,20 +51,19 @@ export function FundBillingSummary({ variant = 'billing' }: { variant?: 'billing
 
   const fallbackMonth =
     variant === 'analysis' ? latestCashAnalysisMonthKey(reports) : reports.length ? latestMonthKey(reports) : '';
-  const selectedMonth = variant === 'analysis' ? monthKey : monthKey || fallbackMonth;
+  const selectedMonth = monthKey || fallbackMonth;
 
   useEffect(() => {
-    if (variant !== 'analysis') return;
     if (monthKey || !fallbackMonth) return;
     setMonthKey(fallbackMonth);
-  }, [variant, monthKey, fallbackMonth]);
+  }, [monthKey, fallbackMonth]);
 
   const monthRows = useMemo(() => {
+    if (!selectedMonth) return [];
     if (variant === 'analysis') {
-      if (!selectedMonth) return [];
       return buildCashAnalysisSummaryRows(reports, selectedMonth);
     }
-    return buildSummaryRowsFromLedger({ reports });
+    return buildSummaryRowsFromLedger({ reports }, selectedMonth);
   }, [reports, selectedMonth, variant]);
   const projectLocked = Boolean(selectedProjectId);
   const filteredRows = useMemo(
@@ -87,7 +88,6 @@ export function FundBillingSummary({ variant = 'billing' }: { variant?: 'billing
       subcontractPriorBilling: filteredRows.reduce((sum, row) => sum + row.subcontractPriorBilling, 0),
       expectedBillingMonth: filteredRows.reduce((sum, row) => sum + row.expectedBillingMonth, 0),
       billedCumulative: filteredRows.reduce((sum, row) => sum + cumulativeSubcontractBilling(row), 0),
-      remaining: filteredRows.reduce((sum, row) => sum + remainingBilling(row), 0),
     }),
     [filteredRows],
   );
@@ -131,14 +131,15 @@ export function FundBillingSummary({ variant = 'billing' }: { variant?: 'billing
     if (variant !== 'analysis') return keys;
     return keys.filter((key) => reportsForCashAnalysisMonth(reports, key).length > 0);
   }, [reports, variant]);
-  const monthHasReports = variant !== 'analysis' || monthRows.length > 0;
+  const monthHasReports = monthRows.length > 0;
   const showCashPanels = variant === 'analysis';
 
   return (
-    <>
-      {showCashPanels ? (
-        <>
-      <Card title="자금수지 현황 검색" className="fund-billing-section fund-billing-search-card">
+    <div ref={tablesRef}>
+      <Card
+        title={variant === 'analysis' ? '자금수지 현황 검색' : '집계현황 검색'}
+        className="fund-billing-section fund-billing-search-card"
+      >
         <div className="fund-billing-toolbar no-print">
           <KoreanYearMonthInput
             label="연월검색 (필수)"
@@ -197,6 +198,8 @@ export function FundBillingSummary({ variant = 'billing' }: { variant?: 'billing
         </div>
       </Card>
 
+      {showCashPanels ? (
+        <>
       <Card
         title="자금수지 검색결과"
         className="fund-billing-section fund-billing-result-card"
@@ -206,7 +209,7 @@ export function FundBillingSummary({ variant = 'billing' }: { variant?: 'billing
           <div className="fund-billing-result-stat__item">
             <span className="fund-billing-result-stat__label">수지금액</span>
             <strong className="fund-billing-result-stat__value">{won(kpis.netCash)}</strong>
-            <span className="fund-billing-result-stat__hint">수금누계 − 지출누계</span>
+            <span className="fund-billing-result-stat__hint">수금누계 − 집행누계</span>
           </div>
           <div className="fund-billing-result-stat__divider" aria-hidden="true" />
           <div className="fund-billing-result-stat__item">
@@ -214,56 +217,65 @@ export function FundBillingSummary({ variant = 'billing' }: { variant?: 'billing
             <strong className="fund-billing-result-stat__value">
               {kpis.contractAmount ? formatCashRate(kpis.cashRate) : '-'}
             </strong>
-            <span className="fund-billing-result-stat__hint">(수금누계 − 지출누계) ÷ 수주총액</span>
+            <span className="fund-billing-result-stat__hint">(수금누계 − 집행누계) ÷ 계약총액</span>
           </div>
         </div>
         <div className="fund-billing-result-wrap">
           <table className="fund-sheet__meta">
+            <colgroup>
+              <col className="fund-billing-result-col fund-billing-result-col--label" />
+              <col className="fund-billing-result-col fund-billing-result-col--head" />
+              <col className="fund-billing-result-col fund-billing-result-col--num" />
+              <col className="fund-billing-result-col fund-billing-result-col--head" />
+              <col className="fund-billing-result-col fund-billing-result-col--num" />
+              <col className="fund-billing-result-col fund-billing-result-col--head" />
+              <col className="fund-billing-result-col fund-billing-result-col--num" />
+              <col className="fund-billing-result-col fund-billing-result-col--head" />
+              <col className="fund-billing-result-col fund-billing-result-col--num" />
+              <col className="fund-billing-result-col fund-billing-result-col--rate" />
+            </colgroup>
             <tbody>
               <tr>
-                <th>사업유형</th>
-                <td>{resultMeta.department}</td>
-                <th>기준일</th>
-                <td colSpan={6}>{resultMeta.asOf}</td>
+                <th colSpan={2}>사업유형</th>
+                <td>
+                  <strong>{resultMeta.department}</strong>
+                </td>
+                <th>기준월</th>
+                <td colSpan={4}>
+                  <strong>{resultMeta.asOf}</strong>
+                </td>
+                <th>검색결과</th>
+                <td className="fund-billing-result-count">{filteredRows.length}건</td>
               </tr>
-              <tr>
-                <th className="fund-billing-result-th-stack">
-                  프로젝트
-                  <span className="fund-billing-result-th-note">
-                    검색결과 건수 {filteredRows.length}건
-                  </span>
-                </th>
-                <th>수주총액</th>
+              <tr className="fund-billing-result-row fund-billing-result-row--in">
+                <th className="fund-billing-result-row__cat">수주</th>
+                <th>계약총액</th>
                 <td className="fund-sheet__num">{won(kpis.contractAmount)}</td>
-                <th>기수금액</th>
+                <th>전회수금누계</th>
                 <td className="fund-sheet__num">{won(kpis.collectedPrior)}</td>
                 <th>금월수금예정</th>
                 <td className="fund-sheet__num">{won(kpis.expectedCollectionMonth)}</td>
                 <th>수금누계</th>
-                <td className="fund-sheet__num fund-sheet__meta-total">
-                  {won(kpis.collectedTotal)}
-                  {kpis.contractAmount ? (
-                    <span className="fund-sheet__pct">{formatRate(kpis.collectionRate)}</span>
-                  ) : null}
+                <td className="fund-sheet__num">{won(kpis.collectedTotal)}</td>
+                <td className="fund-sheet__pct-cell">
+                  {kpis.contractAmount ? formatRate(kpis.collectionRate) : '-'}
                 </td>
               </tr>
-              <tr>
-                <th>집행현황</th>
+              <tr className="fund-billing-result-row fund-billing-result-row--out">
+                <th className="fund-billing-result-row__cat">집행</th>
                 <th className="fund-billing-result-th-stack">
                   실행예산총액
                   <span className="fund-billing-result-th-note">(직접원가)</span>
                 </th>
                 <td className="fund-sheet__num">{won(kpis.executionBudget)}</td>
-                <th>기지출금액</th>
-                <td className="fund-sheet__num">{won(kpis.spentPrior)}</td>
-                <th>금월지출예정</th>
+                <th>전회집행누계</th>
+                <td className="fund-sheet__num">{won(kpis.subcontractPriorBilling)}</td>
+                <th>금월집행예정</th>
                 <td className="fund-sheet__num">{won(kpis.monthSpendExpected)}</td>
-                <th>지출누계</th>
-                <td className="fund-sheet__num fund-sheet__meta-total">
-                  {won(kpis.spentTotal)}
-                  {kpis.executionBudget || kpis.contractAmount ? (
-                    <span className="fund-sheet__pct">{formatRate(kpis.spendRate)}</span>
-                  ) : null}
+                <th>집행누계</th>
+                <td className="fund-sheet__num">{won(kpis.spentTotal)}</td>
+                <td className="fund-sheet__pct-cell">
+                  {kpis.executionBudget || kpis.contractAmount ? formatRate(kpis.spendRate) : '-'}
                 </td>
               </tr>
             </tbody>
@@ -276,33 +288,27 @@ export function FundBillingSummary({ variant = 'billing' }: { variant?: 'billing
       <Card
         title="집계현황"
         className="fund-billing-list-card"
-        subtitle={
-          variant === 'analysis'
-            ? '자금수지 현황 검색 조건(연월 필수)에 맞는 해당 월 보고서입니다.'
-            : '월별 기성보고서에서 작성한 프로젝트별 최신 내용입니다. 행을 누르면 해당 보고서로 이동합니다.'
-        }
+        subtitle="자금수지 현황 검색 조건(연월 필수)에 맞는 해당 월 보고서입니다. 행을 누르면 월별 기성보고서로 이동합니다."
         headerAction={
           <div className="fund-billing-list-actions">
-            {variant === 'billing' ? (
-              <Button
-                variant="primary"
-                size="sm"
-                type="button"
-                onClick={(event) => {
-                  event.preventDefault();
-                  event.stopPropagation();
-                  const last = loadLastFundBillingWriter();
-                  if (last) {
-                    navigate(`/fund/billing/${last.id}?month=${last.monthKey}`);
-                    return;
-                  }
-                  const created = createReport();
-                  navigate(`/fund/billing/${created.id}?month=${created.monthKey}`);
-                }}
-              >
-                월별 기성보고서 작성
-              </Button>
-            ) : null}
+            <Button
+              variant="primary"
+              size="sm"
+              type="button"
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                const last = loadLastFundBillingWriter();
+                if (last) {
+                  navigate(`/fund/billing/${last.id}?month=${last.monthKey}`);
+                  return;
+                }
+                const created = createReport();
+                navigate(`/fund/billing/${created.id}?month=${created.monthKey}`);
+              }}
+            >
+              월별 기성보고서 작성
+            </Button>
             <Button
               variant="outline"
               size="sm"
@@ -321,62 +327,67 @@ export function FundBillingSummary({ variant = 'billing' }: { variant?: 'billing
                 <th className="fund-billing-table__sticky" rowSpan={2}>프로젝트</th>
                 <th rowSpan={2}>사업유형</th>
                 <th rowSpan={2}>상태</th>
-                <th className="fund-billing-table__group" colSpan={5}>수금현황</th>
-                <th className="fund-billing-table__group" colSpan={5}>집행현황(하도급)</th>
+                <th className="fund-billing-table__group fund-billing-table__seg-start" colSpan={6}>수금현황</th>
+                <th className="fund-billing-table__group fund-billing-table__seg-start" colSpan={4}>집행예산</th>
               </tr>
               <tr>
-                <th className="fund-billing-table__num">PJT 계약총액</th>
-                <th className="fund-billing-table__num">전회수령누계</th>
+                <th className="fund-billing-table__num fund-billing-table__seg-start">계약총액</th>
+                <th className="fund-billing-table__num">전회수금누계</th>
                 <th className="fund-billing-table__num">금회수령 예정</th>
                 <th className="fund-billing-table__num">누계 수령금액</th>
+                <th className="fund-billing-table__rate">기성률</th>
                 <th className="fund-billing-table__num">잔여 수령액</th>
-                <th className="fund-billing-table__num">하도급 계약총액</th>
-                <th className="fund-billing-table__num">전회기성누계</th>
-                <th className="fund-billing-table__num">금회기성 예정</th>
-                <th className="fund-billing-table__num">기성금액 누계</th>
-                <th className="fund-billing-table__num">잔여 기성</th>
+                <th className="fund-billing-table__num fund-billing-table__seg-start">실행예산 직접원가</th>
+                <th className="fund-billing-table__num">전회집행누계</th>
+                <th className="fund-billing-table__num">금회집행 예정</th>
+                <th className="fund-billing-table__num">집행예산 누계</th>
               </tr>
+              {filteredRows.length > 0 ? (
+                <tr className="fund-billing-table__total">
+                  <td className="fund-billing-table__sticky fund-billing-table__total-label" colSpan={3}>
+                    <strong>합계</strong>
+                    <span className="fund-billing-table__sub">{filteredRows.length}건</span>
+                  </td>
+                  <td className="fund-billing-table__num fund-billing-table__seg-start">{won(listTotals.contractAmount)}</td>
+                  <td className="fund-billing-table__num">{won(listTotals.collectedPrior)}</td>
+                  <td className="fund-billing-table__num">
+                    {won(listTotals.expectedCollectionMonth)}
+                  </td>
+                  <td className="fund-billing-table__num">
+                    {won(listTotals.collectedTotal)}
+                  </td>
+                  <td className="fund-billing-table__rate">
+                    {listTotals.contractAmount
+                      ? formatRate((listTotals.collectedTotal / listTotals.contractAmount) * 100)
+                      : '-'}
+                  </td>
+                  <td className="fund-billing-table__num">{won(listTotals.uncollected)}</td>
+                  <td className="fund-billing-table__num fund-billing-table__seg-start">
+                    {won(listTotals.subcontractContractTotal)}
+                  </td>
+                  <td className="fund-billing-table__num">
+                    {won(listTotals.subcontractPriorBilling)}
+                  </td>
+                  <td className="fund-billing-table__num">
+                    {won(listTotals.expectedBillingMonth)}
+                  </td>
+                  <td className="fund-billing-table__num">
+                    {won(listTotals.billedCumulative)}
+                  </td>
+                </tr>
+              ) : null}
             </thead>
             <tbody>
               {filteredRows.length === 0 ? (
                 <tr>
                   <td colSpan={13} className="fund-billing-table__empty">
-                    {variant === 'analysis' && !monthHasReports
+                    {!monthHasReports
                       ? '선택한 연월에 작성된 월별 기성보고서가 없습니다.'
                       : '조건에 맞는 프로젝트가 없습니다.'}
                   </td>
                 </tr>
               ) : (
                 <>
-                  {variant === 'billing' ? (
-                    <tr className="fund-billing-table__total">
-                      <td className="fund-billing-table__sticky">
-                        <strong>합계</strong>
-                        <span className="fund-billing-table__sub">{filteredRows.length}건</span>
-                      </td>
-                      <td colSpan={2} />
-                      <td className="fund-billing-table__num">{won(listTotals.contractAmount)}</td>
-                      <td className="fund-billing-table__num">{won(listTotals.collectedPrior)}</td>
-                      <td className="fund-billing-table__num">
-                        {won(listTotals.expectedCollectionMonth)}
-                      </td>
-                      <td className="fund-billing-table__num">{won(listTotals.collectedTotal)}</td>
-                      <td className="fund-billing-table__num">{won(listTotals.uncollected)}</td>
-                      <td className="fund-billing-table__num">
-                        {won(listTotals.subcontractContractTotal)}
-                      </td>
-                      <td className="fund-billing-table__num">
-                        {won(listTotals.subcontractPriorBilling)}
-                      </td>
-                      <td className="fund-billing-table__num">
-                        {won(listTotals.expectedBillingMonth)}
-                      </td>
-                      <td className="fund-billing-table__num">
-                        {won(listTotals.billedCumulative)}
-                      </td>
-                      <td className="fund-billing-table__num">{won(listTotals.remaining)}</td>
-                    </tr>
-                  ) : null}
                   {filteredRows.map((row) => (
                   <tr
                     key={row.projectId}
@@ -406,18 +417,20 @@ export function FundBillingSummary({ variant = 'billing' }: { variant?: 'billing
                         {billingStatusLabel(row.status)}
                       </span>
                     </td>
-                    <td className="fund-billing-table__num">{won(row.contractAmount)}</td>
+                    <td className="fund-billing-table__num fund-billing-table__seg-start">{won(row.contractAmount)}</td>
                     <td className="fund-billing-table__num">{won(row.collectedPrior)}</td>
                     <td className="fund-billing-table__num">{won(row.expectedCollectionMonth)}</td>
                     <td className="fund-billing-table__num">{won(row.collectedTotal)}</td>
+                    <td className="fund-billing-table__rate">
+                      {row.contractAmount ? formatRate(row.collectionRate) : '-'}
+                    </td>
                     <td className="fund-billing-table__num">{won(row.uncollected)}</td>
-                    <td className="fund-billing-table__num">{won(row.subcontractContractTotal)}</td>
+                    <td className="fund-billing-table__num fund-billing-table__seg-start">{won(row.subcontractContractTotal)}</td>
                     <td className="fund-billing-table__num">{won(row.subcontractPriorBilling)}</td>
                     <td className="fund-billing-table__num">{won(row.expectedBillingMonth)}</td>
                     <td className="fund-billing-table__num">
                       {won(cumulativeSubcontractBilling(row))}
                     </td>
-                    <td className="fund-billing-table__num">{won(remainingBilling(row))}</td>
                   </tr>
                 ))}
                 </>
@@ -426,7 +439,7 @@ export function FundBillingSummary({ variant = 'billing' }: { variant?: 'billing
           </table>
         </div>
       </Card>
-    </>
+    </div>
   );
 }
 
@@ -436,8 +449,7 @@ function won(value: number): string {
 
 function formatRate(value: number): string {
   if (!Number.isFinite(value)) return '-';
-  const rounded = Math.abs(value - Math.round(value)) < 0.05 ? Math.round(value) : Number(value.toFixed(1));
-  return `${rounded}%`;
+  return `${value.toFixed(1)}%`;
 }
 
 function formatCashRate(value: number): string {

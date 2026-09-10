@@ -1760,9 +1760,9 @@
           "tradeType": "작품비",
           "vendorName": "씨에알이",
           "contractAmount": 200000000,
-          "priorPaid": 100000000,
-          "monthClaim": 0,
-          "inspected": 0,
+          "priorPaid": 0,
+          "monthClaim": 100000000,
+          "inspected": 100000000,
           "cumulative": 100000000,
           "remain": 100000000
         },
@@ -10847,9 +10847,9 @@
           "tradeType": "목창호공사",
           "vendorName": "현대하우스",
           "contractAmount": 1795000,
-          "priorPaid": 1795000,
-          "monthClaim": 0,
-          "inspected": 0,
+          "priorPaid": 0,
+          "monthClaim": 1795000,
+          "inspected": 1795000,
           "cumulative": 1795000,
           "remain": 0
         },
@@ -10858,9 +10858,9 @@
           "tradeType": "목창호공사",
           "vendorName": "아티잰",
           "contractAmount": 1500000,
-          "priorPaid": 1500000,
-          "monthClaim": 0,
-          "inspected": 0,
+          "priorPaid": 0,
+          "monthClaim": 1500000,
+          "inspected": 1500000,
           "cumulative": 1500000,
           "remain": 0
         }
@@ -14861,9 +14861,9 @@
           "tradeType": "수장고 집기 발주처 지정업체 대체 지급 ####",
           "vendorName": "####",
           "contractAmount": 64034546,
-          "priorPaid": 64034546,
-          "monthClaim": 0,
-          "inspected": 0,
+          "priorPaid": 0,
+          "monthClaim": 64034546,
+          "inspected": 64034546,
           "cumulative": 64034546,
           "remain": 0
         }

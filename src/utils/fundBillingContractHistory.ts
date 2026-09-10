@@ -17,7 +17,7 @@ export function ensureContractHistory(
       sequence: 0,
       label: '최초',
       amount: contractAmount,
-      changedAt: new Date().toISOString(),
+      changedAt: '',
     },
   ];
 }

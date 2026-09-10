@@ -8891,11 +8891,28 @@ body {
 .fund-billing-table th {
   background: var(--color-bg);
   font-weight: 600;
+  text-align: center;
+  vertical-align: middle;
 }
 
-.fund-billing-table__num {
+.fund-billing-table td.fund-billing-table__num {
   text-align: right;
   font-variant-numeric: tabular-nums;
+}
+
+.fund-billing-table th.fund-billing-table__num,
+.fund-billing-table th.fund-billing-table__rate,
+.fund-billing-table td.fund-billing-table__rate,
+.fund-billing-table td.fund-billing-table__total-label {
+  text-align: center;
+}
+
+.fund-billing-table__rate {
+  font-variant-numeric: tabular-nums;
+}
+
+.fund-billing-table__total-label {
+  vertical-align: middle;
 }
 
 .fund-billing-table__sticky {
@@ -9049,8 +9066,25 @@ body {
 .fund-billing-page__header {
   flex-shrink: 0;
   margin-bottom: 0;
-  padding-bottom: 16px;
+  padding-bottom: 6px;
   border-bottom: 1px solid var(--color-border);
+}
+
+.fund-billing-page__header h2 {
+  font-size: 20px;
+  line-height: 1.2;
+}
+
+.fund-billing-page__header p {
+  margin-top: 2px;
+  font-size: 13px;
+  line-height: 1.3;
+}
+
+.fund-billing-page__header .fund-billing-sandbox-note {
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.3;
 }
 
 .fund-billing-page__body {
@@ -9058,7 +9092,7 @@ body {
   min-height: 0;
   overflow: auto;
   overscroll-behavior: contain;
-  padding-top: 16px;
+  padding-top: 10px;
   padding-right: 4px;
 }
 
@@ -9181,19 +9215,29 @@ body {
   border-spacing: 0;
   font-size: 13px;
   min-width: 1480px;
+  table-layout: fixed;
 }
 
 .fund-billing-table th,
 .fund-billing-table td {
   padding: 10px 12px;
   border-bottom: 1px solid var(--color-border);
+  border-left: 1px solid #d5dee8;
   text-align: left;
   white-space: nowrap;
+  overflow: hidden;
+}
+
+.fund-billing-table th:first-child,
+.fund-billing-table td:first-child {
+  border-left: 0;
 }
 
 .fund-billing-table th {
   background: var(--color-bg);
   font-weight: 600;
+  text-align: center;
+  vertical-align: middle;
 }
 
 .fund-billing-table thead tr:first-child th {
@@ -9208,6 +9252,14 @@ body {
   z-index: 3;
 }
 
+.fund-billing-table thead tr.fund-billing-table__total td {
+  position: sticky;
+  top: 74px;
+  z-index: 3;
+  background: #eef3f8;
+  font-weight: 600;
+}
+
 .fund-billing-table thead .fund-billing-table__sticky {
   position: sticky;
   top: 0;
@@ -9216,14 +9268,47 @@ body {
   background: var(--color-bg);
 }
 
-.fund-billing-table__group {
-  text-align: center;
-  background: #f8fafc;
+.fund-billing-table thead tr.fund-billing-table__total .fund-billing-table__sticky {
+  top: 74px;
+  background: #eef3f8;
 }
 
-.fund-billing-table__num {
+.fund-billing-table thead tr:first-child .fund-billing-table__group {
+  text-align: center;
+  vertical-align: middle;
+  background: #e8eef4;
+  letter-spacing: 0.06em;
+}
+
+.fund-billing-table__group {
+  text-align: center;
+  background: #e8eef4;
+}
+
+.fund-billing-table td.fund-billing-table__num {
   text-align: right;
   font-variant-numeric: tabular-nums;
+}
+
+.fund-billing-table th.fund-billing-table__num,
+.fund-billing-table th.fund-billing-table__rate,
+.fund-billing-table td.fund-billing-table__rate,
+.fund-billing-table td.fund-billing-table__total-label {
+  text-align: center;
+}
+
+.fund-billing-table__rate {
+  font-variant-numeric: tabular-nums;
+}
+
+.fund-billing-table__total-label {
+  vertical-align: middle;
+}
+
+.fund-billing-table th.fund-billing-table__seg-start,
+.fund-billing-table td.fund-billing-table__seg-start,
+.fund-billing-table thead tr:first-child .fund-billing-table__group.fund-billing-table__seg-start {
+  border-left: 2px solid #1e3a5f;
 }
 
 .fund-billing-table__sticky {
@@ -9680,13 +9765,93 @@ body {
   padding: 0 16px 16px;
 }
 
-.fund-billing-result-wrap .fund-sheet__meta .fund-sheet__meta-total {
-  min-width: 160px;
+.fund-billing-result-wrap {
+  width: 100%;
+  max-width: 100%;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+.fund-billing-result-wrap .fund-sheet__meta {
+  width: 100%;
+  max-width: 100%;
+  table-layout: fixed;
+  box-sizing: border-box;
+}
+
+.fund-billing-result-col--label {
+  width: 8%;
+}
+
+.fund-billing-result-col--head {
+  width: 8.5%;
+}
+
+.fund-billing-result-col--num {
+  width: 13%;
+}
+
+.fund-billing-result-col--rate {
+  width: 6%;
+}
+
+.fund-billing-result-wrap .fund-sheet__meta th,
+.fund-billing-result-wrap .fund-sheet__meta td {
+  overflow: hidden;
+  white-space: nowrap;
+  box-sizing: border-box;
+  width: auto;
+  min-width: 0;
+  max-width: none;
+  padding: 8px 8px;
+}
+
+.fund-billing-result-wrap .fund-sheet__pct-cell {
+  padding-left: 1ch;
+  padding-right: 1ch;
+  color: #0b3d91;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
 }
 
 .fund-billing-result-wrap .fund-sheet__meta th.fund-billing-result-th-stack {
   white-space: normal;
   line-height: 1.2;
+  overflow: hidden;
+}
+
+.fund-billing-result-wrap .fund-billing-result-count {
+  text-align: center;
+  padding-left: 1ch;
+  padding-right: 1ch;
+}
+
+.fund-billing-result-wrap .fund-billing-result-row--in th,
+.fund-billing-result-wrap .fund-billing-result-row--in td {
+  background: #f3f8ff;
+}
+
+.fund-billing-result-wrap .fund-billing-result-row--out th,
+.fund-billing-result-wrap .fund-billing-result-row--out td {
+  background: #f3fbf6;
+}
+
+.fund-billing-result-wrap .fund-billing-result-row__cat {
+  letter-spacing: 0.04em;
+  font-weight: 800;
+}
+
+.fund-billing-result-wrap .fund-billing-result-row--in .fund-billing-result-row__cat {
+  background: #dcecff;
+  color: #1b63c9;
+  box-shadow: inset 3px 0 0 #4b8dff;
+}
+
+.fund-billing-result-wrap .fund-billing-result-row--out .fund-billing-result-row__cat {
+  background: #d9f3e4;
+  color: #1a8a52;
+  box-shadow: inset 3px 0 0 #3ccf80;
 }
 
 .fund-billing-result-th-note {
@@ -10262,24 +10427,89 @@ body {
   width: 100%;
 }
 
-.fund-sheet__table.fund-sheet__table--summary {
-  min-width: 0;
+.fund-sheet__table--summary {
   width: 100%;
+  min-width: 0;
   table-layout: fixed;
+}
+
+.fund-sheet__table--summary .fund-sheet__col-action--summary {
+  width: 40px;
+  min-width: 40px;
+  max-width: 40px;
+}
+
+.fund-sheet__table--summary .fund-sheet__col-label {
+  width: 8.2%;
+}
+
+.fund-sheet__table--summary .fund-sheet__col-money {
+  width: 10%;
+}
+
+.fund-sheet__table--summary .fund-sheet__col-pct {
+  width: 4.2%;
 }
 
 .fund-sheet__table--summary th,
 .fund-sheet__table--summary td {
-  padding: 6px 6px;
+  padding: 4px 4px;
+  overflow: hidden;
+  max-width: 0;
+  box-sizing: border-box;
 }
 
 .fund-sheet__table--summary thead th {
   white-space: normal;
-  line-height: 1.3;
+  line-height: 1.25;
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+}
+
+.fund-sheet__table--summary tbody td {
+  white-space: nowrap;
+  text-overflow: clip;
 }
 
 .fund-sheet__table--summary .fund-sheet__input {
   min-width: 0;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.fund-sheet__table--summary thead th:first-child,
+.fund-sheet__table--summary td.fund-sheet__actions {
+  width: 40px;
+  max-width: 40px;
+  overflow: hidden;
+  padding: 2px 1px;
+}
+
+.fund-sheet__table--summary td.fund-sheet__actions {
+  white-space: nowrap;
+  text-align: center;
+}
+
+.fund-sheet__table--summary .fund-sheet__actions button {
+  display: inline-block;
+  width: auto;
+  margin: 0;
+  padding: 2px 6px;
+  font-size: 11px;
+  font-weight: 600;
+  box-sizing: border-box;
+}
+
+.fund-sheet__table--summary .fund-sheet__actions button + button {
+  display: block;
+  margin: 2px auto 0;
+}
+
+.fund-sheet__table--summary .fund-sheet__contract-btn,
+.fund-sheet__table--summary .fund-sheet__contract-view {
+  overflow: hidden;
+  max-width: 100%;
 }
 
 .fund-sheet__col-action {
@@ -10365,6 +10595,88 @@ body {
   color: #fff;
 }
 
+.fund-sheet:not(.fund-sheet--summary) .fund-sheet__actions {
+  white-space: normal;
+  padding: 3px 2px;
+  vertical-align: middle;
+}
+
+.fund-sheet:not(.fund-sheet--summary) .fund-sheet__actions-wrap {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: 3px;
+}
+
+.fund-sheet:not(.fund-sheet--summary) .fund-sheet__actions button {
+  margin: 0;
+  padding: 2px 5px;
+}
+
+.fund-billing-detail .fund-sheet__actions-move,
+.fund-billing-detail .fund-sheet__actions button.fund-sheet__actions-move {
+  background: linear-gradient(180deg, #7bdcb5 0%, #2f9e73 48%, #1b7a56 100%);
+  border-color: #1b7a56;
+  color: #fff;
+  text-shadow: 0 1px 0 rgba(8, 52, 36, 0.28);
+}
+
+.fund-billing-detail .fund-sheet__actions-move.is-active,
+.fund-billing-detail .fund-sheet__actions button.fund-sheet__actions-move.is-active {
+  box-shadow: 0 0 0 2px #fff, 0 0 0 4px #1b7a56;
+}
+
+.fund-sheet__row--moving td {
+  background: #e8f8f0;
+}
+
+.fund-sheet__row--moving {
+  cursor: grab;
+  outline: 2px solid #2f9e73;
+  outline-offset: -2px;
+}
+
+.fund-sheet__row--dragging {
+  opacity: 0.42;
+  cursor: grabbing;
+}
+
+.fund-sheet__drop-slot td {
+  height: 32px;
+  padding: 0;
+  text-align: center;
+  font-size: 12px;
+  font-weight: 700;
+  color: #1b7a56;
+  background: repeating-linear-gradient(
+    -45deg,
+    #f3fbf7,
+    #f3fbf7 8px,
+    #e4f6ee 8px,
+    #e4f6ee 16px
+  );
+  border: 1px dashed #2f9e73;
+}
+
+.fund-billing-detail .fund-sheet__actions-edit,
+.fund-billing-detail .fund-sheet__actions button.fund-sheet__actions-edit,
+.fund-sheet__history-dialog .fund-sheet__actions-edit {
+  background: linear-gradient(180deg, #6aa8ff 0%, #2f7dff 46%, #1554c0 100%);
+  border-color: #2f7dff;
+  color: #fff;
+  text-shadow: 0 1px 0 rgba(11, 42, 96, 0.25);
+}
+
+.fund-billing-detail .fund-sheet__actions-del,
+.fund-billing-detail .fund-sheet__actions button.fund-sheet__actions-del,
+.fund-sheet__history-dialog .fund-sheet__history-del {
+  background: linear-gradient(180deg, #ff8a80 0%, #f03e3e 48%, #c92a2a 100%);
+  border-color: #c92a2a;
+  color: #fff;
+  text-shadow: 0 1px 0 rgba(92, 16, 16, 0.28);
+}
+
 .fund-sheet__contract-btn {
   display: inline-flex;
   flex-direction: column;
@@ -10433,7 +10745,10 @@ body {
 }
 
 .fund-sheet__history-del {
-  color: #c62828;
+  background: linear-gradient(180deg, #ff8a80 0%, #f03e3e 48%, #c92a2a 100%);
+  border-color: #c92a2a;
+  color: #fff;
+  text-shadow: 0 1px 0 rgba(92, 16, 16, 0.28);
 }
 
 .fund-sheet__history-amount-input {

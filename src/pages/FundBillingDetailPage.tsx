@@ -79,7 +79,7 @@ export function FundBillingDetailPage() {
         <h2>월별 기성보고서 작성</h2>
         <p>해당 프로젝트를 찾을 수 없습니다.</p>
         <p>
-          <Link to="/fund/billing">집계현황으로 돌아가기</Link>
+          <Link to="/fund/cash-analysis">자금수지 집계현황으로 돌아가기</Link>
         </p>
       </div>
     );

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useFitTableCellText } from '@/hooks/useFitTableCellText';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { KoreanDateInput } from '@/components/admin/KoreanDateInput';
 import { KoreanYearMonthInput } from '@/components/admin/KoreanYearMonthInput';
@@ -116,6 +117,8 @@ export function FundBillingDetail({ report, onCommit, onCreateNew }: FundBilling
   const sessionDraft = useRef(
     resolveFundBillingSessionDraft(report.id, report.monthKey, report.updatedAt),
   ).current;
+  const summaryTableRef = useRef<HTMLTableElement>(null);
+  useFitTableCellText(summaryTableRef);
 
   const [projectMode, setProjectMode] = useState<'existing' | 'new'>(
     sessionDraft?.projectMode ??
@@ -158,7 +161,7 @@ export function FundBillingDetail({ report, onCommit, onCreateNew }: FundBilling
   linesRef.current = lines;
   const liveUndoLockRef = useRef(false);
   const liveUndoTimerRef = useRef<number>();
-  const [lineDialog, setLineDialog] = useState<{ action: 'edit' | 'delete'; id: string } | null>(null);
+  const [lineDialog, setLineDialog] = useState<{ action: 'edit' | 'delete' | 'overhead-edit'; id: string } | null>(null);
   const [commonInspectedConfirmOpen, setCommonInspectedConfirmOpen] = useState(false);
   const [subcontractExceedOpen, setSubcontractExceedOpen] = useState(false);
   const [monthPickerOpen, setMonthPickerOpen] = useState(
@@ -169,6 +172,13 @@ export function FundBillingDetail({ report, onCommit, onCreateNew }: FundBilling
   const [saveConfirmOpen, setSaveConfirmOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState<SpendLine | null>(null);
+  const [movingId, setMovingId] = useState<string | null>(null);
+  const [draggingId, setDraggingId] = useState<string | null>(null);
+  const [overheadEditingId, setOverheadEditingId] = useState<string | null>(null);
+  const [overheadEditDraft, setOverheadEditDraft] = useState<SpendLine | null>(null);
+  const execPaneRef = useRef<HTMLDivElement>(null);
+  const moveSnapshotRef = useRef<SpendLine[] | null>(null);
+  const draggingRef = useRef(false);
 
   const collectedTotal = collectedPrior + expectedCollection;
   const comparableLines = useMemo(
@@ -180,12 +190,15 @@ export function FundBillingDetail({ report, onCommit, onCreateNew }: FundBilling
   );
   const vendorTotals = useMemo(() => summarizeLines(comparableLines), [comparableLines]);
   const displayOverheads = useMemo(() => {
-    const commonInspected = resolveCommonInspected(overheads, vendorTotals.inspected, directCostBudget);
-    return overheads.map((line) => {
+    const source = overheads.map((line) =>
+      overheadEditingId === line.id && overheadEditDraft ? overheadEditDraft : line,
+    );
+    const commonInspected = resolveCommonInspected(source, vendorTotals.inspected, directCostBudget);
+    return source.map((line) => {
       if (!isFundBillingCommonLine(line)) return line;
       return { ...line, monthClaim: 0, inspected: commonInspected };
     });
-  }, [overheads, vendorTotals.inspected, directCostBudget]);
+  }, [overheads, vendorTotals.inspected, directCostBudget, overheadEditingId, overheadEditDraft]);
   const overheadTotals = useMemo(() => summarizeLines(displayOverheads), [displayOverheads]);
   const grandTotals = useMemo(
     () => addSummaries(vendorTotals, overheadTotals),
@@ -197,7 +210,7 @@ export function FundBillingDetail({ report, onCommit, onCreateNew }: FundBilling
   const collectionRate = ratioText(collectedTotal, contractAmount);
   const spendRate = ratioText(spentTotal, contractAmount);
   const cashRate = cashRateText(netCash, contractAmount);
-  const execView = useMemo(() => buildExecView(lines), [lines]);
+  const execView = useMemo(() => buildExecView(lines, Boolean(movingId)), [lines, movingId]);
   const latestMonthKey = useMemo(
     () => findLatestReport(reports, report.id)?.monthKey ?? report.monthKey,
     [reports, report.id, report.monthKey],
@@ -231,6 +244,88 @@ export function FundBillingDetail({ report, onCommit, onCreateNew }: FundBilling
       document.removeEventListener('keydown', handleKeyDown);
     };
   }, [monthPickerOpen]);
+
+  useEffect(() => {
+    if (!movingId || readOnly) return;
+    const pane = execPaneRef.current;
+    if (!pane) return;
+
+    const finishDrag = () => {
+      if (!draggingRef.current) return;
+      const snapshot = moveSnapshotRef.current;
+      draggingRef.current = false;
+      setDraggingId(null);
+      if (snapshot && spendOrderKey(snapshot) !== spendOrderKey(linesRef.current)) {
+        setExecUndoStack((stack) => [...stack, cloneSpendLines(snapshot)].slice(-80));
+      } else if (snapshot) {
+        setLines(arrangeSpendLines(cloneSpendLines(snapshot)));
+      }
+      moveSnapshotRef.current = null;
+    };
+
+    const onPointerDown = (event: PointerEvent) => {
+      if (event.button !== 0) return;
+      const target = event.target as HTMLElement;
+      if (target.closest('button')) return;
+      const row = target.closest('tr[data-exec-id]') as HTMLElement | null;
+      if (!row || row.dataset.execId !== movingId) return;
+      event.preventDefault();
+      draggingRef.current = true;
+      moveSnapshotRef.current = cloneSpendLines(linesRef.current);
+      setDraggingId(movingId);
+      pane.setPointerCapture(event.pointerId);
+    };
+
+    const onPointerMove = (event: PointerEvent) => {
+      if (!draggingRef.current || !movingId) return;
+      const box = pane.getBoundingClientRect();
+      if (event.clientY < box.top + 28) pane.scrollTop -= 16;
+      if (event.clientY > box.bottom - 28) pane.scrollTop += 16;
+      const next = moveSpendLineAtPoint(linesRef.current, movingId, pane, event.clientY);
+      if (!next) return;
+      if (spendOrderKey(next) === spendOrderKey(linesRef.current)) return;
+      setLines(next);
+    };
+
+    const onPointerUp = () => finishDrag();
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      if (draggingRef.current && moveSnapshotRef.current) {
+        setLines(arrangeSpendLines(cloneSpendLines(moveSnapshotRef.current)));
+        draggingRef.current = false;
+        moveSnapshotRef.current = null;
+        setDraggingId(null);
+        return;
+      }
+      setMovingId(null);
+    };
+
+    const onDocumentPointerDown = (event: PointerEvent) => {
+      if (event.button !== 0) return;
+      if (draggingRef.current) return;
+      const target = event.target as HTMLElement;
+      if (target.closest('.fund-sheet__actions-move')) return;
+      const row = target.closest('tr[data-exec-id]') as HTMLElement | null;
+      if (row?.dataset.execId === movingId) return;
+      setMovingId(null);
+      setDraggingId(null);
+    };
+
+    pane.addEventListener('pointerdown', onPointerDown);
+    pane.addEventListener('pointermove', onPointerMove);
+    pane.addEventListener('pointerup', onPointerUp);
+    pane.addEventListener('pointercancel', onPointerUp);
+    document.addEventListener('pointerdown', onDocumentPointerDown);
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      pane.removeEventListener('pointerdown', onPointerDown);
+      pane.removeEventListener('pointermove', onPointerMove);
+      pane.removeEventListener('pointerup', onPointerUp);
+      pane.removeEventListener('pointercancel', onPointerUp);
+      document.removeEventListener('pointerdown', onDocumentPointerDown);
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, [movingId, readOnly]);
 
   const buildCurrentReport = (): FundBillingReport => ({
     id: report.id,
@@ -296,6 +391,10 @@ export function FundBillingDetail({ report, onCommit, onCreateNew }: FundBilling
     onCommit(buildCurrentReport());
     setSavedFingerprint(currentFingerprint);
     clearFundBillingSessionDraft(report.id, report.monthKey);
+    setMovingId(null);
+    setDraggingId(null);
+    draggingRef.current = false;
+    moveSnapshotRef.current = null;
     setSaveConfirmOpen(false);
   };
 
@@ -431,7 +530,37 @@ export function FundBillingDetail({ report, onCommit, onCreateNew }: FundBilling
 
   const requestEditLine = (id: string) => {
     if (editingId === id) return;
+    setMovingId(null);
+    setDraggingId(null);
     setLineDialog({ action: 'edit', id });
+  };
+
+  const toggleMoveLine = (id: string) => {
+    if (editingId) return;
+    setMovingId((current) => (current === id ? null : id));
+    setDraggingId(null);
+    draggingRef.current = false;
+    moveSnapshotRef.current = null;
+  };
+
+  const requestEditOverhead = (id: string) => {
+    if (overheadEditingId === id) return;
+    setLineDialog({ action: 'overhead-edit', id });
+  };
+
+  const clearOverheadEditState = () => {
+    setOverheadEditingId(null);
+    setOverheadEditDraft(null);
+  };
+
+  const saveEditOverhead = () => {
+    if (!overheadEditingId || !overheadEditDraft) return;
+    setOverheads((current) =>
+      current.map((line) =>
+        line.id === overheadEditingId ? clampSpendLineToContract(overheadEditDraft) : line,
+      ),
+    );
+    clearOverheadEditState();
   };
 
   const requestDeleteLine = (id: string) => {
@@ -467,6 +596,15 @@ export function FundBillingDetail({ report, onCommit, onCreateNew }: FundBilling
 
   const confirmLineDialog = () => {
     if (!lineDialog) return;
+    if (lineDialog.action === 'overhead-edit') {
+      const target = overheads.find((line) => line.id === lineDialog.id);
+      if (target) {
+        setOverheadEditingId(target.id);
+        setOverheadEditDraft({ ...target });
+      }
+      setLineDialog(null);
+      return;
+    }
     if (lineDialog.action === 'edit') {
       if (editingId && editDraft?.added && editingId !== lineDialog.id) {
         setLines((current) => arrangeSpendLines(current.filter((line) => line.id !== editingId)));
@@ -500,6 +638,8 @@ export function FundBillingDetail({ report, onCommit, onCreateNew }: FundBilling
       return next;
     });
     clearEditState();
+    setMovingId(null);
+    setDraggingId(null);
   };
 
   const projectMonthKeys = useMemo(
@@ -647,7 +787,13 @@ export function FundBillingDetail({ report, onCommit, onCreateNew }: FundBilling
             type="button"
             className="fund-billing-action-btn fund-billing-action-btn--save"
             disabled={!canSave}
-            onClick={() => setSaveConfirmOpen(true)}
+            onClick={() => {
+              setMovingId(null);
+              setDraggingId(null);
+              draggingRef.current = false;
+              moveSnapshotRef.current = null;
+              setSaveConfirmOpen(true);
+            }}
           >
             저장
           </Button>
@@ -798,20 +944,23 @@ export function FundBillingDetail({ report, onCommit, onCreateNew }: FundBilling
           </label>
         </h3>
         <div className="fund-sheet__table-wrap fund-sheet__table-wrap--summary">
-          <table className="fund-sheet__table fund-sheet__table--summary">
+          <table ref={summaryTableRef} className="fund-sheet__table fund-sheet__table--summary">
             <SpendColGroup />
             <thead>
               <SpendColumnHeaders />
             </thead>
             <tbody>
-              <SummaryRow label="직접공사비" values={vendorTotals} className="fund-sheet__subtotal" />
+              <SummaryRow label="직접공사비" values={vendorTotals} className="fund-sheet__subtotal" showActions labelSpan={2} />
               {displayOverheads.map((line) => (
                 <SpendLineRow
                   key={line.id}
                   line={line}
                   className="fund-sheet__overhead"
                   hideVendor
+                  showActions
+                  hideDelete
                   readOnly={readOnly}
+                  isEditing={overheadEditingId === line.id}
                   entryMode={
                     isFundBillingDirectExpenseLine(line)
                       ? 'cumulative'
@@ -821,7 +970,18 @@ export function FundBillingDetail({ report, onCommit, onCreateNew }: FundBilling
                   }
                   commonInspectedManual={Boolean(line.commonInspectedManual)}
                   onExceed={() => setSubcontractExceedOpen(true)}
-                  onChange={(patch) => updateOverhead(line.id, patch)}
+                  onChange={(patch) => {
+                    if (overheadEditingId === line.id) {
+                      setOverheadEditDraft((current) =>
+                        current ? clampSpendLineToContract(current, patch) : current,
+                      );
+                      return;
+                    }
+                    updateOverhead(line.id, patch);
+                  }}
+                  onEdit={() => requestEditOverhead(line.id)}
+                  onSave={saveEditOverhead}
+                  onCancelEdit={clearOverheadEditState}
                   onRequestCommonInspectedEdit={
                     isFundBillingCommonLine(line) ? requestCommonInspectedEdit : undefined
                   }
@@ -831,6 +991,8 @@ export function FundBillingDetail({ report, onCommit, onCreateNew }: FundBilling
                 label="직접원가 계"
                 values={grandTotals}
                 className="fund-sheet__total fund-sheet__section-end"
+                showActions
+                labelSpan={2}
               />
             </tbody>
           </table>
@@ -896,22 +1058,30 @@ export function FundBillingDetail({ report, onCommit, onCreateNew }: FundBilling
               </tbody>
             </table>
           </div>
-          <div className="fund-sheet__exec-pane" tabIndex={0} aria-label="직접공사비 집행 공종 목록">
+          <div className="fund-sheet__exec-pane" tabIndex={0} aria-label="직접공사비 집행 공종 목록" ref={execPaneRef}>
             <table className="fund-sheet__table">
               <ExecColGroup />
               <tbody>
                 {execView.map((row) =>
                   row.type === 'spacer' ? (
-                    <tr key={row.id} className="fund-sheet__spacer">
+                    <tr key={row.id} className="fund-sheet__spacer" data-exec-spacer={row.kind}>
                       <td colSpan={14} />
+                    </tr>
+                  ) : row.type === 'drop-slot' ? (
+                    <tr key={row.id} className="fund-sheet__drop-slot" data-exec-drop-kind={row.kind}>
+                      <td colSpan={14}>{spendKindLabel(row.kind)} 구간으로 이동</td>
                     </tr>
                   ) : (
                     <SpendLineRow
                       key={row.line.id}
                       line={editingId === row.line.id && editDraft ? editDraft : row.line}
                       showActions
+                      showMove
                       readOnly={readOnly}
                       isEditing={editingId === row.line.id}
+                      isMoving={movingId === row.line.id}
+                      isDragging={draggingId === row.line.id}
+                      moveDisabled={Boolean(editingId)}
                       onExceed={() => setSubcontractExceedOpen(true)}
                       onChange={(patch) => {
                         if (editingId === row.line.id) {
@@ -926,6 +1096,7 @@ export function FundBillingDetail({ report, onCommit, onCreateNew }: FundBilling
                         updateLine(row.line.id, patch);
                       }}
                       onEdit={() => requestEditLine(row.line.id)}
+                      onMove={() => toggleMoveLine(row.line.id)}
                       onSave={saveEditLine}
                       onCancelEdit={cancelEditLine}
                       onDelete={() => requestDeleteLine(row.line.id)}
@@ -997,6 +1168,17 @@ export function FundBillingDetail({ report, onCommit, onCreateNew }: FundBilling
         onCancel={() => setCommonInspectedConfirmOpen(false)}
       />
       <ConfirmDialog
+        open={lineDialog?.action === 'overhead-edit'}
+        title="하도급금액 수정"
+        confirmLabel="예"
+        cancelLabel="아니오"
+        message={`이 행의 하도급금액을 수기로 수정할 수 있습니다.
+
+수정한 내용은 저장을 눌러야 확정됩니다. 수정을 진행하시겠습니까?`}
+        onConfirm={confirmLineDialog}
+        onCancel={() => setLineDialog(null)}
+      />
+      <ConfirmDialog
         open={lineDialog?.action === 'edit'}
         title="집행 건 수정"
         confirmLabel="예"
@@ -1045,9 +1227,9 @@ export function FundBillingDetail({ report, onCommit, onCreateNew }: FundBilling
 function SpendColGroup() {
   return (
     <colgroup>
-      <col className="fund-sheet__col-no" />
-      <col className="fund-sheet__col-trade" />
-      <col className="fund-sheet__col-vendor" />
+      <col className="fund-sheet__col-action fund-sheet__col-action--summary" />
+      <col className="fund-sheet__col-trade fund-sheet__col-label" />
+      <col className="fund-sheet__col-vendor fund-sheet__col-label" />
       <col className="fund-sheet__col-money" />
       <col className="fund-sheet__col-money" />
       <col className="fund-sheet__col-pct" />
@@ -1116,7 +1298,8 @@ function SpendColumnHeaders() {
   return (
     <>
       <tr className="fund-sheet__colhead">
-        <th rowSpan={2} colSpan={3}>구 분</th>
+        <th rowSpan={2}>선택</th>
+        <th rowSpan={2} colSpan={2}>구 분</th>
         <th rowSpan={2}>하도급금액</th>
         <th colSpan={2}>기지출금액</th>
         <th className="fund-sheet__edit-head" colSpan={2}>금월청구금액</th>
@@ -1315,16 +1498,18 @@ function SummaryRow({
   values,
   className,
   showActions,
+  labelSpan = 3,
 }: {
   label: string;
   values: ReturnType<typeof summarizeLines>;
   className: string;
   showActions?: boolean;
+  labelSpan?: number;
 }) {
   return (
     <tr className={className}>
       {showActions ? <td className="fund-sheet__actions" /> : null}
-      <td colSpan={3} className="fund-sheet__label-merge">{label}</td>
+      <td colSpan={labelSpan} className="fund-sheet__label-merge">{label}</td>
       <td className="fund-sheet__num">{won(values.contractAmount)}</td>
       <AmountPair amount={values.priorPaid} base={values.contractAmount} />
       <AmountPair amount={values.monthClaim} base={values.contractAmount} />
@@ -1341,13 +1526,19 @@ function SpendLineRow({
   className,
   hideVendor,
   showActions,
+  showMove,
+  hideDelete,
   readOnly = false,
   isEditing,
+  isMoving,
+  isDragging,
+  moveDisabled,
   entryMode = 'default',
   commonInspectedManual = false,
   onRequestCommonInspectedEdit,
   onExceed,
   onEdit,
+  onMove,
   onSave,
   onCancelEdit,
   onDelete,
@@ -1357,20 +1548,27 @@ function SpendLineRow({
   className?: string;
   hideVendor?: boolean;
   showActions?: boolean;
+  showMove?: boolean;
+  hideDelete?: boolean;
   readOnly?: boolean;
   isEditing?: boolean;
+  isMoving?: boolean;
+  isDragging?: boolean;
+  moveDisabled?: boolean;
   entryMode?: 'default' | 'cumulative' | 'common';
   commonInspectedManual?: boolean;
   onRequestCommonInspectedEdit?: () => void;
   onExceed?: () => void;
   onEdit?: () => void;
+  onMove?: () => void;
   onSave?: () => void;
   onCancelEdit?: () => void;
   onDelete?: () => void;
 }) {
   const cumulative = line.priorPaid + line.inspected;
   const remain = line.contractAmount - cumulative;
-  const unlocked = Boolean(isEditing) && !readOnly;
+  const detailUnlocked = Boolean(isEditing) && !readOnly && !hideVendor;
+  const contractUnlocked = Boolean(isEditing) && !readOnly;
   const monthClaimLocked = readOnly || entryMode === 'cumulative' || entryMode === 'common';
   const commonInspectLocked = !readOnly && entryMode === 'common' && !commonInspectedManual;
   const inspectedLocked = readOnly || entryMode === 'cumulative' || commonInspectLocked;
@@ -1384,12 +1582,20 @@ function SpendLineRow({
     onChange(patch);
   };
 
+  const rowClass = [
+    className,
+    isMoving ? 'fund-sheet__row--moving' : '',
+    isDragging ? 'fund-sheet__row--dragging' : '',
+  ]
+    .filter(Boolean)
+    .join(' ');
+
   return (
-    <tr className={className}>
+    <tr className={rowClass || undefined} data-exec-id={showMove ? line.id : undefined} data-exec-kind={showMove ? line.kind : undefined}>
       {showActions ? (
         <td className="fund-sheet__actions">
           {readOnly ? null : (
-            <>
+            <div className="fund-sheet__actions-wrap">
               {isEditing ? (
                 <>
                   <button type="button" className="fund-sheet__actions-save" onClick={onSave}>
@@ -1400,24 +1606,36 @@ function SpendLineRow({
                   </button>
                 </>
               ) : (
-                <button type="button" onClick={onEdit}>
+                <button type="button" className="fund-sheet__actions-edit" onClick={onEdit}>
                   수정
                 </button>
               )}
-              <button type="button" className="fund-sheet__actions-del" onClick={onDelete}>
-                삭제
-              </button>
-            </>
+              {hideDelete ? null : (
+                <button type="button" className="fund-sheet__actions-del" onClick={onDelete}>
+                  삭제
+                </button>
+              )}
+              {showMove ? (
+                <button
+                  type="button"
+                  className={`fund-sheet__actions-move${isMoving ? ' is-active' : ''}`}
+                  disabled={moveDisabled || Boolean(isEditing)}
+                  onClick={onMove}
+                >
+                  이동
+                </button>
+              ) : null}
+            </div>
           )}
         </td>
       ) : null}
       {hideVendor ? (
-        <td colSpan={3} className="fund-sheet__label-merge">{line.tradeType}</td>
+        <td colSpan={showActions ? 2 : 3} className="fund-sheet__label-merge">{line.tradeType}</td>
       ) : (
         <>
           <td>{line.no}</td>
           <td>
-            {unlocked ? (
+            {detailUnlocked ? (
               <input
                 className="fund-sheet__input"
                 value={line.tradeType}
@@ -1429,7 +1647,7 @@ function SpendLineRow({
             )}
           </td>
           <td>
-            {unlocked ? (
+            {detailUnlocked ? (
               <input
                 className="fund-sheet__input"
                 value={line.vendorName}
@@ -1442,18 +1660,19 @@ function SpendLineRow({
           </td>
         </>
       )}
-      <td className={`fund-sheet__num${unlocked ? ' fund-sheet__edit' : ' fund-sheet__fixed'}`}>
+      <td className={`fund-sheet__num${contractUnlocked ? ' fund-sheet__edit' : ' fund-sheet__fixed'}`}>
         <ContractAmountHistoryCell
-          unlocked={unlocked}
+          unlocked={contractUnlocked}
           contractAmount={line.contractAmount}
           history={line.contractAmountHistory}
           cumulativeAmount={cumulative}
+          simpleBudgetEdit={hideVendor}
           onExceed={rejectExceed}
           onCommit={(next) => applyPatch(next)}
         />
       </td>
-      <td className={`fund-sheet__num${unlocked ? ' fund-sheet__edit' : ' fund-sheet__fixed'}`}>
-        {unlocked ? (
+      <td className={`fund-sheet__num${detailUnlocked ? ' fund-sheet__edit' : ' fund-sheet__fixed'}`}>
+        {detailUnlocked ? (
           <AmountInput
             value={line.priorPaid}
             wouldReject={(value) => spendPatchExceedsSubcontract(line, { priorPaid: value })}
@@ -1552,6 +1771,91 @@ function createSpendLine(kind: SpendKind): SpendLine {
   };
 }
 
+function spendKindLabel(kind: SpendKind): string {
+  return SPEND_KINDS.find((item) => item.kind === kind)?.label ?? kind;
+}
+
+function spendOrderKey(lines: SpendLine[]): string {
+  return lines.map((line) => `${line.id}:${line.kind}:${line.no}:${line.tradeType}`).join('|');
+}
+
+function applyMoveKind(line: SpendLine, kind: SpendKind): SpendLine {
+  return { ...line, kind };
+}
+
+function insertSpendLineAt(lines: SpendLine[], movedId: string, kind: SpendKind, index: number): SpendLine[] {
+  const moved = lines.find((line) => line.id === movedId);
+  if (!moved) return lines;
+  const rest = lines.filter((line) => line.id !== movedId);
+  const groups: Record<SpendKind, SpendLine[]> = {
+    subcontract: [],
+    advance: [],
+    labor: [],
+    other: [],
+  };
+  for (const line of rest) {
+    const group = line.kind && groups[line.kind] ? line.kind : inferSpendKind(line.no);
+    groups[group].push({ ...line, kind: group });
+  }
+  const target = groups[kind];
+  const insertAt = Math.max(0, Math.min(index, target.length));
+  target.splice(insertAt, 0, applyMoveKind(moved, kind));
+  return arrangeSpendLines(SPEND_KIND_ORDER.flatMap((item) => groups[item]));
+}
+
+function hitExecInsert(
+  lines: SpendLine[],
+  movedId: string,
+  pane: HTMLElement,
+  clientY: number,
+): { kind: SpendKind; index: number } | null {
+  const rest = lines.filter((line) => line.id !== movedId);
+  const markers: Array<{ y: number; kind: SpendKind; index: number }> = [];
+
+  for (const kind of SPEND_KIND_ORDER) {
+    const items = rest.filter((line) => line.kind === kind);
+    const drop = pane.querySelector(`tr[data-exec-drop-kind="${kind}"]`) as HTMLElement | null;
+    if (items.length === 0 && drop) {
+      markers.push({ y: drop.getBoundingClientRect().top, kind, index: 0 });
+      continue;
+    }
+    items.forEach((item, index) => {
+      const el = pane.querySelector(`tr[data-exec-id="${CSS.escape(item.id)}"]`) as HTMLElement | null;
+      if (!el) return;
+      const rect = el.getBoundingClientRect();
+      markers.push({ y: rect.top, kind, index });
+      if (index === items.length - 1) {
+        markers.push({ y: rect.bottom, kind, index: items.length });
+      }
+    });
+    const spacer = pane.querySelector(`tr[data-exec-spacer="${kind}"]`) as HTMLElement | null;
+    if (spacer) {
+      const rect = spacer.getBoundingClientRect();
+      markers.push({ y: rect.top + rect.height / 2, kind, index: 0 });
+    }
+  }
+
+  if (markers.length === 0) return { kind: 'subcontract', index: 0 };
+  markers.sort((left, right) => left.y - right.y);
+  let hit = markers[0];
+  for (const marker of markers) {
+    if (marker.y <= clientY) hit = marker;
+    else break;
+  }
+  return { kind: hit.kind, index: hit.index };
+}
+
+function moveSpendLineAtPoint(
+  lines: SpendLine[],
+  movedId: string,
+  pane: HTMLElement,
+  clientY: number,
+): SpendLine[] | null {
+  const hit = hitExecInsert(lines, movedId, pane, clientY);
+  if (!hit) return null;
+  return insertSpendLineAt(lines, movedId, hit.kind, hit.index);
+}
+
 function arrangeSpendLines(lines: SpendLine[]): SpendLine[] {
   const groups: Record<SpendKind, SpendLine[]> = {
     subcontract: [],
@@ -1571,16 +1875,25 @@ function arrangeSpendLines(lines: SpendLine[]): SpendLine[] {
   });
 }
 
-function buildExecView(lines: SpendLine[]): Array<{ type: 'line'; line: SpendLine } | { type: 'spacer'; id: string }> {
+type ExecViewRow =
+  | { type: 'line'; line: SpendLine }
+  | { type: 'spacer'; id: string; kind: SpendKind }
+  | { type: 'drop-slot'; id: string; kind: SpendKind };
+
+function buildExecView(lines: SpendLine[], showEmptyGroups = false): ExecViewRow[] {
   const groups = SPEND_KIND_ORDER.map((kind) => ({
     kind,
     items: lines.filter((line) => line.kind === kind),
-  })).filter((group) => group.items.length > 0);
+  })).filter((group) => showEmptyGroups || group.items.length > 0);
 
-  const rows: Array<{ type: 'line'; line: SpendLine } | { type: 'spacer'; id: string }> = [];
+  const rows: ExecViewRow[] = [];
   groups.forEach((group, index) => {
     if (index > 0) {
-      rows.push({ type: 'spacer', id: `spacer-${group.kind}` });
+      rows.push({ type: 'spacer', id: `spacer-${group.kind}`, kind: group.kind });
+    }
+    if (group.items.length === 0) {
+      rows.push({ type: 'drop-slot', id: `drop-${group.kind}`, kind: group.kind });
+      return;
     }
     group.items.forEach((line) => {
       rows.push({ type: 'line', line });
@@ -1627,15 +1940,15 @@ function won(value: number): string {
 function ratioText(part: number, whole: number): string {
   if (!whole) return '';
   const percent = (part / whole) * 100;
-  const rounded = Math.abs(percent - Math.round(percent)) < 0.05 ? Math.round(percent) : Number(percent.toFixed(1));
-  return `${rounded}%`;
+  return `${percent.toFixed(1)}%`;
 }
 
 function cashRateText(netCash: number, contractAmount: number): string {
   if (!contractAmount) return '-';
   const percent = (netCash / contractAmount) * 100;
-  const rounded = Math.abs(percent - Math.round(percent)) < 0.05 ? Math.round(percent) : Number(percent.toFixed(1));
-  if (rounded > 0) return `+${rounded}%`;
-  if (rounded < 0) return `${rounded}%`;
-  return '0%';
+  const rounded = Number(percent.toFixed(1));
+  const text = rounded.toFixed(1);
+  if (rounded > 0) return `+${text}%`;
+  if (rounded < 0) return `${text}%`;
+  return '0.0%';
 }
