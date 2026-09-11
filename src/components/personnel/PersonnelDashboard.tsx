@@ -93,9 +93,11 @@ export function PersonnelDashboard({ embedded = false }: { embedded?: boolean })
     addEmployee,
     updateDivision,
     updateTeam,
+    orgDriveWritable,
   } = useApp();
-  const { canEditMenu } = useAuth();
+  const { canEditMenu, isDeveloper } = useAuth();
   const canEditOrg = canEditMenu('org');
+  const canAssignMenuPermissions = isDeveloper;
 
   const [filters, setFilters] = useState<PersonnelFilters>(EMPTY_PERSONNEL_FILTERS);
   const [activeFilterKey, setActiveFilterKey] = useState<PersonnelFilterKey | null>(null);
@@ -422,7 +424,9 @@ export function PersonnelDashboard({ embedded = false }: { embedded?: boolean })
       return;
     }
 
-    const menuPermissions = normalizeMenuPermissions(personForm.menuPermissions);
+    const menuPermissions = canAssignMenuPermissions
+      ? normalizeMenuPermissions(personForm.menuPermissions)
+      : normalizeMenuPermissions(editingRow.menuPermissions);
 
     const sharedUpdates = {
       ...(gradeResult.updates ?? {}),
@@ -459,7 +463,7 @@ export function PersonnelDashboard({ embedded = false }: { embedded?: boolean })
       const headUpdates = {
         headName: name,
         headRank: rank,
-        ...buildHeadFieldUpdates(gradeResult, positionResult, personForm.menuPermissions),
+        ...buildHeadFieldUpdates(gradeResult, positionResult, menuPermissions ?? {}),
       };
 
       if (oldDivisionId !== affiliation.divisionId) {
@@ -484,7 +488,7 @@ export function PersonnelDashboard({ embedded = false }: { embedded?: boolean })
       const headUpdates = {
         headName: name,
         headRank: rank,
-        ...buildHeadFieldUpdates(gradeResult, positionResult, personForm.menuPermissions),
+        ...buildHeadFieldUpdates(gradeResult, positionResult, menuPermissions ?? {}),
       };
 
       if (oldTeamId !== affiliation.teamId) {
@@ -559,11 +563,13 @@ export function PersonnelDashboard({ embedded = false }: { embedded?: boolean })
       return;
     }
 
-    const menuPermissions = normalizeMenuPermissions(personForm.menuPermissions);
+    const menuPermissions = canAssignMenuPermissions
+      ? normalizeMenuPermissions(personForm.menuPermissions)
+      : undefined;
     updateEmployee(employeeId, {
       ...(gradeResult.updates ?? {}),
       ...(positionResult.updates ?? {}),
-      menuPermissions,
+      ...(menuPermissions ? { menuPermissions } : {}),
       divisionId: affiliation.divisionId,
       teamId: affiliation.teamId,
     });
@@ -932,7 +938,10 @@ export function PersonnelDashboard({ embedded = false }: { embedded?: boolean })
                     </p>
                   ) : (
                     <PersonnelMenuPermissionsEditor
+                      key={editingRow?.id ?? (isAddingPerson ? 'new' : 'menu-perms')}
                       value={personForm.menuPermissions}
+                      disabled={!canAssignMenuPermissions}
+                      sandbox={!orgDriveWritable}
                       onChange={(menuPermissions) =>
                         setPersonForm((prev) => ({ ...prev, menuPermissions }))
                       }

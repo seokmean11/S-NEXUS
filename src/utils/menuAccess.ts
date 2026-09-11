@@ -1,10 +1,9 @@
 import type { PersonnelMenuPermissionKey, PersonnelMenuPermissions } from '@/types/menuPermissions';
-import { PERSONNEL_MENU_PERMISSION_KEYS } from '@/types/menuPermissions';
+import { PERSONNEL_MENU_PERMISSION_KEYS, menuPermissionSupportsEdit } from '@/types/menuPermissions';
 import { isMenuPermissionEnabled } from '@/utils/menuPermissions';
 
 /** 조직관리에서 부여하지 않은 메뉴 — 일반 사용자 기본 차단 */
 export function isRestrictedPathForRegularUser(pathname: string): boolean {
-  if (pathname.startsWith('/fund')) return true;
   if (pathname.startsWith('/misc-info/competitor-analysis')) return false;
   if (pathname.startsWith('/misc-info')) return true;
   return false;
@@ -22,6 +21,10 @@ export function pathnameToMenuPermissionKey(pathname: string): PersonnelMenuPerm
   if (pathname.startsWith('/purchase/bidding') || pathname === '/purchase') return 'bidding';
   if (pathname.startsWith('/purchase')) return 'purchase';
   if (pathname.startsWith('/misc-info/competitor-analysis')) return 'competitor';
+  if (pathname.startsWith('/fund/cash-analysis')) return 'fundCash';
+  if (pathname.startsWith('/fund/billing')) return 'fundBilling';
+  if (pathname === '/project/register' || pathname === '/admin') return 'projectRegister';
+  if (pathname === '/project/allocation' || pathname === '/allocation') return 'projectAllocation';
   return null;
 }
 
@@ -79,6 +82,13 @@ export function canAccessPathWithMenuPermissions(
 
   if (pathname === '/' || pathname.startsWith('/dashboard')) return true;
 
+  if (pathname === '/fund' || pathname === '/fund/') {
+    return (
+      canAccessMenuPermission(permissions, 'fundBilling', false) ||
+      canAccessMenuPermission(permissions, 'fundCash', false)
+    );
+  }
+
   if (isRestrictedPathForRegularUser(pathname)) return false;
 
   if (
@@ -86,8 +96,10 @@ export function canAccessPathWithMenuPermissions(
     pathname === '/admin' ||
     pathname === '/allocation'
   ) {
-    if (!roleFlags) return false;
-    return canAccessProjectManagementPath(pathname, roleFlags);
+    if (roleFlags && canAccessProjectManagementPath(pathname, roleFlags)) return true;
+    const projectKey = pathnameToMenuPermissionKey(pathname);
+    if (projectKey) return canAccessMenuPermission(permissions, projectKey, false);
+    return false;
   }
 
   const key = pathnameToMenuPermissionKey(pathname);
@@ -118,24 +130,62 @@ export function canShowSidebarNavItem(
 export function shouldShowProjectManagementNav(
   roleFlags: ProjectManagementRoleFlags,
   isDeveloper: boolean,
+  permissions?: PersonnelMenuPermissions,
 ): boolean {
   if (isDeveloper) return true;
-  return roleFlags.canCreateProject || roleFlags.canAccessAllocationForm;
+  return (
+    roleFlags.canCreateProject ||
+    roleFlags.canAccessAllocationForm ||
+    canAccessMenuPermission(permissions, 'projectRegister', false) ||
+    canAccessMenuPermission(permissions, 'projectAllocation', false)
+  );
 }
 
 export function shouldShowProjectManagementSubItem(
   path: string,
   roleFlags: ProjectManagementRoleFlags,
   isDeveloper: boolean,
+  permissions?: PersonnelMenuPermissions,
 ): boolean {
   if (isDeveloper) return true;
-  if (path === '/project/register') return roleFlags.canCreateProject;
-  if (path === '/project/allocation') return roleFlags.canAccessAllocationForm;
+  if (path === '/project/register') {
+    return (
+      roleFlags.canCreateProject ||
+      canAccessMenuPermission(permissions, 'projectRegister', false)
+    );
+  }
+  if (path === '/project/allocation') {
+    return (
+      roleFlags.canAccessAllocationForm ||
+      canAccessMenuPermission(permissions, 'projectAllocation', false)
+    );
+  }
   return false;
 }
 
-export function shouldShowFundNav(isDeveloper: boolean): boolean {
-  return isDeveloper;
+export function shouldShowFundNav(
+  permissions: PersonnelMenuPermissions | undefined,
+  isDeveloper: boolean,
+): boolean {
+  if (isDeveloper) return true;
+  return (
+    canAccessMenuPermission(permissions, 'fundBilling', false) ||
+    canAccessMenuPermission(permissions, 'fundCash', false)
+  );
+}
+
+export function shouldShowFundSubItem(
+  path: string,
+  permissions: PersonnelMenuPermissions | undefined,
+  isDeveloper: boolean,
+): boolean {
+  if (path.startsWith('/fund/cash-analysis')) {
+    return canAccessMenuPermission(permissions, 'fundCash', isDeveloper);
+  }
+  if (path.startsWith('/fund/billing') || path === '/fund') {
+    return canAccessMenuPermission(permissions, 'fundBilling', isDeveloper);
+  }
+  return shouldShowFundNav(permissions, isDeveloper);
 }
 
 export function shouldShowMiscInfoNav(isDeveloper: boolean): boolean {
@@ -155,7 +205,8 @@ export function isMenuPermissionReadOnly(
   key: PersonnelMenuPermissionKey,
 ): boolean {
   const entry = permissions?.[key];
-  if (key === 'org') return entry?.mode === 'read';
+  if (!entry) return true;
+  if (menuPermissionSupportsEdit(key)) return entry.mode !== 'edit';
   return true;
 }
 

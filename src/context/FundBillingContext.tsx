@@ -13,6 +13,7 @@ import type { FundBillingReport } from '@/types/fundBillingReport';
 import { fetchFundBillingLedger, saveFundBillingLedger } from '@/services/fundBillingApi';
 import {
   buildSummaryRowsFromLedger,
+  closeFundBillingProject,
   createEmptyFundBillingReport,
   ensureProjectMonthReport,
   findReportForMonth,
@@ -27,6 +28,8 @@ interface FundBillingContextValue {
   summaryRows: FundBillingProjectRow[];
   getReport: (projectId: string, monthKey?: string) => FundBillingReport | undefined;
   commitReport: (report: FundBillingReport) => void;
+  stageReport: (report: FundBillingReport) => void;
+  closeProject: (projectId: string, current?: FundBillingReport) => void;
   createReport: () => FundBillingReport;
   ensureMonthReport: (projectId: string, monthKey: string) => void;
 }
@@ -98,23 +101,33 @@ export function FundBillingProvider({ children }: { children: ReactNode }) {
     [persist],
   );
 
-  const createReport = useCallback(() => {
-    const created = createEmptyFundBillingReport();
-    pendingReportRef.current = created;
-    commitReport(created);
-    return created;
-  }, [commitReport]);
+  const stageReport = useCallback((report: FundBillingReport) => {
+    pendingReportRef.current = report;
+  }, []);
 
-  const ensureMonthReport = useCallback(
-    (projectId: string, monthKey: string) => {
-      setReports((current) => {
-        const result = ensureProjectMonthReport(current, projectId, monthKey);
-        if (result.created) persist(result.reports);
-        return result.reports;
+  const closeProject = useCallback(
+    (projectId: string, current?: FundBillingReport) => {
+      setReports((existing) => {
+        const next = closeFundBillingProject(existing, projectId, current);
+        persist(next);
+        return next;
       });
     },
     [persist],
   );
+
+  const createReport = useCallback(() => {
+    const created = createEmptyFundBillingReport();
+    pendingReportRef.current = created;
+    return created;
+  }, []);
+
+  const ensureMonthReport = useCallback((projectId: string, monthKey: string) => {
+    setReports((current) => {
+      const result = ensureProjectMonthReport(current, projectId, monthKey);
+      return result.reports;
+    });
+  }, []);
 
   const getReport = useCallback(
     (projectId: string, monthKey?: string) => {
@@ -146,10 +159,23 @@ export function FundBillingProvider({ children }: { children: ReactNode }) {
       summaryRows,
       getReport,
       commitReport,
+      stageReport,
+      closeProject,
       createReport,
       ensureMonthReport,
     }),
-    [ready, driveWritable, reports, summaryRows, getReport, commitReport, createReport, ensureMonthReport],
+    [
+      ready,
+      driveWritable,
+      reports,
+      summaryRows,
+      getReport,
+      commitReport,
+      stageReport,
+      closeProject,
+      createReport,
+      ensureMonthReport,
+    ],
   );
 
   return <FundBillingContext.Provider value={value}>{children}</FundBillingContext.Provider>;

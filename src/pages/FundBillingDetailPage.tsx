@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { FundBillingDetail } from '@/components/fund/FundBillingDetail';
+import { useAuth } from '@/context/AuthContext';
 import { useFundBilling } from '@/context/FundBillingContext';
 import { createBlankMonthReportFromTemplate } from '@/utils/fundBillingReport';
 import {
@@ -15,19 +16,37 @@ export function FundBillingDetailPage() {
   const [searchParams] = useSearchParams();
   const monthKey = searchParams.get('month') ?? undefined;
   const navigate = useNavigate();
+  const { canEditMenu, canAccessPath } = useAuth();
   const { ready, getReport, commitReport, createReport } = useFundBilling();
+  const canWriteBilling = canEditMenu('fundBilling');
 
   useEffect(() => {
     if (!ready || projectId !== 'new') return;
+    if (!canWriteBilling) {
+      navigate(
+        canAccessPath('/fund/cash-analysis') ? '/fund/cash-analysis' : '/fund/billing',
+        { replace: true },
+      );
+      return;
+    }
     const created = createReport();
     navigate(`/fund/billing/${created.id}?month=${created.monthKey}`, { replace: true });
-  }, [ready, projectId, createReport, navigate]);
+  }, [ready, projectId, canWriteBilling, canAccessPath, createReport, navigate]);
 
   useEffect(() => {
     if (!ready || !projectId || projectId === 'new') return;
     if (monthKey) return;
     const latest = getReport(projectId);
     if (latest?.monthKey) {
+      navigate(`/fund/billing/${projectId}?month=${latest.monthKey}`, { replace: true });
+    }
+  }, [ready, projectId, monthKey, getReport, navigate]);
+
+  useEffect(() => {
+    if (!ready || !projectId || projectId === 'new' || !monthKey) return;
+    if (getReport(projectId, monthKey)) return;
+    const latest = getReport(projectId);
+    if (latest?.monthKey && monthKey > latest.monthKey) {
       navigate(`/fund/billing/${projectId}?month=${latest.monthKey}`, { replace: true });
     }
   }, [ready, projectId, monthKey, getReport, navigate]);

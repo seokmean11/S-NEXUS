@@ -1,23 +1,40 @@
 import { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
+import { useAuth } from '@/context/AuthContext';
 import { useFundBilling } from '@/context/FundBillingContext';
 import { loadLastFundBillingWriter } from '@/utils/fundBillingSessionDraft';
 
 export function FundBillingPage() {
   const navigate = useNavigate();
-  const { ready, driveWritable, createReport } = useFundBilling();
+  const { canEditMenu, canAccessPath } = useAuth();
+  const { ready, driveWritable, createReport, getReport } = useFundBilling();
+  const canWriteBilling = canEditMenu('fundBilling');
 
   useEffect(() => {
     if (!ready) return;
     const last = loadLastFundBillingWriter();
     if (last) {
-      navigate(`/fund/billing/${last.id}?month=${last.monthKey}`, { replace: true });
+      const exact = getReport(last.id, last.monthKey);
+      if (exact) {
+        navigate(`/fund/billing/${last.id}?month=${last.monthKey}`, { replace: true });
+        return;
+      }
+      const latest = getReport(last.id);
+      if (latest?.monthKey) {
+        navigate(`/fund/billing/${latest.id}?month=${latest.monthKey}`, { replace: true });
+        return;
+      }
+    }
+    if (!canWriteBilling) {
+      if (canAccessPath('/fund/cash-analysis')) {
+        navigate('/fund/cash-analysis', { replace: true });
+      }
       return;
     }
     const created = createReport();
     navigate(`/fund/billing/${created.id}?month=${created.monthKey}`, { replace: true });
-  }, [ready, createReport, navigate]);
+  }, [ready, canWriteBilling, canAccessPath, createReport, getReport, navigate]);
 
   return (
     <ErrorBoundary fallbackTitle="기성관리 화면 오류">
@@ -36,7 +53,11 @@ export function FundBillingPage() {
         </div>
 
         <div className="fund-billing-page__body">
-          <p className="fund-billing-info-hint">월별 기성보고서를 불러오는 중입니다.</p>
+          <p className="fund-billing-info-hint">
+            {canWriteBilling
+              ? '월별 기성보고서를 불러오는 중입니다.'
+              : '자금수지 집계현황에서 프로젝트를 선택하면 월별 기성보고서를 조회할 수 있습니다.'}
+          </p>
         </div>
       </div>
     </ErrorBoundary>

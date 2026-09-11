@@ -55,6 +55,19 @@ function attachRoutes(
 
     if (req.method === 'PUT') {
       try {
+        if (role !== 'service') {
+          try {
+            await readJsonBody(req);
+          } catch {
+            // 본문만 비우고 Drive·원천 파일에는 쓰지 않습니다.
+          }
+          sendJson(res, 200, {
+            ok: true,
+            meta: getServerOrgMeta(root, role, 'sandbox'),
+            skipped: true,
+          });
+          return;
+        }
         const body = await readJsonBody<{ state: StoredOrgState }>(req);
         if (
           !body?.state ||

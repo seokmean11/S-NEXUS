@@ -415,9 +415,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const remoteOrgUpdatedAtRef = useRef<string | null>(null);
   const lastLocalOrgSaveAtRef = useRef(0);
   const skipRemoteOrgSaveRef = useRef(true);
+  const orgDriveWritableRef = useRef(false);
   const orgSavedAtRef = useRef<string | undefined>(
     (initialOrg as StoredOrgState).savedAt ?? loadOrgState()?.savedAt,
   );
+  orgDriveWritableRef.current = orgDriveWritable;
 
   const applyOrgStatePayload = useCallback((saved: StoredOrgState) => {
     skipRemoteOrgSaveRef.current = true;
@@ -547,6 +549,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
     if (skippingRemote) {
       skipRemoteOrgSaveRef.current = false;
+      return;
+    }
+
+    if (!orgDriveWritableRef.current) {
       return;
     }
 

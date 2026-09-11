@@ -14,6 +14,7 @@ import { Button } from '@/components/ui/Button';
 
 import { Card } from '@/components/ui/Card';
 
+import { useAuth } from '@/context/AuthContext';
 import { useOutsourcingSearch } from '@/context/OutsourcingSearchContext';
 
 import { useDeferredFacetedFilterOptions } from '@/hooks/useDeferredFacetedFilterOptions';
@@ -58,6 +59,7 @@ function isOutsourcingDataStale(updatedAt?: string): boolean {
 
 
 export function OutsourcingSearchPage() {
+  const { isDeveloper } = useAuth();
 
   const {
 
@@ -272,11 +274,13 @@ export function OutsourcingSearchPage() {
 
         <div className="outsourcing-search-page__body" ref={bodyRef}>
 
+        {isDeveloper ? (
         <OutsourcingDriveUploadCard
           uploading={driveUploading}
           onUpload={handleDriveUpload}
           onRefreshFromDrive={() => loadFromLocalFolder(true)}
         />
+        ) : null}
 
         {showStaleDataAlert && (
           <div className="outsourcing-stale-data-alert no-print" role="alert">

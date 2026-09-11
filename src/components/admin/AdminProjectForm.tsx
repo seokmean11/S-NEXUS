@@ -9,6 +9,7 @@ import { KoreanDateInput } from '@/components/admin/KoreanDateInput';
 import { ProjectNameSearchInput } from '@/components/admin/ProjectNameSearchInput';
 import { ProjectCodeInput } from '@/components/admin/ProjectCodeInput';
 import { useApp } from '@/context/AppContext';
+import { useAuth } from '@/context/AuthContext';
 import type { ProjectContinuity, ProjectMarketScope, ProjectType } from '@/types';
 import type { ContractEditTarget } from '@/types/contractChange';
 import { MAX_CONTRACT_AMENDMENTS } from '@/types/contractChange';
@@ -82,6 +83,7 @@ export function AdminProjectForm() {
     saveInitialContract,
     permissions,
   } = useApp();
+  const { canAccessPath, isDeveloper } = useAuth();
   const [mode, setMode] = useState<FormMode>('create');
   const [formEntryMode, setFormEntryMode] = useState<FormEntryMode>('new');
   const [existingNameQuery, setExistingNameQuery] = useState('');
@@ -473,7 +475,10 @@ export function AdminProjectForm() {
     });
   };
 
-  if (!permissions.canCreateProject) {
+  if (
+    !permissions.canCreateProject &&
+    (isDeveloper || !canAccessPath('/project/register'))
+  ) {
     return null;
   }
 

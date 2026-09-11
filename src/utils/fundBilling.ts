@@ -36,7 +36,7 @@ export function aggregateFundBillingRows(
       divisionId: project.divisionId,
       divisionName: project.divisionName,
       teamName: project.teamName,
-      status: project.status,
+      status: '진행',
       startDate: project.startDate,
       contractAmount,
       billedTotal: collectedTotal,
@@ -96,20 +96,22 @@ export function filterFundBillingRows(
   rows: FundBillingProjectRow[],
   options: {
     keyword: string;
-    divisionId: string;
+    divisionId?: string;
+    divisionIds?: string[];
     quickFilter: FundBillingQuickFilter;
     projectId?: string;
   },
 ): FundBillingProjectRow[] {
   const keyword = options.keyword.trim().toLowerCase();
+  const selectedDepartments = (options.divisionIds ?? (options.divisionId ? [options.divisionId] : []))
+    .map((item) => mapTextToFundBillingDepartment(item))
+    .filter(Boolean);
+  const selectedSet = new Set(selectedDepartments);
 
   return rows.filter((row) => {
-    if (
-      options.divisionId &&
-      mapTextToFundBillingDepartment(row.divisionId, row.divisionName) !==
-        mapTextToFundBillingDepartment(options.divisionId)
-    ) {
-      return false;
+    if (selectedSet.size > 0) {
+      const department = mapTextToFundBillingDepartment(row.divisionId || row.divisionName);
+      if (!selectedSet.has(department)) return false;
     }
 
     if (options.projectId) {
@@ -121,9 +123,9 @@ export function filterFundBillingRows(
 
     switch (options.quickFilter) {
       case 'active':
-        return row.status !== '완료';
+        return row.status !== '종결';
       case 'completed':
-        return row.status === '완료';
+        return row.status === '종결';
       case 'uncollected':
         return row.uncollected > 0;
       case 'unpaid':
@@ -160,15 +162,15 @@ export function buildFundBillingExportTable(rows: FundBillingProjectRow[]): Expo
       row.projectCode,
       row.divisionName,
       row.pmName ?? '',
-      row.status === '완료' ? '완료' : '진행',
+      row.status === '종결' ? '종결' : '진행',
       String(Math.round(row.contractAmount)),
       String(Math.round(row.collectedPrior)),
       String(Math.round(row.expectedCollectionMonth)),
       String(Math.round(row.collectedTotal)),
       row.contractAmount ? (row.collectionRate).toFixed(1) : '',
       String(Math.round(row.uncollected)),
-      String(Math.round(row.subcontractContractTotal)),
-      String(Math.round(row.subcontractPriorBilling)),
+      String(Math.round(row.executionBudget ?? 0)),
+      String(Math.round(spendPriorTotal(row))),
       String(Math.round(row.expectedBillingMonth)),
       String(Math.round(cumulativeSubcontractBilling(row))),
     ]),
@@ -176,11 +178,17 @@ export function buildFundBillingExportTable(rows: FundBillingProjectRow[]): Expo
 }
 
 export function remainingBilling(row: FundBillingProjectRow): number {
-  return Math.max(0, row.subcontractContractTotal - (row.subcontractPriorBilling + row.expectedBillingMonth));
+  return Math.max(0, row.subcontractContractTotal - cumulativeSubcontractBilling(row));
+}
+
+export function spendPriorTotal(row: FundBillingProjectRow): number {
+  return row.spentPrior ?? row.subcontractPriorBilling;
 }
 
 export function cumulativeSubcontractBilling(row: FundBillingProjectRow): number {
-  return row.subcontractPriorBilling + row.expectedBillingMonth;
+  const prior = spendPriorTotal(row);
+  const month = row.monthSpendExpected ?? row.expectedBillingMonth;
+  return prior + month;
 }
 
 export function subcontractsForProject(

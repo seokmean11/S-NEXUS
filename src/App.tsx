@@ -11,7 +11,7 @@ import { ProjectManagementLayout } from '@/pages/ProjectManagementLayout';
 import { PurchaseLayout } from '@/pages/PurchaseLayout';
 import { BidManagementPage } from '@/pages/BidManagementPage';
 import { OutsourcingSearchPage } from '@/pages/OutsourcingSearchPage';
-import { FundManagementLayout } from '@/pages/FundManagementLayout';
+import { FundManagementIndex, FundManagementLayout } from '@/pages/FundManagementLayout';
 import { FundBillingPage } from '@/pages/FundBillingPage';
 import { FundBillingDetailPage } from '@/pages/FundBillingDetailPage';
 import { FundCashAnalysisPage } from '@/pages/FundCashAnalysisPage';
@@ -86,7 +86,7 @@ export function AppRoutes() {
             </ErrorBoundary>
           }
         >
-          <Route index element={<Navigate to="billing" replace />} />
+          <Route index element={<FundManagementIndex />} />
           <Route path="billing" element={<FundBillingPage />} />
           <Route path="billing/:projectId" element={<FundBillingDetailPage />} />
           <Route path="cash-analysis" element={<FundCashAnalysisPage />} />

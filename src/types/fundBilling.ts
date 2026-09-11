@@ -1,4 +1,5 @@
-import type { ProjectStatus } from '@/types';
+/** 자금수지 집계현황 상태 — 담당자가 종결 설정 */
+export type FundBillingListStatus = '진행' | '종결';
 
 /** 발주처 수금(청구·입금) — 프로젝트 × 차수 */
 export interface FundCollection {
@@ -61,7 +62,7 @@ export interface FundBillingProjectRow {
   divisionId: string;
   divisionName: string;
   teamName: string;
-  status: ProjectStatus;
+  status: FundBillingListStatus;
   startDate: string;
   endDate?: string;
   monthKey?: string;

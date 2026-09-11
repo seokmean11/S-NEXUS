@@ -40,6 +40,7 @@ export interface StoredFundBillingReport {
   linkedProjectId: string;
   overheads: StoredSpendLine[];
   lines: StoredSpendLine[];
+  closed?: boolean;
   updatedAt: string;
 }
 
@@ -144,6 +145,7 @@ async function buildLedgerWorkbook(ledger: StoredFundBillingLedger): Promise<Buf
     { header: '금월수금예정', key: 'expectedCollection', width: 16 },
     { header: '직접원가실행', key: 'directCostBudget', width: 16 },
     { header: '수금누계', key: 'collectedTotal', width: 16 },
+    { header: '종결', key: 'closed', width: 8 },
     { header: '저장시각', key: 'updatedAt', width: 22 },
   ];
   for (const report of ledger.reports) {
@@ -162,6 +164,7 @@ async function buildLedgerWorkbook(ledger: StoredFundBillingLedger): Promise<Buf
       expectedCollection: report.expectedCollection,
       directCostBudget: report.directCostBudget ?? 0,
       collectedTotal: report.collectedPrior + report.expectedCollection,
+      closed: report.closed ? 'Y' : '',
       updatedAt: report.updatedAt,
     });
   }
@@ -214,6 +217,62 @@ async function buildLedgerWorkbook(ledger: StoredFundBillingLedger): Promise<Buf
   return Buffer.from(buffer);
 }
 
+function storedReportKey(report: StoredFundBillingReport): string {
+  return `${report.id}::${report.monthKey}`;
+}
+
+/** 종결 프로젝트의 월별 기성 원천은 이후 저장으로 삭제·수정되지 않습니다. */
+export function preserveClosedFundBillingReports(
+  incoming: StoredFundBillingReport[],
+  existing: StoredFundBillingReport[] | undefined,
+): StoredFundBillingReport[] {
+  const existingList = existing ?? [];
+  const closedIds = new Set(
+    [...incoming, ...existingList].filter((item) => item.closed).map((item) => item.id),
+  );
+  if (closedIds.size === 0) return incoming;
+
+  const existingByKey = new Map(existingList.map((item) => [storedReportKey(item), item]));
+  const incomingKeys = new Set(incoming.map(storedReportKey));
+  const merged = incoming.map((item) => {
+    if (!closedIds.has(item.id)) return item;
+    const prev = existingByKey.get(storedReportKey(item));
+    if (!prev) return { ...item, closed: true };
+    if (prev.closed) return { ...prev, closed: true };
+    return { ...item, closed: true };
+  });
+  for (const prev of existingList) {
+    if (!closedIds.has(prev.id)) continue;
+    if (!incomingKeys.has(storedReportKey(prev))) {
+      merged.push({ ...prev, closed: true });
+    }
+  }
+  return merged;
+}
+
+function readJsonLedgerFile(file: string): StoredFundBillingLedger | null {
+  if (!fs.existsSync(file)) return null;
+  try {
+    return JSON.parse(fs.readFileSync(file, 'utf8')) as StoredFundBillingLedger;
+  } catch {
+    return null;
+  }
+}
+
+async function loadExistingLedgerForMerge(
+  root: string,
+  role: FundBillingRuntimeRole,
+): Promise<StoredFundBillingLedger | null> {
+  try {
+    await syncNexusDriveCache(root, { force: true, subfolderKey: 'fundBilling', minIntervalMs: 0 });
+    const cached = readJsonLedgerFile(driveCachedJsonPath(root));
+    if (cached?.reports?.length) return cached;
+  } catch {
+    /* fall through */
+  }
+  return readFundBillingLedger(root, 'service') ?? readFundBillingLedger(root, role);
+}
+
 export async function writeFundBillingLedger(
   root: string,
   ledger: StoredFundBillingLedger,
@@ -221,9 +280,14 @@ export async function writeFundBillingLedger(
 ): Promise<{ updatedAt: string; driveSaved: boolean; driveError?: string; writable: boolean }> {
   const writable = role === 'service';
   ensureFundBillingStoreDir(root, role);
+  const previous = await loadExistingLedgerForMerge(root, role);
+  const reports = preserveClosedFundBillingReports(
+    Array.isArray(ledger.reports) ? ledger.reports : [],
+    previous?.reports,
+  );
   const stamped: StoredFundBillingLedger = {
     ...ledger,
-    reports: Array.isArray(ledger.reports) ? ledger.reports : [],
+    reports,
     updatedAt: new Date().toISOString(),
   };
   fs.writeFileSync(jsonPath(root, role), JSON.stringify(stamped, null, 2), 'utf8');

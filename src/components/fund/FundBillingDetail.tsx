@@ -12,6 +12,7 @@ import { Button } from '@/components/ui/Button';
 import { Select } from '@/components/ui/Input';
 import { FUND_BILLING_DEPARTMENTS, mapTextToFundBillingDepartment } from '@/constants/fundBilling';
 import { useApp } from '@/context/AppContext';
+import { useAuth } from '@/context/AuthContext';
 import type { FundBillingReport, FundBillingSpendKind } from '@/types/fundBillingReport';
 import type { FundBillingContractRevision } from '@/types/fundBillingReport';
 import type { Project } from '@/types';
@@ -23,7 +24,9 @@ import {
   inferSpendKind,
   isFundBillingCommonLine,
   isFundBillingDirectExpenseLine,
+  isFundBillingProjectClosed,
   latestReportsByProject,
+  reportHasPersistableInput,
   reportsForProject,
   resolveCommonInspected,
 } from '@/utils/fundBillingReport';
@@ -83,7 +86,9 @@ interface FundBillingDetailProps {
 export function FundBillingDetail({ report, onCommit, onCreateNew }: FundBillingDetailProps) {
   const navigate = useNavigate();
   const location = useLocation();
-  const { reports, driveWritable } = useFundBilling();
+  const { isPathReadOnly } = useAuth();
+  const menuReadOnly = isPathReadOnly('/fund/billing');
+  const { reports, driveWritable, stageReport, closeProject } = useFundBilling();
   const { employees, executiveOffice, divisions, teams } = useApp();
   const personnel = useMemo(
     () => buildPersonnelRows(executiveOffice.admins, employees, divisions, teams),
@@ -128,14 +133,16 @@ export function FundBillingDetail({ report, onCommit, onCreateNew }: FundBilling
   const locationGate = (location.state as FundBillingLocationState | null)?.fundBillingGate;
   const [pendingCreateMonth, setPendingCreateMonth] = useState<string | null>(null);
   const [pastNoticeOpen, setPastNoticeOpen] = useState(locationGate === 'past');
-  const [editConfirmOpen, setEditConfirmOpen] = useState(locationGate === 'ask-edit');
+  const [editConfirmOpen, setEditConfirmOpen] = useState(
+    locationGate === 'ask-edit' && !menuReadOnly && !report.closed,
+  );
   const [projectName, setProjectName] = useState(sessionDraft?.projectName ?? report.projectName);
   const [selectedProjectId, setSelectedProjectId] = useState(
     sessionDraft?.selectedProjectId ?? (report.linkedProjectId || report.id),
   );
   const [projectCode, setProjectCode] = useState(sessionDraft?.projectCode ?? report.projectCode);
   const [department, setDepartment] = useState(
-    sessionDraft?.department ?? mapTextToFundBillingDepartment(report.department, report.projectName),
+    sessionDraft?.department ?? mapTextToFundBillingDepartment(report.department),
   );
   const [contractAmount, setContractAmount] = useState(sessionDraft?.contractAmount ?? report.contractAmount);
   const [startDate, setStartDate] = useState(sessionDraft?.startDate ?? report.startDate);
@@ -170,6 +177,8 @@ export function FundBillingDetail({ report, onCommit, onCreateNew }: FundBilling
   const [existingSearchOpen, setExistingSearchOpen] = useState(false);
   const writePanelRef = useRef<HTMLDivElement>(null);
   const [saveConfirmOpen, setSaveConfirmOpen] = useState(false);
+  const [closeConfirmOpen, setCloseConfirmOpen] = useState(false);
+  const [closedWriteNoticeOpen, setClosedWriteNoticeOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState<SpendLine | null>(null);
   const [movingId, setMovingId] = useState<string | null>(null);
@@ -216,12 +225,29 @@ export function FundBillingDetail({ report, onCommit, onCreateNew }: FundBilling
     [reports, report.id, report.monthKey],
   );
   const [editUnlocked, setEditUnlocked] = useState(() => {
+    if (menuReadOnly || report.closed) return false;
     if (locationGate === 'past' || report.monthKey < latestMonthKey) return false;
     if (locationGate === 'ask-edit') return false;
     if (sessionDraft?.editUnlocked) return true;
     return true;
   });
-  const readOnly = report.monthKey < latestMonthKey || !editUnlocked;
+  const projectClosed =
+    Boolean(report.closed) || isFundBillingProjectClosed(reports, report.id);
+  const readOnly = menuReadOnly || projectClosed || report.monthKey < latestMonthKey || !editUnlocked;
+
+  useEffect(() => {
+    if (!projectClosed) return;
+    setEditUnlocked(false);
+    setEditConfirmOpen(false);
+    setPendingCreateMonth(null);
+  }, [projectClosed]);
+
+  useEffect(() => {
+    if (!menuReadOnly) return;
+    setEditUnlocked(false);
+    setEditConfirmOpen(false);
+    setMonthPickerOpen(false);
+  }, [menuReadOnly]);
 
   useEffect(() => {
     if (!monthPickerOpen) setExistingSearchOpen(false);
@@ -343,7 +369,8 @@ export function FundBillingDetail({ report, onCommit, onCreateNew }: FundBilling
     directCostBudget,
     linkedProjectId: selectedProjectId,
     overheads: displayOverheads,
-    lines,
+    lines: comparableLines,
+    closed: Boolean(report.closed),
     updatedAt: new Date().toISOString(),
   });
 
@@ -384,11 +411,43 @@ export function FundBillingDetail({ report, onCommit, onCreateNew }: FundBilling
   );
   const [savedFingerprint, setSavedFingerprint] = useState<string | null>(null);
   const driveFingerprint = useMemo(() => fingerprintFromSavedReport(report), [report]);
-  const canSave = !readOnly && currentFingerprint !== (savedFingerprint ?? driveFingerprint);
+  const persistable = reportHasPersistableInput({
+    projectName,
+    contractAmount,
+    collectedPrior,
+    expectedCollection,
+    directCostBudget,
+    overheads: displayOverheads,
+    lines: comparableLines,
+  });
+  const canSave =
+    !readOnly && persistable && currentFingerprint !== (savedFingerprint ?? driveFingerprint);
+  const canClose =
+    !menuReadOnly &&
+    !projectClosed &&
+    (persistable || reports.some((item) => item.id === report.id && item.projectName.trim()));
 
   const confirmSaveReport = () => {
     if (!canSave) return;
     onCommit(buildCurrentReport());
+    if (editingId && editDraft) {
+      setLines((current) =>
+        arrangeSpendLines(
+          current.map((line) =>
+            line.id === editingId ? { ...clampSpendLineToContract(editDraft), added: false, manualEdit: false } : line,
+          ),
+        ),
+      );
+      clearEditState();
+    }
+    if (overheadEditingId && overheadEditDraft) {
+      setOverheads((current) =>
+        current.map((line) =>
+          line.id === overheadEditingId ? clampSpendLineToContract(overheadEditDraft) : line,
+        ),
+      );
+      clearOverheadEditState();
+    }
     setSavedFingerprint(currentFingerprint);
     clearFundBillingSessionDraft(report.id, report.monthKey);
     setMovingId(null);
@@ -398,11 +457,21 @@ export function FundBillingDetail({ report, onCommit, onCreateNew }: FundBilling
     setSaveConfirmOpen(false);
   };
 
+  const confirmCloseProject = () => {
+    if (!canClose) return;
+    closeProject(report.id, buildCurrentReport());
+    setCloseConfirmOpen(false);
+    setEditUnlocked(false);
+    setMonthPickerOpen(false);
+    setPendingCreateMonth(null);
+    clearFundBillingSessionDraft(report.id, report.monthKey);
+  };
+
   const sessionDraftPayloadRef = useRef<{ save: boolean; draft: Parameters<typeof saveFundBillingSessionDraft>[0] } | null>(
     null,
   );
   sessionDraftPayloadRef.current = {
-    save: currentFingerprint !== (savedFingerprint ?? driveFingerprint),
+    save: !readOnly && currentFingerprint !== (savedFingerprint ?? driveFingerprint),
     draft: {
       id: report.id,
       monthKey: report.monthKey,
@@ -655,6 +724,8 @@ export function FundBillingDetail({ report, onCommit, onCreateNew }: FundBilling
       if (nextMonth < latestMonthKey) {
         setEditUnlocked(false);
         setPastNoticeOpen(true);
+      } else if (projectClosed) {
+        setClosedWriteNoticeOpen(true);
       } else if (nextMonth === latestMonthKey && !editUnlocked) {
         setEditConfirmOpen(true);
       }
@@ -670,8 +741,13 @@ export function FundBillingDetail({ report, onCommit, onCreateNew }: FundBilling
 
     if (nextMonth === latestMonthKey) {
       navigate(`/fund/billing/${report.id}?month=${nextMonth}`, {
-        state: { fundBillingGate: 'ask-edit' } satisfies FundBillingLocationState,
+        state: { fundBillingGate: projectClosed ? 'past' : 'ask-edit' } satisfies FundBillingLocationState,
       });
+      return;
+    }
+
+    if (projectClosed) {
+      setClosedWriteNoticeOpen(true);
       return;
     }
 
@@ -684,12 +760,17 @@ export function FundBillingDetail({ report, onCommit, onCreateNew }: FundBilling
 
   const finishCreateNextMonth = () => {
     if (!pendingCreateMonth) return;
+    if (projectClosed) {
+      setPendingCreateMonth(null);
+      setClosedWriteNoticeOpen(true);
+      return;
+    }
     const latestSaved = findLatestReport(reports, report.id) ?? report;
     const current = buildCurrentReport();
     const source = report.monthKey === latestMonthKey && editUnlocked ? current : latestSaved;
     if (report.monthKey === latestMonthKey && editUnlocked && canSave) onCommit(current);
     const created = createMonthReportFromPrevious(source, pendingCreateMonth);
-    onCommit(created);
+    stageReport(created);
     setPendingCreateMonth(null);
     clearFundBillingSessionDraft(report.id, report.monthKey);
     navigate(`/fund/billing/${created.id}?month=${created.monthKey}`, {
@@ -707,6 +788,9 @@ export function FundBillingDetail({ report, onCommit, onCreateNew }: FundBilling
           </p>
           <h2>월별 기성보고서 작성</h2>
           <p>담당자가 프로젝트별 월 기성을 입력하는 화면입니다. 프로젝트 등록 메뉴가 열리면 검색 선택과 직접 입력을 함께 사용합니다.</p>
+          {projectClosed ? (
+            <p className="fund-billing-sandbox-note">종결된 프로젝트입니다. 월별 기성보고서를 작성할 수 없습니다.</p>
+          ) : null}
           {driveWritable ? null : (
             <p className="fund-billing-sandbox-note">
               개발웹입니다. 화면 기능은 서비스웹과 같고, 저장해도 공용 드라이브는 바뀌지 않습니다. 새로고침하면 서비스웹이 저장한 공용 드라이브 원장을 다시 불러옵니다.
@@ -721,7 +805,11 @@ export function FundBillingDetail({ report, onCommit, onCreateNew }: FundBilling
             <Button
               type="button"
               className="fund-billing-action-btn fund-billing-action-btn--write"
-              onClick={() => setMonthPickerOpen((open) => !open)}
+              disabled={menuReadOnly}
+              onClick={() => {
+                if (menuReadOnly) return;
+                setMonthPickerOpen((open) => !open);
+              }}
             >
               작성
             </Button>
@@ -796,6 +884,14 @@ export function FundBillingDetail({ report, onCommit, onCreateNew }: FundBilling
             }}
           >
             저장
+          </Button>
+          <Button
+            type="button"
+            className="fund-billing-action-btn fund-billing-action-btn--close"
+            disabled={!canClose}
+            onClick={() => setCloseConfirmOpen(true)}
+          >
+            종결
           </Button>
         </div>
       </div>
@@ -1119,6 +1215,26 @@ export function FundBillingDetail({ report, onCommit, onCreateNew }: FundBilling
         onCancel={() => setSaveConfirmOpen(false)}
       />
       <ConfirmDialog
+        open={closeConfirmOpen}
+        title="프로젝트 종결"
+        confirmLabel="예"
+        cancelLabel="아니오"
+        message={`선택 프로젝트를 종결 하시겠습니까?
+
+종결하면 프로젝트 기성보고서 작성이 불가합니다.`}
+        onConfirm={confirmCloseProject}
+        onCancel={() => setCloseConfirmOpen(false)}
+      />
+      <ConfirmDialog
+        open={closedWriteNoticeOpen}
+        title="안내"
+        confirmLabel="확인"
+        hideCancel
+        message="종결된 프로젝트는 기성보고서를 작성할 수 없습니다."
+        onConfirm={() => setClosedWriteNoticeOpen(false)}
+        onCancel={() => setClosedWriteNoticeOpen(false)}
+      />
+      <ConfirmDialog
         open={pastNoticeOpen}
         title="안내"
         confirmLabel="확인"
@@ -1334,7 +1450,7 @@ function fingerprintFromSavedReport(report: FundBillingReport): string {
   return fingerprintBillingDraft({
     projectName: report.projectName,
     projectCode: report.projectCode,
-    department: mapTextToFundBillingDepartment(report.department, report.projectName),
+    department: mapTextToFundBillingDepartment(report.department),
     contractAmount: report.contractAmount,
     startDate: report.startDate,
     endDate: report.endDate,

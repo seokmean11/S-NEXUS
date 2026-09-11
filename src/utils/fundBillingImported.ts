@@ -110,8 +110,6 @@ function toRow(project: ImportedFundBillingProject): FundBillingProjectRow {
   const unpaid = project.vendors.reduce((sum, vendor) => sum + vendor.remain, 0);
   const paidTotal = project.vendors.reduce((sum, vendor) => sum + vendor.cumulative, 0);
   const uncollected = Math.max(0, project.contractAmount - project.collectedTotal);
-  const periodEnded = Boolean(project.endDate && project.endDate < AS_OF);
-  const completed = uncollected <= 0 && periodEnded;
   const department = mapTextToFundBillingDepartment(project.group);
 
   return {
@@ -122,7 +120,7 @@ function toRow(project: ImportedFundBillingProject): FundBillingProjectRow {
     divisionId: department,
     divisionName: department,
     teamName: project.pmName || '-',
-    status: completed ? '완료' : '실행',
+    status: '진행',
     startDate: project.startDate,
     endDate: project.endDate,
     pmName: project.pmName,

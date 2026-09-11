@@ -43,6 +43,8 @@ export interface FundBillingReport {
   linkedProjectId: string;
   overheads: FundBillingSpendLine[];
   lines: FundBillingSpendLine[];
+  /** 담당자가 종결한 프로젝트. 이후 월별 기성보고서 작성 불가 */
+  closed?: boolean;
   updatedAt: string;
 }
 

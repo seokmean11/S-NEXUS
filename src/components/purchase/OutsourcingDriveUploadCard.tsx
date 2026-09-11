@@ -16,19 +16,22 @@ export function OutsourcingDriveUploadCard({
 }: OutsourcingDriveUploadCardProps) {
   const [dragOver, setDragOver] = useState(false);
   const [uploadConfigured, setUploadConfigured] = useState<boolean | null>(null);
-  const [driveWritable, setDriveWritable] = useState(true);
+  const [driveWritable, setDriveWritable] = useState<boolean | null>(null);
   const [refreshing, setRefreshing] = useState(false);
 
   useEffect(() => {
     void fetchNexusDataFolderStatus()
       .then((status) => {
         setUploadConfigured(Boolean(status.uploadConfigured));
-        setDriveWritable(status.writable !== false);
+        setDriveWritable(status.writable === true);
       })
-      .catch(() => setUploadConfigured(false));
+      .catch(() => {
+        setUploadConfigured(false);
+        setDriveWritable(false);
+      });
   }, []);
 
-  const allowed = uploadConfigured === true && !uploading;
+  const allowed = driveWritable === true && uploadConfigured === true && !uploading;
 
   const handleFiles = (fileList: FileList | File[] | null) => {
     const file = fileList?.[0];
@@ -63,8 +66,8 @@ export function OutsourcingDriveUploadCard({
 
       {driveWritable === false ? (
         <p className="outsourcing-drive-upload-card__warn" role="status">
-          개발웹입니다. 공용 Drive에는 올리지 않습니다. 「Drive에서 새로고침」으로 서비스웹 최신을 불러오고,
-          로컬 CSV/Excel 선택으로 기능만 테스트하세요.
+          개발웹에서는 외주 DB를 업로드할 수 없습니다. 서비스웹에서 개발자 계정으로 올리세요.
+          「Drive에서 새로고침」으로 서비스웹 최신 데이터를 불러올 수 있습니다.
         </p>
       ) : uploadConfigured === false ? (
         <p className="outsourcing-drive-upload-card__warn" role="alert">
@@ -72,6 +75,7 @@ export function OutsourcingDriveUploadCard({
         </p>
       ) : null}
 
+      {driveWritable === false ? null : (
       <div
         className={`outsourcing-drive-upload-card__dropzone ${
           dragOver && allowed ? 'outsourcing-drive-upload-card__dropzone--active' : ''
@@ -106,6 +110,7 @@ export function OutsourcingDriveUploadCard({
           </span>
         </label>
       </div>
+      )}
     </Card>
   );
 }

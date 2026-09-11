@@ -14,6 +14,7 @@ import {
   canShowSidebarNavItem,
   shouldShowCompetitorNav,
   shouldShowFundNav,
+  shouldShowFundSubItem,
   shouldShowMiscInfoNav,
   shouldShowPurchaseNav,
   shouldShowPurchaseSubItem,
@@ -132,12 +133,12 @@ export function AppLayout() {
       return;
     }
 
-    if (projectRegisterRoute && !isDeveloper && !permissions.canCreateProject) {
+    if (projectRegisterRoute && !canAccessPath('/project/register')) {
       navigate('/', { replace: true });
       return;
     }
 
-    if (projectAllocationRoute && !isDeveloper && !permissions.canAccessAllocationForm) {
+    if (projectAllocationRoute && !canAccessPath('/project/allocation')) {
       navigate('/', { replace: true });
       return;
     }
@@ -146,6 +147,19 @@ export function AppLayout() {
 
       navigate('/', { replace: true });
 
+    }
+
+    if (path.startsWith('/fund') && !canAccessPath(path)) {
+      if (canAccessPath('/fund/cash-analysis')) {
+        navigate('/fund/cash-analysis', { replace: true });
+        return;
+      }
+      if (canAccessPath('/fund/billing')) {
+        navigate('/fund/billing', { replace: true });
+        return;
+      }
+      navigate('/', { replace: true });
+      return;
     }
 
     if (isRestrictedPathForRegularUser(path) && !isDeveloper) {
@@ -176,12 +190,19 @@ export function AppLayout() {
     canShowSidebarNavItem(item.path, menuPermissions, isDeveloper),
   );
 
-  const showFundNav = shouldShowFundNav(isDeveloper);
+  const showFundNav = shouldShowFundNav(menuPermissions, isDeveloper);
+  const visibleFundSubItems = FUND_MANAGEMENT_SUB_ITEMS.filter((item) =>
+    shouldShowFundSubItem(item.path, menuPermissions, isDeveloper),
+  );
   const showMiscInfoNav = shouldShowMiscInfoNav(isDeveloper);
-  const showProjectNav = shouldShowProjectManagementNav(projectRoleFlags, isDeveloper);
+  const showProjectNav = shouldShowProjectManagementNav(
+    projectRoleFlags,
+    isDeveloper,
+    menuPermissions,
+  );
 
   const visibleProjectSubItems = PROJECT_MANAGEMENT_SUB_ITEMS.filter((item) =>
-    shouldShowProjectManagementSubItem(item.path, projectRoleFlags, isDeveloper),
+    shouldShowProjectManagementSubItem(item.path, projectRoleFlags, isDeveloper, menuPermissions),
   );
 
   const visiblePurchaseSubItems = PURCHASE_SUB_ITEMS.filter((item) =>
@@ -391,7 +412,7 @@ export function AppLayout() {
 
                 {fundOpen && (
                   <div className="lnb__subnav">
-                    {FUND_MANAGEMENT_SUB_ITEMS.map((item) => (
+                    {visibleFundSubItems.map((item) => (
                       <NavLink
                         key={item.path}
                         to={item.path}

@@ -362,3 +362,95 @@ export function FundBillingPmSearch({ people, value, onChange }: FundBillingPmSe
     </div>
   );
 }
+
+interface FundBillingDepartmentMultiSelectProps {
+  label?: string;
+  options: { value: string; label: string }[];
+  selected: string[];
+  onChange: (selected: string[]) => void;
+}
+
+export function FundBillingDepartmentMultiSelect({
+  label = '사업유형',
+  options,
+  selected,
+  onChange,
+}: FundBillingDepartmentMultiSelectProps) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const selectedSet = useMemo(() => new Set(selected), [selected]);
+  const displayLabel =
+    selected.length === 0
+      ? '전체 본부'
+      : options.filter((item) => selectedSet.has(item.value)).map((item) => item.label).join(', ');
+
+  useEffect(() => {
+    if (!open) return;
+    const handlePointerDown = (event: MouseEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setOpen(false);
+    };
+    document.addEventListener('mousedown', handlePointerDown);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [open]);
+
+  const toggleValue = (value: string) => {
+    if (selectedSet.has(value)) {
+      onChange(selected.filter((item) => item !== value));
+      return;
+    }
+    onChange([...selected, value]);
+  };
+
+  return (
+    <div className="form-field fund-billing-dept-select" ref={rootRef}>
+      <span className="form-field__label">{label}</span>
+      <button
+        type="button"
+        className="form-field__input form-field__select fund-billing-dept-select__toggle"
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        onClick={() => setOpen((current) => !current)}
+      >
+        {displayLabel}
+      </button>
+      {open ? (
+        <ul className="fund-billing-dept-select__menu" role="listbox" aria-multiselectable="true" aria-label="사업유형">
+          <li>
+            <button
+              type="button"
+              className={`fund-billing-dept-select__option${selected.length === 0 ? ' is-active' : ''}`}
+              onClick={() => {
+                onChange([]);
+                setOpen(false);
+              }}
+            >
+              전체 본부
+            </button>
+          </li>
+          {options.map((option) => {
+            const checked = selectedSet.has(option.value);
+            return (
+              <li key={option.value}>
+                <label className={`fund-billing-dept-select__option${checked ? ' is-checked' : ''}`}>
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    onChange={() => toggleValue(option.value)}
+                  />
+                  <span>{option.label}</span>
+                </label>
+              </li>
+            );
+          })}
+        </ul>
+      ) : null}
+    </div>
+  );
+}

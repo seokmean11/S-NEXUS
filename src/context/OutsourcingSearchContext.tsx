@@ -16,7 +16,7 @@ import {
   type OutsourcingLoadResult,
   type OutsourcingLocalInfo,
 } from '@/services/outsourcingLocalData';
-import { uploadNexusDataFolderFile } from '@/services/nexusDataFolderApi';
+import { fetchNexusDataFolderStatus, uploadNexusDataFolderFile } from '@/services/nexusDataFolderApi';
 import {
   EMPTY_OUTSOURCING_DATE_RANGE,
   EMPTY_OUTSOURCING_FILTERS,
@@ -191,6 +191,17 @@ export function OutsourcingSearchProvider({ children }: { children: ReactNode })
       const lower = file.name.toLowerCase();
       if (!lower.endsWith('.csv') && !lower.endsWith('.xlsx') && !lower.endsWith('.xls')) {
         setError('CSV 또는 Excel(xlsx, xls) 파일만 업로드할 수 있습니다.');
+        return;
+      }
+
+      try {
+        const status = await fetchNexusDataFolderStatus();
+        if (status.writable === false) {
+          setError('개발웹에서는 외주 DB를 업로드할 수 없습니다. 서비스웹에서 올리세요.');
+          return;
+        }
+      } catch {
+        setError('Drive 업로드 권한을 확인하지 못했습니다.');
         return;
       }
 
