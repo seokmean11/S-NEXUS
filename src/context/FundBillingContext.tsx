@@ -27,7 +27,7 @@ interface FundBillingContextValue {
   reports: FundBillingReport[];
   summaryRows: FundBillingProjectRow[];
   getReport: (projectId: string, monthKey?: string) => FundBillingReport | undefined;
-  commitReport: (report: FundBillingReport) => void;
+  commitReport: (report: FundBillingReport, originMonthKey?: string) => void;
   stageReport: (report: FundBillingReport) => void;
   closeProject: (projectId: string, current?: FundBillingReport) => void;
   createReport: () => FundBillingReport;
@@ -90,10 +90,10 @@ export function FundBillingProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const commitReport = useCallback(
-    (report: FundBillingReport) => {
+    (report: FundBillingReport, originMonthKey?: string) => {
       pendingReportRef.current = report;
       setReports((current) => {
-        const next = upsertFundBillingReport(current, report);
+        const next = upsertFundBillingReport(current, report, originMonthKey);
         persist(next);
         return next;
       });
@@ -107,6 +107,7 @@ export function FundBillingProvider({ children }: { children: ReactNode }) {
 
   const closeProject = useCallback(
     (projectId: string, current?: FundBillingReport) => {
+      pendingReportRef.current = null;
       setReports((existing) => {
         const next = closeFundBillingProject(existing, projectId, current);
         persist(next);

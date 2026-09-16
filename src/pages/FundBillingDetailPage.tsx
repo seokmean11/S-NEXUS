@@ -5,11 +5,7 @@ import { FundBillingDetail } from '@/components/fund/FundBillingDetail';
 import { useAuth } from '@/context/AuthContext';
 import { useFundBilling } from '@/context/FundBillingContext';
 import { createBlankMonthReportFromTemplate } from '@/utils/fundBillingReport';
-import {
-  rememberFundBillingWriter,
-  resolveFundBillingSessionDraft,
-  sessionDraftToReport,
-} from '@/utils/fundBillingSessionDraft';
+import { rememberFundBillingWriter } from '@/utils/fundBillingSessionDraft';
 
 export function FundBillingDetailPage() {
   const { projectId } = useParams();
@@ -73,11 +69,8 @@ export function FundBillingDetailPage() {
   const waitingForFuture = Boolean(
     monthKey && latest && !exact && monthKey > latest.monthKey,
   );
-  const sessionDraft = monthKey
-    ? resolveFundBillingSessionDraft(projectId, monthKey, exact?.updatedAt ?? latest?.updatedAt)
-    : null;
 
-  if (!monthKey || (waitingForFuture && !sessionDraft)) {
+  if (!monthKey || waitingForFuture) {
     return (
       <div className="page-header">
         <h2>월별 기성보고서 작성</h2>
@@ -88,7 +81,6 @@ export function FundBillingDetailPage() {
 
   const report =
     exact ??
-    (sessionDraft ? sessionDraftToReport(sessionDraft) : undefined) ??
     (viewingPastWithoutData && latest && monthKey
       ? createBlankMonthReportFromTemplate(latest, monthKey)
       : latest);

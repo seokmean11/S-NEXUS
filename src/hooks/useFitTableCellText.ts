@@ -20,6 +20,7 @@ function shrinkToFit(el: HTMLElement) {
 
 function fitCell(cell: HTMLElement) {
   if (cell.classList.contains('fund-billing-result-th-stack')) return;
+  if (cell.classList.contains('fund-billing-table__th-stack')) return;
   const nested = cell.querySelectorAll<HTMLElement>('input, button, span');
   nested.forEach(resetFont);
   resetFont(cell);

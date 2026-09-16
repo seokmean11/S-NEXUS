@@ -22,21 +22,24 @@ import {
   findExactReportForProject,
   findLatestReport,
   inferSpendKind,
+  calcSalaryPriorPaid,
   isFundBillingCommonLine,
   isFundBillingDirectExpenseLine,
+  isFundBillingSalaryLine,
   isFundBillingProjectClosed,
+  monthHasBillingContentChanges,
+  previousReportForMonth,
   latestReportsByProject,
+  monthKeyFromWrittenDate,
   reportHasPersistableInput,
   reportsForProject,
   resolveCommonInspected,
+  resolveCommonPriorPaid,
+  writtenDateForMonthKey,
 } from '@/utils/fundBillingReport';
-import { formatAmountInput, formatMonthKeyToKorean, parseAmountInput, parseKoreanDateToIso } from '@/utils/formatInput';
+import { formatAmountInput, formatMonthKeyToKorean, parseAmountInput, parseKoreanDateToIso, parseKoreanYearMonthToKey } from '@/utils/formatInput';
 import { buildPersonnelRows } from '@/utils/personnelSearch';
-import {
-  clearFundBillingSessionDraft,
-  resolveFundBillingSessionDraft,
-  saveFundBillingSessionDraft,
-} from '@/utils/fundBillingSessionDraft';
+import { clearFundBillingSessionDraft } from '@/utils/fundBillingSessionDraft';
 
 interface SpendLine {
   id: string;
@@ -52,6 +55,9 @@ interface SpendLine {
   added?: boolean;
   manualEdit?: boolean;
   commonInspectedManual?: boolean;
+  commonPriorPaidManual?: boolean;
+  constructionTotalMonths?: number;
+  constructionElapsedMonths?: number;
 }
 
 type SpendKind = FundBillingSpendKind;
@@ -72,6 +78,10 @@ const SPEND_KIND_NO: Record<SpendKind, string> = {
 
 const SPEND_KIND_ORDER: SpendKind[] = ['subcontract', 'advance', 'labor', 'other'];
 
+function formatWritingMonthLabel(monthKey: string): string {
+  return formatMonthKeyToKorean(monthKey).replace(/ 0(\d)월/, ' $1월');
+}
+
 interface FundBillingLocationState {
   fundBillingGate?: 'past' | 'ask-edit' | 'edit';
   writePanelOpen?: boolean;
@@ -79,7 +89,7 @@ interface FundBillingLocationState {
 
 interface FundBillingDetailProps {
   report: FundBillingReport;
-  onCommit: (report: FundBillingReport) => void;
+  onCommit: (report: FundBillingReport, originMonthKey?: string) => void;
   onCreateNew: () => FundBillingReport;
 }
 
@@ -119,15 +129,11 @@ export function FundBillingDetail({ report, onCommit, onCreateNew }: FundBilling
     [reports],
   );
 
-  const sessionDraft = useRef(
-    resolveFundBillingSessionDraft(report.id, report.monthKey, report.updatedAt),
-  ).current;
   const summaryTableRef = useRef<HTMLTableElement>(null);
   useFitTableCellText(summaryTableRef);
 
   const [projectMode, setProjectMode] = useState<'existing' | 'new'>(
-    sessionDraft?.projectMode ??
-      (report.linkedProjectId ? 'existing' : report.projectName ? 'existing' : 'new'),
+    report.linkedProjectId ? 'existing' : report.projectName ? 'existing' : 'new',
   );
   const [newProjectConfirmOpen, setNewProjectConfirmOpen] = useState(false);
   const locationGate = (location.state as FundBillingLocationState | null)?.fundBillingGate;
@@ -136,31 +142,21 @@ export function FundBillingDetail({ report, onCommit, onCreateNew }: FundBilling
   const [editConfirmOpen, setEditConfirmOpen] = useState(
     locationGate === 'ask-edit' && !menuReadOnly && !report.closed,
   );
-  const [projectName, setProjectName] = useState(sessionDraft?.projectName ?? report.projectName);
-  const [selectedProjectId, setSelectedProjectId] = useState(
-    sessionDraft?.selectedProjectId ?? (report.linkedProjectId || report.id),
-  );
-  const [projectCode, setProjectCode] = useState(sessionDraft?.projectCode ?? report.projectCode);
-  const [department, setDepartment] = useState(
-    sessionDraft?.department ?? mapTextToFundBillingDepartment(report.department),
-  );
-  const [contractAmount, setContractAmount] = useState(sessionDraft?.contractAmount ?? report.contractAmount);
-  const [startDate, setStartDate] = useState(sessionDraft?.startDate ?? report.startDate);
-  const [endDate, setEndDate] = useState(sessionDraft?.endDate ?? report.endDate);
-  const [pmName, setPmName] = useState(sessionDraft?.pmName ?? report.pmName);
-  const writtenDate = formatMonthKeyToKorean(report.monthKey);
-  const [collectedPrior, setCollectedPrior] = useState(sessionDraft?.collectedPrior ?? report.collectedPrior);
-  const [expectedCollection, setExpectedCollection] = useState(
-    sessionDraft?.expectedCollection ?? report.expectedCollection,
-  );
-  const [directCostBudget, setDirectCostBudget] = useState(
-    sessionDraft?.directCostBudget ?? report.directCostBudget ?? 0,
-  );
-  const [overheads, setOverheads] = useState<SpendLine[]>(() =>
-    (sessionDraft?.overheads ?? report.overheads).map((line) => ({ ...line })),
-  );
+  const [projectName, setProjectName] = useState(report.projectName);
+  const [selectedProjectId, setSelectedProjectId] = useState(report.linkedProjectId || report.id);
+  const [projectCode, setProjectCode] = useState(report.projectCode);
+  const [department, setDepartment] = useState(mapTextToFundBillingDepartment(report.department));
+  const [contractAmount, setContractAmount] = useState(report.contractAmount);
+  const [startDate, setStartDate] = useState(report.startDate);
+  const [endDate, setEndDate] = useState(report.endDate);
+  const [pmName, setPmName] = useState(report.pmName);
+  const [writtenDate, setWrittenDate] = useState(formatMonthKeyToKorean(report.monthKey));
+  const [collectedPrior, setCollectedPrior] = useState(report.collectedPrior);
+  const [expectedCollection, setExpectedCollection] = useState(report.expectedCollection);
+  const [directCostBudget, setDirectCostBudget] = useState(report.directCostBudget ?? 0);
+  const [overheads, setOverheads] = useState<SpendLine[]>(() => report.overheads.map((line) => ({ ...line })));
   const [lines, setLines] = useState<SpendLine[]>(() =>
-    arrangeSpendLines((sessionDraft?.lines ?? report.lines).map((line) => ({ ...line }))),
+    arrangeSpendLines(report.lines.map((line) => ({ ...line }))),
   );
   const [execUndoStack, setExecUndoStack] = useState<SpendLine[][]>([]);
   const [addKindOpen, setAddKindOpen] = useState(false);
@@ -170,6 +166,10 @@ export function FundBillingDetail({ report, onCommit, onCreateNew }: FundBilling
   const liveUndoTimerRef = useRef<number>();
   const [lineDialog, setLineDialog] = useState<{ action: 'edit' | 'delete' | 'overhead-edit'; id: string } | null>(null);
   const [commonInspectedConfirmOpen, setCommonInspectedConfirmOpen] = useState(false);
+  const [commonPriorPaidConfirmOpen, setCommonPriorPaidConfirmOpen] = useState(false);
+  const [salaryPriorDialogOpen, setSalaryPriorDialogOpen] = useState(false);
+  const [salaryTotalMonthsDraft, setSalaryTotalMonthsDraft] = useState('');
+  const [salaryElapsedMonthsDraft, setSalaryElapsedMonthsDraft] = useState('');
   const [subcontractExceedOpen, setSubcontractExceedOpen] = useState(false);
   const [monthPickerOpen, setMonthPickerOpen] = useState(
     Boolean((location.state as FundBillingLocationState | null)?.writePanelOpen),
@@ -178,6 +178,7 @@ export function FundBillingDetail({ report, onCommit, onCreateNew }: FundBilling
   const writePanelRef = useRef<HTMLDivElement>(null);
   const [saveConfirmOpen, setSaveConfirmOpen] = useState(false);
   const [closeConfirmOpen, setCloseConfirmOpen] = useState(false);
+  const [closeBlockedNoticeOpen, setCloseBlockedNoticeOpen] = useState(false);
   const [closedWriteNoticeOpen, setClosedWriteNoticeOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState<SpendLine | null>(null);
@@ -203,11 +204,19 @@ export function FundBillingDetail({ report, onCommit, onCreateNew }: FundBilling
       overheadEditingId === line.id && overheadEditDraft ? overheadEditDraft : line,
     );
     const commonInspected = resolveCommonInspected(source, vendorTotals.inspected, directCostBudget);
+    const commonPriorPaid = resolveCommonPriorPaid(source, vendorTotals.priorPaid, directCostBudget);
     return source.map((line) => {
       if (!isFundBillingCommonLine(line)) return line;
-      return { ...line, monthClaim: 0, inspected: commonInspected };
+      return { ...line, monthClaim: 0, inspected: commonInspected, priorPaid: commonPriorPaid };
     });
-  }, [overheads, vendorTotals.inspected, directCostBudget, overheadEditingId, overheadEditDraft]);
+  }, [
+    overheads,
+    vendorTotals.inspected,
+    vendorTotals.priorPaid,
+    directCostBudget,
+    overheadEditingId,
+    overheadEditDraft,
+  ]);
   const overheadTotals = useMemo(() => summarizeLines(displayOverheads), [displayOverheads]);
   const grandTotals = useMemo(
     () => addSummaries(vendorTotals, overheadTotals),
@@ -228,12 +237,18 @@ export function FundBillingDetail({ report, onCommit, onCreateNew }: FundBilling
     if (menuReadOnly || report.closed) return false;
     if (locationGate === 'past' || report.monthKey < latestMonthKey) return false;
     if (locationGate === 'ask-edit') return false;
-    if (sessionDraft?.editUnlocked) return true;
     return true;
   });
   const projectClosed =
     Boolean(report.closed) || isFundBillingProjectClosed(reports, report.id);
   const readOnly = menuReadOnly || projectClosed || report.monthKey < latestMonthKey || !editUnlocked;
+  const canEditWrittenDate =
+    !readOnly && projectMode === 'existing' && report.monthKey === latestMonthKey;
+
+  const resolveSavedMonthKey = () => {
+    if (!canEditWrittenDate) return report.monthKey;
+    return parseKoreanYearMonthToKey(writtenDate) ?? monthKeyFromWrittenDate(writtenDate);
+  };
 
   useEffect(() => {
     if (!projectClosed) return;
@@ -353,16 +368,18 @@ export function FundBillingDetail({ report, onCommit, onCreateNew }: FundBilling
     };
   }, [movingId, readOnly]);
 
-  const buildCurrentReport = (): FundBillingReport => ({
+  const buildCurrentReport = (): FundBillingReport => {
+    const monthKey = resolveSavedMonthKey();
+    return {
     id: report.id,
-    monthKey: report.monthKey,
+    monthKey,
     projectName,
     projectCode,
     department,
     contractAmount,
     startDate,
     endDate,
-    writtenDate,
+    writtenDate: writtenDateForMonthKey(monthKey),
     pmName,
     collectedPrior,
     expectedCollection,
@@ -371,8 +388,10 @@ export function FundBillingDetail({ report, onCommit, onCreateNew }: FundBilling
     overheads: displayOverheads,
     lines: comparableLines,
     closed: Boolean(report.closed),
+    closedMonthKey: report.closedMonthKey,
     updatedAt: new Date().toISOString(),
-  });
+  };
+  };
 
   const currentFingerprint = useMemo(
     () =>
@@ -426,10 +445,16 @@ export function FundBillingDetail({ report, onCommit, onCreateNew }: FundBilling
     !menuReadOnly &&
     !projectClosed &&
     (persistable || reports.some((item) => item.id === report.id && item.projectName.trim()));
+  const closeBlockedByPeriodChanges = monthHasBillingContentChanges(
+    buildCurrentReport(),
+    previousReportForMonth(reports, report.id, resolveSavedMonthKey()),
+  );
 
   const confirmSaveReport = () => {
     if (!canSave) return;
-    onCommit(buildCurrentReport());
+    const originMonthKey = report.monthKey;
+    const next = buildCurrentReport();
+    onCommit(next, originMonthKey);
     if (editingId && editDraft) {
       setLines((current) =>
         arrangeSpendLines(
@@ -449,7 +474,11 @@ export function FundBillingDetail({ report, onCommit, onCreateNew }: FundBilling
       clearOverheadEditState();
     }
     setSavedFingerprint(currentFingerprint);
-    clearFundBillingSessionDraft(report.id, report.monthKey);
+    clearFundBillingSessionDraft(report.id, originMonthKey);
+    if (next.monthKey !== originMonthKey) {
+      clearFundBillingSessionDraft(report.id, next.monthKey);
+      navigate(`/fund/billing/${report.id}?month=${next.monthKey}`, { replace: true });
+    }
     setMovingId(null);
     setDraggingId(null);
     draggingRef.current = false;
@@ -467,56 +496,9 @@ export function FundBillingDetail({ report, onCommit, onCreateNew }: FundBilling
     clearFundBillingSessionDraft(report.id, report.monthKey);
   };
 
-  const sessionDraftPayloadRef = useRef<{ save: boolean; draft: Parameters<typeof saveFundBillingSessionDraft>[0] } | null>(
-    null,
-  );
-  sessionDraftPayloadRef.current = {
-    save: !readOnly && currentFingerprint !== (savedFingerprint ?? driveFingerprint),
-    draft: {
-      id: report.id,
-      monthKey: report.monthKey,
-      projectMode,
-      projectName,
-      selectedProjectId,
-      projectCode,
-      department,
-      contractAmount,
-      startDate,
-      endDate,
-      writtenDate,
-      pmName,
-      collectedPrior,
-      expectedCollection,
-      directCostBudget,
-      overheads: displayOverheads,
-      lines: comparableLines,
-      editUnlocked,
-      dirty: true,
-      capturedAt: new Date().toISOString(),
-    },
-  };
-
   useEffect(() => {
-    const timer = window.setTimeout(() => {
-      const payload = sessionDraftPayloadRef.current;
-      if (!payload) return;
-      if (payload.save) saveFundBillingSessionDraft(payload.draft);
-      else clearFundBillingSessionDraft(payload.draft.id, payload.draft.monthKey);
-    }, 200);
-    return () => {
-      window.clearTimeout(timer);
-      const payload = sessionDraftPayloadRef.current;
-      if (!payload) return;
-      if (payload.save) saveFundBillingSessionDraft(payload.draft);
-    };
-  }, [
-    report.id,
-    report.monthKey,
-    currentFingerprint,
-    savedFingerprint,
-    driveFingerprint,
-    editUnlocked,
-  ]);
+    clearFundBillingSessionDraft(report.id, report.monthKey);
+  }, [report.id, report.monthKey]);
 
   const handleWriteProjectSelect = (project: Project) => {
     const matched =
@@ -585,6 +567,69 @@ export function FundBillingDetail({ report, onCommit, onCreateNew }: FundBilling
       return;
     }
     unlockCommonInspected();
+  };
+
+  const unlockCommonPriorPaid = () => {
+    const common = displayOverheads.find(isFundBillingCommonLine);
+    if (!common) return;
+    const patch = {
+      commonPriorPaidManual: true,
+      priorPaid: common.priorPaid,
+    };
+    if (overheadEditingId === common.id) {
+      setOverheadEditDraft((current) =>
+        current ? clampSpendLineToContract(current, patch) : current,
+      );
+      return;
+    }
+    updateOverhead(common.id, patch);
+  };
+
+  const requestCommonPriorPaidEdit = () => {
+    const common = displayOverheads.find(isFundBillingCommonLine);
+    if (!common || common.commonPriorPaidManual) return;
+    if (common.priorPaid) {
+      setCommonPriorPaidConfirmOpen(true);
+      return;
+    }
+    unlockCommonPriorPaid();
+  };
+
+  const requestSalaryPriorPaidEdit = () => {
+    if (readOnly) return;
+    const salary = displayOverheads.find(isFundBillingSalaryLine);
+    if (!salary) return;
+    setSalaryTotalMonthsDraft(
+      salary.constructionTotalMonths ? String(salary.constructionTotalMonths) : '',
+    );
+    setSalaryElapsedMonthsDraft(
+      salary.constructionElapsedMonths || salary.constructionElapsedMonths === 0
+        ? String(salary.constructionElapsedMonths)
+        : '',
+    );
+    setSalaryPriorDialogOpen(true);
+  };
+
+  const applySalaryPriorPaidFormula = () => {
+    const salary = displayOverheads.find(isFundBillingSalaryLine);
+    if (!salary) return;
+    const totalMonths = parseMonthCount(salaryTotalMonthsDraft);
+    const elapsedMonths = parseMonthCount(salaryElapsedMonthsDraft);
+    if (totalMonths == null || totalMonths <= 0 || elapsedMonths == null) return;
+    const priorPaid = calcSalaryPriorPaid(salary.contractAmount, totalMonths, elapsedMonths);
+    const patch = { constructionTotalMonths: totalMonths, constructionElapsedMonths: elapsedMonths, priorPaid };
+    if (spendPatchExceedsSubcontract(salary, patch)) {
+      setSubcontractExceedOpen(true);
+      return;
+    }
+    if (overheadEditingId === salary.id) {
+      setOverheadEditDraft((current) =>
+        current ? clampSpendLineToContract(current, patch) : current,
+      );
+    } else {
+      updateOverhead(salary.id, patch);
+    }
+    setSalaryPriorDialogOpen(false);
   };
 
   const addSpendLine = (kind: SpendKind) => {
@@ -766,10 +811,7 @@ export function FundBillingDetail({ report, onCommit, onCreateNew }: FundBilling
       return;
     }
     const latestSaved = findLatestReport(reports, report.id) ?? report;
-    const current = buildCurrentReport();
-    const source = report.monthKey === latestMonthKey && editUnlocked ? current : latestSaved;
-    if (report.monthKey === latestMonthKey && editUnlocked && canSave) onCommit(current);
-    const created = createMonthReportFromPrevious(source, pendingCreateMonth);
+    const created = createMonthReportFromPrevious(latestSaved, pendingCreateMonth);
     stageReport(created);
     setPendingCreateMonth(null);
     clearFundBillingSessionDraft(report.id, report.monthKey);
@@ -780,7 +822,8 @@ export function FundBillingDetail({ report, onCommit, onCreateNew }: FundBilling
 
   return (
     <div className="fund-billing-detail">
-      <div className="page-header page-header--row no-print fund-billing-detail__header">
+      <div className="no-print fund-billing-detail__header">
+      <div className="page-header page-header--row fund-billing-detail__header-main">
         <div>
           <p className="fund-billing-detail__crumb">
             <Link to="/fund/billing">기성관리</Link>
@@ -798,6 +841,7 @@ export function FundBillingDetail({ report, onCommit, onCreateNew }: FundBilling
           )}
         </div>
         <div className="fund-billing-detail__toolbar">
+          <div className="fund-billing-detail__toolbar-actions">
           <div
             className={`fund-billing-month-switch${monthPickerOpen ? ' is-open' : ''}`}
             ref={writePanelRef}
@@ -889,11 +933,22 @@ export function FundBillingDetail({ report, onCommit, onCreateNew }: FundBilling
             type="button"
             className="fund-billing-action-btn fund-billing-action-btn--close"
             disabled={!canClose}
-            onClick={() => setCloseConfirmOpen(true)}
+            onClick={() => {
+              if (closeBlockedByPeriodChanges) {
+                setCloseBlockedNoticeOpen(true);
+                return;
+              }
+              setCloseConfirmOpen(true);
+            }}
           >
             종결
           </Button>
+          </div>
+          <p className="fund-billing-detail__writing-month" aria-live="polite">
+            {formatWritingMonthLabel(report.monthKey)} 기성 작성중
+          </p>
         </div>
+      </div>
       </div>
 
       <div className="fund-billing-detail__body">
@@ -944,20 +999,30 @@ export function FundBillingDetail({ report, onCommit, onCreateNew }: FundBilling
           </div>
           <KoreanDateInput label="계약 시작" value={startDate} onChange={setStartDate} />
           <KoreanDateInput label="계약 종료" value={endDate} onChange={setEndDate} />
-          <div className="form-field">
-            <span className="form-field__label">작성일</span>
-            <input
-              className="form-field__input"
-              value={writtenDate || '-'}
-              readOnly
-              tabIndex={-1}
-              aria-label="작성일"
+          {canEditWrittenDate ? (
+            <KoreanYearMonthInput
+              label="작성일"
+              value={parseKoreanYearMonthToKey(writtenDate) ?? report.monthKey}
+              existingMonthKeys={projectMonthKeys}
+              onChange={(monthKey) => setWrittenDate(writtenDateForMonthKey(monthKey))}
             />
-          </div>
+          ) : (
+            <div className="form-field">
+              <span className="form-field__label">작성일</span>
+              <input
+                className="form-field__input"
+                value={writtenDate || '-'}
+                readOnly
+                tabIndex={-1}
+                aria-label="작성일"
+              />
+            </div>
+          )}
           <FundBillingPmSearch people={personnel} value={pmName} onChange={setPmName} />
         </div>
         <p className="fund-billing-info-hint">
           프로젝트 기존·신규는 상단 <strong>작성</strong>에서 선택합니다. 기존은 선택한 프로젝트의 기본정보·집행현황이 반영되고, 신규는 이 화면에서 직접 입력합니다.
+          기존 프로젝트의 최신월은 작성일을 바꾼 뒤 저장하면 원장의 기성월도 그 연월로 바뀝니다.
         </p>
       </Card>
 
@@ -1065,6 +1130,7 @@ export function FundBillingDetail({ report, onCommit, onCreateNew }: FundBilling
                         : 'default'
                   }
                   commonInspectedManual={Boolean(line.commonInspectedManual)}
+                  commonPriorPaidManual={Boolean(line.commonPriorPaidManual)}
                   onExceed={() => setSubcontractExceedOpen(true)}
                   onChange={(patch) => {
                     if (overheadEditingId === line.id) {
@@ -1080,6 +1146,12 @@ export function FundBillingDetail({ report, onCommit, onCreateNew }: FundBilling
                   onCancelEdit={clearOverheadEditState}
                   onRequestCommonInspectedEdit={
                     isFundBillingCommonLine(line) ? requestCommonInspectedEdit : undefined
+                  }
+                  onRequestCommonPriorPaidEdit={
+                    isFundBillingCommonLine(line) ? requestCommonPriorPaidEdit : undefined
+                  }
+                  onRequestSalaryPriorPaidEdit={
+                    isFundBillingSalaryLine(line) ? requestSalaryPriorPaidEdit : undefined
                   }
                 />
               ))}
@@ -1215,6 +1287,16 @@ export function FundBillingDetail({ report, onCommit, onCreateNew }: FundBilling
         onCancel={() => setSaveConfirmOpen(false)}
       />
       <ConfirmDialog
+        open={closeBlockedNoticeOpen}
+        title="안내"
+        confirmLabel="확인"
+        hideCancel
+        message={`이번차수 기성보고서 내용에 변경이 있을 시 종결이 불가하며
+다음차수 월별 기성보고서 신규작성에서 프로젝트 종결진행 하세요.`}
+        onConfirm={() => setCloseBlockedNoticeOpen(false)}
+        onCancel={() => setCloseBlockedNoticeOpen(false)}
+      />
+      <ConfirmDialog
         open={closeConfirmOpen}
         title="프로젝트 종결"
         confirmLabel="예"
@@ -1283,6 +1365,56 @@ export function FundBillingDetail({ report, onCommit, onCreateNew }: FundBilling
         }}
         onCancel={() => setCommonInspectedConfirmOpen(false)}
       />
+      <ConfirmDialog
+        open={commonPriorPaidConfirmOpen}
+        title="공통비 기지출금액 수정"
+        confirmLabel="예"
+        cancelLabel="아니오"
+        message={`공통비 기지출금액은 수식으로 계산된 금액입니다.
+
+(직접공사비 기지출금액 + 직접경비 기지출금액 + 설계비 기지출금액) ÷ 실행예산직접원가 × 공통비 하도급금액
+
+변경하시겠습니까?`}
+        onConfirm={() => {
+          setCommonPriorPaidConfirmOpen(false);
+          unlockCommonPriorPaid();
+        }}
+        onCancel={() => setCommonPriorPaidConfirmOpen(false)}
+      />
+      <ConfirmDialog
+        open={salaryPriorDialogOpen}
+        title="간접비 기지출금액"
+        confirmLabel="적용"
+        cancelLabel="취소"
+        message={`기지출금액 = 하도급금액 ÷ 공사 총개월수 × 공사진행 개월수
+
+공사 총개월수와 공사진행 개월수를 입력하면 산식 금액이 반영됩니다.`}
+        onConfirm={applySalaryPriorPaidFormula}
+        onCancel={() => setSalaryPriorDialogOpen(false)}
+      >
+        <div className="confirm-dialog__fields">
+          <label className="confirm-dialog__field">
+            공사 총개월수
+            <input
+              className="confirm-dialog__field-input"
+              inputMode="decimal"
+              value={salaryTotalMonthsDraft}
+              onChange={(event) => setSalaryTotalMonthsDraft(event.target.value)}
+              placeholder="예: 12"
+            />
+          </label>
+          <label className="confirm-dialog__field">
+            공사진행 개월수
+            <input
+              className="confirm-dialog__field-input"
+              inputMode="decimal"
+              value={salaryElapsedMonthsDraft}
+              onChange={(event) => setSalaryElapsedMonthsDraft(event.target.value)}
+              placeholder="예: 3"
+            />
+          </label>
+        </div>
+      </ConfirmDialog>
       <ConfirmDialog
         open={lineDialog?.action === 'overhead-edit'}
         title="하도급금액 수정"
@@ -1443,9 +1575,10 @@ function fingerprintFromSavedReport(report: FundBillingReport): string {
   const vendorTotals = summarizeLines(arrangedLines);
   const directCostBudget = report.directCostBudget ?? 0;
   const commonInspected = resolveCommonInspected(overheads, vendorTotals.inspected, directCostBudget);
+  const commonPriorPaid = resolveCommonPriorPaid(overheads, vendorTotals.priorPaid, directCostBudget);
   const displayOverheads = overheads.map((line) => {
     if (!isFundBillingCommonLine(line)) return line;
-    return { ...line, monthClaim: 0, inspected: commonInspected };
+    return { ...line, monthClaim: 0, inspected: commonInspected, priorPaid: commonPriorPaid };
   });
   return fingerprintBillingDraft({
     projectName: report.projectName,
@@ -1494,6 +1627,9 @@ function fingerprintBillingDraft(draft: {
       monthClaim: money(line.monthClaim),
       inspected: money(line.inspected),
       commonInspectedManual: Boolean(line.commonInspectedManual),
+      commonPriorPaidManual: Boolean(line.commonPriorPaidManual),
+      constructionTotalMonths: line.constructionTotalMonths ?? 0,
+      constructionElapsedMonths: line.constructionElapsedMonths ?? 0,
       contractAmountHistory: line.contractAmountHistory ?? [],
     }));
   return JSON.stringify({
@@ -1518,13 +1654,21 @@ const SUBCONTRACT_EXCEED_TITLE = '하도급금액 초과';
 const SUBCONTRACT_EXCEED_MESSAGE =
   '누계금액이 하도급금액을 초과합니다. 하도급금액을 넘는 금액은 입력할 수 없습니다. 확인을 누른 뒤 금액을 다시 입력해 주세요.';
 
+function parseMonthCount(value: string): number | undefined {
+  const normalized = value.replace(/,/g, '').trim();
+  if (!normalized) return undefined;
+  const months = Number(normalized);
+  if (!Number.isFinite(months) || months < 0) return undefined;
+  return months;
+}
+
 function finiteSpendAmount(value: number | undefined): number {
   return Math.max(0, Number.isFinite(value) ? Number(value) : 0);
 }
 
 function spendPatchExceedsSubcontract(line: SpendLine, patch: Partial<SpendLine> = {}): boolean {
   const next = { ...line, ...patch };
-  if (isFundBillingDirectExpenseLine(next)) return false;
+  if (isFundBillingDirectExpenseLine(next) || isFundBillingCommonLine(next)) return false;
   const cap = finiteSpendAmount(next.contractAmount);
   const prior = finiteSpendAmount(next.priorPaid);
   const inspected = finiteSpendAmount(next.inspected);
@@ -1534,7 +1678,7 @@ function spendPatchExceedsSubcontract(line: SpendLine, patch: Partial<SpendLine>
 
 function clampSpendLineToContract(line: SpendLine, patch: Partial<SpendLine> = {}): SpendLine {
   const next = { ...line, ...patch };
-  if (isFundBillingDirectExpenseLine(next)) {
+  if (isFundBillingDirectExpenseLine(next) || isFundBillingCommonLine(next)) {
     return {
       ...next,
       contractAmount: finiteSpendAmount(next.contractAmount),
@@ -1564,11 +1708,15 @@ function AmountInput({
   onChange,
   wouldReject,
   onReject,
+  onIdleBlur,
+  autoFocus,
 }: {
   value: number;
   onChange: (value: number) => void;
   wouldReject?: (next: number) => boolean;
   onReject?: () => void;
+  onIdleBlur?: () => void;
+  autoFocus?: boolean;
 }) {
   const [draft, setDraft] = useState<string | null>(null);
   const shown = draft ?? formatAmountInput(value);
@@ -1577,6 +1725,7 @@ function AmountInput({
     <input
       className="fund-sheet__input fund-sheet__input--num"
       inputMode="numeric"
+      autoFocus={autoFocus}
       value={shown}
       onChange={(event) => {
         const parsed = parseAmountInput(event.target.value);
@@ -1587,14 +1736,25 @@ function AmountInput({
         onChange(parsed ?? 0);
       }}
       onBlur={() => {
-        if (!wouldReject) return;
-        const parsed = parseAmountInput(draft ?? formatAmountInput(value)) ?? 0;
+        const typedDigits = draft === null ? null : String(draft).replace(/\D/g, '');
+        if (!wouldReject) {
+          setDraft(null);
+          if (!typedDigits) onIdleBlur?.();
+          return;
+        }
+        if (!typedDigits) {
+          setDraft(null);
+          onIdleBlur?.();
+          return;
+        }
+        const parsed = parseAmountInput(draft ?? '') ?? 0;
         setDraft(null);
         if (wouldReject(parsed)) {
           onReject?.();
           return;
         }
         if (parsed !== value) onChange(parsed);
+        else onIdleBlur?.();
       }}
     />
   );
@@ -1651,7 +1811,10 @@ function SpendLineRow({
   moveDisabled,
   entryMode = 'default',
   commonInspectedManual = false,
+  commonPriorPaidManual = false,
   onRequestCommonInspectedEdit,
+  onRequestCommonPriorPaidEdit,
+  onRequestSalaryPriorPaidEdit,
   onExceed,
   onEdit,
   onMove,
@@ -1673,7 +1836,10 @@ function SpendLineRow({
   moveDisabled?: boolean;
   entryMode?: 'default' | 'cumulative' | 'common';
   commonInspectedManual?: boolean;
+  commonPriorPaidManual?: boolean;
   onRequestCommonInspectedEdit?: () => void;
+  onRequestCommonPriorPaidEdit?: () => void;
+  onRequestSalaryPriorPaidEdit?: () => void;
   onExceed?: () => void;
   onEdit?: () => void;
   onMove?: () => void;
@@ -1687,6 +1853,10 @@ function SpendLineRow({
   const contractUnlocked = Boolean(isEditing) && !readOnly;
   const monthClaimLocked = readOnly || entryMode === 'cumulative' || entryMode === 'common';
   const commonInspectLocked = !readOnly && entryMode === 'common' && !commonInspectedManual;
+  const commonPriorLocked = !readOnly && entryMode === 'common' && !commonPriorPaidManual;
+  const salaryPriorLocked = !readOnly && isFundBillingSalaryLine(line);
+  const priorUnlocked =
+    (detailUnlocked && !salaryPriorLocked) || (!readOnly && entryMode === 'common' && commonPriorPaidManual);
   const inspectedLocked = readOnly || entryMode === 'cumulative' || commonInspectLocked;
 
   const rejectExceed = () => onExceed?.();
@@ -1784,16 +1954,65 @@ function SpendLineRow({
           cumulativeAmount={cumulative}
           simpleBudgetEdit={hideVendor}
           onExceed={rejectExceed}
-          onCommit={(next) => applyPatch(next)}
+          onCommit={(next) => {
+            if (
+              isFundBillingSalaryLine(line) &&
+              finiteSpendAmount(line.constructionTotalMonths) > 0 &&
+              line.constructionElapsedMonths != null
+            ) {
+              applyPatch({
+                ...next,
+                priorPaid: calcSalaryPriorPaid(
+                  next.contractAmount ?? line.contractAmount,
+                  line.constructionTotalMonths ?? 0,
+                  line.constructionElapsedMonths,
+                ),
+              });
+              return;
+            }
+            applyPatch(next);
+          }}
         />
       </td>
-      <td className={`fund-sheet__num${detailUnlocked ? ' fund-sheet__edit' : ' fund-sheet__fixed'}`}>
-        {detailUnlocked ? (
+      <td
+        className={`fund-sheet__num${
+          salaryPriorLocked || commonPriorLocked
+            ? ' fund-sheet__formula-cell'
+            : priorUnlocked
+              ? ' fund-sheet__edit'
+              : ' fund-sheet__fixed'
+        }`}
+        title={
+          salaryPriorLocked
+            ? '수식: 하도급금액 ÷ 공사 총개월수 × 공사진행 개월수'
+            : commonPriorLocked
+              ? '수식: (직접공사비 기지출금액 + 직접경비 기지출금액 + 설계비 기지출금액) ÷ 실행예산직접원가 × 공통비 하도급금액'
+              : undefined
+        }
+        onClick={
+          salaryPriorLocked
+            ? onRequestSalaryPriorPaidEdit
+            : commonPriorLocked
+              ? onRequestCommonPriorPaidEdit
+              : undefined
+        }
+      >
+        {priorUnlocked ? (
           <AmountInput
             value={line.priorPaid}
+            autoFocus={entryMode === 'common' && commonPriorPaidManual}
             wouldReject={(value) => spendPatchExceedsSubcontract(line, { priorPaid: value })}
             onReject={rejectExceed}
-            onChange={(value) => applyPatch({ priorPaid: value })}
+            onIdleBlur={
+              entryMode === 'common' ? () => applyPatch({ commonPriorPaidManual: false }) : undefined
+            }
+            onChange={(value) =>
+              applyPatch(
+                entryMode === 'common'
+                  ? { priorPaid: value, commonPriorPaidManual: true }
+                  : { priorPaid: value },
+              )
+            }
           />
         ) : (
           won(line.priorPaid)
@@ -1829,8 +2048,14 @@ function SpendLineRow({
         ) : (
           <AmountInput
             value={line.inspected}
+            autoFocus={entryMode === 'common'}
             wouldReject={(value) => spendPatchExceedsSubcontract(line, { inspected: value })}
             onReject={rejectExceed}
+            onIdleBlur={
+              entryMode === 'common'
+                ? () => applyPatch({ commonInspectedManual: false })
+                : undefined
+            }
             onChange={(value) =>
               applyPatch(
                 entryMode === 'common'

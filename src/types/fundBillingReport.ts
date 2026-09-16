@@ -22,6 +22,11 @@ export interface FundBillingSpendLine {
   manualEdit?: boolean;
   /** true면 공통비 관리팀검수를 수식 대신 수기 유지 */
   commonInspectedManual?: boolean;
+  /** true면 공통비 기지출금액을 수식 대신 수기 유지 */
+  commonPriorPaidManual?: boolean;
+  /** 간접비 기지출 = 하도급금액 ÷ 공사 총개월수 × 공사진행 개월수 */
+  constructionTotalMonths?: number;
+  constructionElapsedMonths?: number;
 }
 
 /** 월별 기성보고서 1건 — 프로젝트 × 기성월이 원천 */
@@ -45,6 +50,8 @@ export interface FundBillingReport {
   lines: FundBillingSpendLine[];
   /** 담당자가 종결한 프로젝트. 이후 월별 기성보고서 작성 불가 */
   closed?: boolean;
+  /** 종결이 적용되는 기성월. 이 월부터 검색 목록에 미반영 */
+  closedMonthKey?: string;
   updatedAt: string;
 }
 

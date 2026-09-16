@@ -1,9 +1,11 @@
+import type { ReactNode } from 'react';
 import { Button } from '@/components/ui/Button';
 
 interface ConfirmDialogProps {
   open: boolean;
   title: string;
   message: string;
+  children?: ReactNode;
   confirmLabel?: string;
   cancelLabel?: string;
   loading?: boolean;
@@ -16,6 +18,7 @@ export function ConfirmDialog({
   open,
   title,
   message,
+  children,
   confirmLabel = '네',
   cancelLabel = '아니오',
   hideCancel = false,
@@ -38,6 +41,7 @@ export function ConfirmDialog({
           {title}
         </h3>
         <p className="confirm-dialog__message">{message}</p>
+        {children}
         <div className="confirm-dialog__actions">
           {hideCancel ? null : (
             <Button variant="outline" onClick={onCancel} disabled={loading}>

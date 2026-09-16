@@ -10,7 +10,7 @@ export function FundCashAnalysisPage() {
       <div className="fund-billing-page">
         <div className="page-header no-print page-header--row fund-billing-page__header">
           <div>
-            <h2>자금수지</h2>
+            <h2>자금수지조회</h2>
             <p>연월은 필수입니다. 선택한 달의 월별 기성보고서만 자금수지 검색결과와 집계현황에 나타납니다.</p>
             {driveWritable ? null : (
               <p className="fund-billing-sandbox-note">

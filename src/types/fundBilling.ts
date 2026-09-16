@@ -77,6 +77,8 @@ export interface FundBillingProjectRow {
   collectionRate: number;
   spentPrior?: number;
   monthSpendExpected?: number;
+  /** 금월하도급기성 — 집행현황 직접공사비 관리팀검수 합 */
+  monthSubcontractBilling?: number;
   executionBudget?: number;
   subcontractCount: number;
   subcontractContractTotal: number;
@@ -106,9 +108,12 @@ export interface FundBillingKpis {
   spentTotal: number;
   spentPrior: number;
   monthSpendExpected: number;
+  monthSubcontractBilling: number;
   executionBudget: number;
   collectionRate: number;
   spendRate: number;
   cashRate: number;
+  confirmedNetCash: number;
+  confirmedCashRate: number;
   subcontractShareRate: number;
 }

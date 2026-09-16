@@ -64,12 +64,64 @@ export function calcCommonInspected(
   );
 }
 
+/** 공통비 기지출금액 = (직접공사비 기지출 + 직접경비 기지출 + 설계비 기지출) / 실행예산직접원가 × 공통비 하도급금액 */
+export function calcCommonPriorPaid(
+  constructionPriorPaid: number,
+  expensePriorPaid: number,
+  designPriorPaid: number,
+  executedDirectCost: number,
+  commonSubcontractAmount: number,
+): number {
+  const budget = finiteAmount(executedDirectCost);
+  if (budget <= 0) return 0;
+  return Math.round(
+    ((finiteAmount(constructionPriorPaid) + finiteAmount(expensePriorPaid) + finiteAmount(designPriorPaid)) /
+      budget) *
+      finiteAmount(commonSubcontractAmount),
+  );
+}
+
 export function isFundBillingCommonLine(line: { id?: string; tradeType?: string }): boolean {
   return Boolean(line.id?.includes('oh-common') || line.tradeType === '공통비');
 }
 
 export function isFundBillingDirectExpenseLine(line: { id?: string; tradeType?: string }): boolean {
   return Boolean(line.id?.includes('oh-directExpense') || line.tradeType === '직접경비');
+}
+
+export function isFundBillingDesignLine(line: { id?: string; tradeType?: string }): boolean {
+  return Boolean(line.id?.includes('oh-design') || line.tradeType === '설계비');
+}
+
+export function isFundBillingSalaryLine(line: { id?: string; tradeType?: string }): boolean {
+  return Boolean(line.id?.includes('oh-salary') || line.tradeType === '간접비(급여및의무보험료)');
+}
+
+/** 간접비 기지출금액 = 하도급금액 ÷ 공사 총개월수 × 공사진행 개월수 */
+export function calcSalaryPriorPaid(
+  contractAmount: number,
+  totalMonths: number,
+  elapsedMonths: number,
+): number {
+  const total = finiteAmount(totalMonths);
+  if (total <= 0) return 0;
+  return Math.round((finiteAmount(contractAmount) / total) * finiteAmount(elapsedMonths));
+}
+
+export function formulaCommonInspected(
+  overheads: FundBillingSpendLine[],
+  vendorInspected: number,
+  directCostBudget: number,
+): number {
+  const common = overheads.find(isFundBillingCommonLine);
+  if (!common || !(finiteAmount(directCostBudget) > 0)) return 0;
+  const expenseInspected = finiteAmount(overheads.find(isFundBillingDirectExpenseLine)?.inspected);
+  return calcCommonInspected(
+    vendorInspected,
+    expenseInspected,
+    directCostBudget,
+    common.contractAmount,
+  );
 }
 
 export function resolveCommonInspected(
@@ -81,13 +133,55 @@ export function resolveCommonInspected(
   if (!common) return 0;
   if (common.commonInspectedManual) return finiteAmount(common.inspected);
   if (!(finiteAmount(directCostBudget) > 0)) return finiteAmount(common.inspected);
-  const expenseInspected = finiteAmount(overheads.find(isFundBillingDirectExpenseLine)?.inspected);
-  return calcCommonInspected(
-    vendorInspected,
-    expenseInspected,
+  return formulaCommonInspected(overheads, vendorInspected, directCostBudget);
+}
+
+export function formulaCommonPriorPaid(
+  overheads: FundBillingSpendLine[],
+  vendorPriorPaid: number,
+  directCostBudget: number,
+): number {
+  const common = overheads.find(isFundBillingCommonLine);
+  if (!common || !(finiteAmount(directCostBudget) > 0)) return 0;
+  const expensePriorPaid = finiteAmount(overheads.find(isFundBillingDirectExpenseLine)?.priorPaid);
+  const designPriorPaid = finiteAmount(overheads.find(isFundBillingDesignLine)?.priorPaid);
+  return calcCommonPriorPaid(
+    vendorPriorPaid,
+    expensePriorPaid,
+    designPriorPaid,
     directCostBudget,
     common.contractAmount,
   );
+}
+
+export function resolveCommonPriorPaid(
+  overheads: FundBillingSpendLine[],
+  vendorPriorPaid: number,
+  directCostBudget: number,
+): number {
+  const common = overheads.find(isFundBillingCommonLine);
+  if (!common) return 0;
+  if (common.commonPriorPaidManual) return finiteAmount(common.priorPaid);
+  if (!(finiteAmount(directCostBudget) > 0)) return finiteAmount(common.priorPaid);
+  return formulaCommonPriorPaid(overheads, vendorPriorPaid, directCostBudget);
+}
+
+export function applyCommonPriorPaidFormula(report: FundBillingReport): FundBillingReport {
+  const common = report.overheads.find(isFundBillingCommonLine);
+  if (!common || common.commonPriorPaidManual) return report;
+  const vendorPriorPaid = report.lines.reduce((sum, line) => sum + finiteAmount(line.priorPaid), 0);
+  const priorPaid = resolveCommonPriorPaid(report.overheads, vendorPriorPaid, report.directCostBudget);
+  if (common.priorPaid === priorPaid) return report;
+  return {
+    ...report,
+    overheads: report.overheads.map((line) =>
+      isFundBillingCommonLine(line) ? { ...line, priorPaid } : line,
+    ),
+  };
+}
+
+export function applyCommonOverheadFormulas(report: FundBillingReport): FundBillingReport {
+  return applyCommonPriorPaidFormula(applyCommonInspectedFormula(report));
 }
 
 export function applyCommonInspectedFormula(report: FundBillingReport): FundBillingReport {
@@ -264,7 +358,9 @@ export function isCloneOfEarlierMonth(report: FundBillingReport, reports: FundBi
 }
 
 export function pruneInvalidFundBillingReports(reports: FundBillingReport[]): FundBillingReport[] {
-  const closedIds = new Set(reports.filter((item) => item.closed).map((item) => item.id));
+  const closedIds = new Set(
+    reports.filter((item) => item.closed || item.closedMonthKey).map((item) => item.id),
+  );
   return reports.filter((report) => {
     if (report.closed || closedIds.has(report.id)) return true;
     if (isEmptyFundBillingShell(report)) return false;
@@ -273,8 +369,63 @@ export function pruneInvalidFundBillingReports(reports: FundBillingReport[]): Fu
   });
 }
 
+function periodContentSignature(report: FundBillingReport): string {
+  const pack = (line: FundBillingSpendLine) =>
+    [
+      line.kind,
+      line.no,
+      line.tradeType.trim(),
+      line.vendorName.trim(),
+      finiteAmount(line.contractAmount),
+      finiteAmount(line.priorPaid),
+      finiteAmount(line.monthClaim),
+      finiteAmount(line.inspected),
+    ].join('\t');
+  return JSON.stringify({
+    projectName: report.projectName.trim(),
+    projectCode: report.projectCode.trim(),
+    department: report.department.trim(),
+    contractAmount: finiteAmount(report.contractAmount),
+    startDate: report.startDate,
+    endDate: report.endDate,
+    pmName: report.pmName.trim(),
+    collectedPrior: finiteAmount(report.collectedPrior),
+    expectedCollection: finiteAmount(report.expectedCollection),
+    directCostBudget: finiteAmount(report.directCostBudget),
+    overheads: (report.overheads ?? []).map(pack),
+    lines: (report.lines ?? []).map(pack),
+  });
+}
+
+/** 이번 차수 기본정보·집행현황이 직전 차수 이관값과 다르면 종결할 수 없습니다. */
+export function monthHasBillingContentChanges(
+  current: FundBillingReport,
+  previous: FundBillingReport | undefined,
+): boolean {
+  if (!previous) return reportHasPersistableInput(current);
+  const baseline = createMonthReportFromPrevious(previous, current.monthKey);
+  return periodContentSignature(current) !== periodContentSignature(baseline);
+}
+
+export function projectClosedMonthKey(reports: FundBillingReport[], projectId: string): string | undefined {
+  const owned = reports.filter((item) => item.id === projectId);
+  const marked = owned.map((item) => item.closedMonthKey).filter((item): item is string => Boolean(item)).sort();
+  if (marked[0]) return marked[0];
+  const legacy = owned.filter((item) => item.closed).map((item) => item.monthKey).sort();
+  return legacy[legacy.length - 1];
+}
+
+export function isFundBillingClosedAsOf(
+  reports: FundBillingReport[],
+  projectId: string,
+  monthKey: string,
+): boolean {
+  const closedMonthKey = projectClosedMonthKey(reports, projectId);
+  return Boolean(closedMonthKey && monthKey >= closedMonthKey);
+}
+
 export function isFundBillingProjectClosed(reports: FundBillingReport[], projectId: string): boolean {
-  return reports.some((item) => item.id === projectId && item.closed);
+  return Boolean(projectClosedMonthKey(reports, projectId));
 }
 
 export function closeFundBillingProject(
@@ -283,22 +434,22 @@ export function closeFundBillingProject(
   current?: FundBillingReport,
 ): FundBillingReport[] {
   const stampedAt = new Date().toISOString();
-  let next = reports.map((item) =>
-    item.id === projectId ? { ...item, closed: true, updatedAt: stampedAt } : item,
+  const closedMonthKey =
+    current?.monthKey ||
+    (current ? monthKeyFromWrittenDate(current.writtenDate) : '') ||
+    findLatestReport(reports, projectId)?.monthKey;
+  if (!closedMonthKey) return reports;
+  return reports.map((item) =>
+    item.id === projectId
+      ? { ...item, closed: true, closedMonthKey, updatedAt: stampedAt }
+      : item,
   );
-  if (current && current.id === projectId) {
-    const monthKey = current.monthKey || monthKeyFromWrittenDate(current.writtenDate);
-    const exists = next.some((item) => item.id === current.id && item.monthKey === monthKey);
-    if (!exists) {
-      next = [...next, { ...current, monthKey, closed: true, updatedAt: stampedAt }];
-    }
-  }
-  return next;
 }
 
 export function upsertFundBillingReport(
   reports: FundBillingReport[],
   next: FundBillingReport,
+  originMonthKey?: string,
 ): FundBillingReport[] {
   const stamped = {
     ...next,
@@ -306,31 +457,22 @@ export function upsertFundBillingReport(
     updatedAt: new Date().toISOString(),
   };
   if (isFundBillingProjectClosed(reports, stamped.id)) return reports;
-  const identity = {
-    projectName: stamped.projectName,
-    projectCode: stamped.projectCode,
-    department: stamped.department,
-    contractAmount: stamped.contractAmount,
-    startDate: stamped.startDate,
-    endDate: stamped.endDate,
-    pmName: stamped.pmName,
-    linkedProjectId: stamped.linkedProjectId,
-  };
-  const index = reports.findIndex(
+  const source = originMonthKey && originMonthKey !== stamped.monthKey
+    ? reports.filter((item) => !(item.id === stamped.id && item.monthKey === originMonthKey))
+    : reports;
+  const index = source.findIndex(
     (item) => item.id === stamped.id && item.monthKey === stamped.monthKey,
   );
-  const withIdentity = reports.map((item) =>
-    item.id === stamped.id ? { ...item, ...identity, updatedAt: stamped.updatedAt } : item,
-  );
   if (index >= 0) {
-    const copy = [...withIdentity];
+    const copy = [...source];
     copy[index] = {
       ...stamped,
       closed: stamped.closed || copy[index].closed,
+      closedMonthKey: stamped.closedMonthKey || copy[index].closedMonthKey,
     };
     return copy;
   }
-  return [...withIdentity, stamped];
+  return [...source, stamped];
 }
 
 export function latestReportsByProject(reports: FundBillingReport[]): FundBillingReport[] {
@@ -379,6 +521,8 @@ function rollForwardSpendLine(line: FundBillingSpendLine): FundBillingSpendLine 
     monthClaim: 0,
     inspected: 0,
     commonInspectedManual: undefined,
+    commonPriorPaidManual: undefined,
+    constructionElapsedMonths: undefined,
     added: false,
     manualEdit: false,
   };
@@ -389,7 +533,7 @@ export function createMonthReportFromPrevious(
   source: FundBillingReport,
   monthKey: string,
 ): FundBillingReport {
-  const closed = applyCommonInspectedFormula(source);
+  const closed = applyCommonOverheadFormulas(source);
   return {
     ...closed,
     monthKey,
@@ -398,6 +542,8 @@ export function createMonthReportFromPrevious(
     expectedCollection: 0,
     overheads: (closed.overheads ?? []).map(rollForwardSpendLine),
     lines: (closed.lines ?? []).map(rollForwardSpendLine),
+    closed: undefined,
+    closedMonthKey: undefined,
     updatedAt: new Date().toISOString(),
   };
 }
@@ -466,7 +612,9 @@ export function sanitizeFundBillingReports(reports: FundBillingReport[]): FundBi
   const importedById = new Map(
     getImportedFundBillingProjects().map((project) => [project.id, project.sheetName || project.summaryName]),
   );
-  const closedIds = new Set(reports.filter((item) => item.closed).map((item) => item.id));
+  const closedIds = new Set(
+    reports.filter((item) => item.closed || item.closedMonthKey).map((item) => item.id),
+  );
   const normalized = reports
     .map((report) => {
       if (report.closed || closedIds.has(report.id)) return report;
@@ -477,7 +625,7 @@ export function sanitizeFundBillingReports(reports: FundBillingReport[]): FundBi
       return { ...report, department, ...(projectName === report.projectName ? {} : { projectName }) };
     })
     .map((report) =>
-      report.closed || closedIds.has(report.id) ? report : applyCommonInspectedFormula(report),
+      report.closed || closedIds.has(report.id) ? report : applyCommonOverheadFormulas(report),
     );
   return pruneInvalidFundBillingReports(normalized);
 }
@@ -537,18 +685,32 @@ export function findReportForProject(
 }
 
 export function reportToSummaryRow(report: FundBillingReport): FundBillingProjectRow {
-  const normalized = applyCommonInspectedFormula(report);
+  const normalized = applyCommonOverheadFormulas(report);
   const collectedTotal = finiteAmount(normalized.collectedPrior) + finiteAmount(normalized.expectedCollection);
   const vendors = normalized.lines ?? [];
+  const overheads = normalized.overheads ?? [];
+  const vendorInspected = vendors.reduce((sum, line) => sum + finiteAmount(line.inspected), 0);
+  const vendorPrior = vendors.reduce((sum, line) => sum + finiteAmount(line.priorPaid), 0);
+  const displayOverheads = overheads.map((line) => {
+    if (!isFundBillingCommonLine(line)) return line;
+    return {
+      ...line,
+      monthClaim: 0,
+      inspected: resolveCommonInspected(overheads, vendorInspected, normalized.directCostBudget),
+      priorPaid: resolveCommonPriorPaid(overheads, vendorPrior, normalized.directCostBudget),
+    };
+  });
   const subcontractContractTotal = vendors.reduce((sum, line) => sum + finiteAmount(line.contractAmount), 0);
-  const subcontractPriorBilling = vendors.reduce((sum, line) => sum + finiteAmount(line.priorPaid), 0);
+  const subcontractPriorBilling = vendorPrior;
+  const monthSubcontractBilling = vendorInspected;
   const paidTotal = vendors.reduce((sum, line) => sum + spendLineCumulative(line), 0);
   const unpaid = vendors.reduce((sum, line) => sum + lineRemain(line), 0);
-  const allLines = [...(normalized.overheads ?? []), ...vendors];
+  const allLines = [...displayOverheads, ...vendors];
+  /** 집행현황 직접원가 계 — 기지출 / 관리팀검수 */
   const spentPrior = allLines.reduce((sum, line) => sum + finiteAmount(line.priorPaid), 0);
   const monthSpendExpected = allLines.reduce((sum, line) => sum + finiteAmount(line.inspected), 0);
   const expectedBillingMonth = monthSpendExpected;
-  const spentTotal = allLines.reduce((sum, line) => sum + spendLineCumulative(line), 0);
+  const spentTotal = spentPrior + monthSpendExpected;
   const executionBudget = finiteAmount(normalized.directCostBudget);
   const netCash = collectedTotal - spentTotal;
   const startIso = parseKoreanDateToIso(normalized.startDate) ?? '';
@@ -563,7 +725,14 @@ export function reportToSummaryRow(report: FundBillingReport): FundBillingProjec
     divisionId: mapTextToFundBillingDepartment(report.department),
     divisionName: mapTextToFundBillingDepartment(report.department),
     teamName: report.pmName || '-',
-    status: report.closed ? '종결' : '진행',
+    status:
+      report.closedMonthKey
+        ? report.monthKey >= report.closedMonthKey
+          ? '종결'
+          : '진행'
+        : report.closed
+          ? '종결'
+          : '진행',
     startDate: startIso,
     endDate: endIso,
     monthKey: report.monthKey,
@@ -578,6 +747,7 @@ export function reportToSummaryRow(report: FundBillingReport): FundBillingProjec
     collectionRate: normalized.contractAmount > 0 ? (collectedTotal / normalized.contractAmount) * 100 : 0,
     spentPrior,
     monthSpendExpected,
+    monthSubcontractBilling,
     executionBudget,
     subcontractCount: vendors.length,
     subcontractContractTotal,
@@ -589,6 +759,54 @@ export function reportToSummaryRow(report: FundBillingReport): FundBillingProjec
     netCash,
     cashRate: normalized.contractAmount > 0 ? (netCash / normalized.contractAmount) * 100 : 0,
   };
+}
+
+function isExhibitOrInteriorDepartment(value: string): boolean {
+  const department = mapTextToFundBillingDepartment(value);
+  return department === '전시' || department === '인테리어';
+}
+
+function carryForwardSummaryRow(row: FundBillingProjectRow): FundBillingProjectRow {
+  const spent = finiteAmount(row.spentPrior) + finiteAmount(row.monthSpendExpected);
+  const collected = finiteAmount(row.collectedTotal);
+  const netCash = collected - spent;
+  return {
+    ...row,
+    collectedPrior: collected,
+    expectedCollectionMonth: 0,
+    collectedTotal: collected,
+    billedTotal: collected,
+    spentPrior: spent,
+    monthSpendExpected: 0,
+    monthSubcontractBilling: 0,
+    expectedBillingMonth: 0,
+    netCash,
+    cashRate: row.contractAmount > 0 ? (netCash / row.contractAmount) * 100 : 0,
+  };
+}
+
+/** 기성집계표 전시·인테리어: 진행 중인 전 프로젝트. 해당 월 원장이 없으면 직전 월 누계를 현황으로 둡니다. */
+export function buildActiveExhibitInteriorStatementRows(
+  reports: FundBillingReport[],
+  monthKey: string,
+): FundBillingProjectRow[] {
+  return latestReportsByProject(reports)
+    .filter(
+      (report) =>
+        report.projectName.trim() &&
+        !isFundBillingClosedAsOf(reports, report.id, monthKey) &&
+        isExhibitOrInteriorDepartment(report.department),
+    )
+    .map((latest) => {
+      const owned = reportsForProject(reports, latest.id).filter((item) => item.projectName.trim());
+      const exact = owned.find((item) => item.monthKey === monthKey);
+      if (exact) return reportToSummaryRow(exact);
+      const earlier = [...owned].reverse().find((item) => item.monthKey <= monthKey);
+      if (!earlier) return null;
+      return carryForwardSummaryRow(reportToSummaryRow(earlier));
+    })
+    .filter((row): row is FundBillingProjectRow => Boolean(row))
+    .sort((a, b) => a.projectName.localeCompare(b.projectName, 'ko'));
 }
 
 export function reportsForMonth(reports: FundBillingReport[], monthKey: string): FundBillingReport[] {
@@ -646,7 +864,30 @@ export function buildCashAnalysisSummaryRows(
   monthKey: string,
 ): FundBillingProjectRow[] {
   return reportsForCashAnalysisMonth(reports, monthKey)
+    .filter((report) => !isFundBillingClosedAsOf(reports, report.id, monthKey))
     .map(reportToSummaryRow)
+    .sort((a, b) => a.projectName.localeCompare(b.projectName, 'ko'));
+}
+
+/** 선택 연월 포함 이전 원장 스냅샷. 종결·순자금 부족 빠른필터용 */
+export function buildAsOfLedgerSummaryRows(
+  reports: FundBillingReport[],
+  monthKey: string,
+): FundBillingProjectRow[] {
+  const scoped = reports.filter(
+    (item) => item.projectName.trim() && item.monthKey && item.monthKey <= monthKey,
+  );
+  return latestReportsByProject(scoped)
+    .map((latest) => {
+      const row =
+        latest.monthKey === monthKey
+          ? reportToSummaryRow(latest)
+          : carryForwardSummaryRow(reportToSummaryRow(latest));
+      return {
+        ...row,
+        status: isFundBillingClosedAsOf(reports, latest.id, monthKey) ? '종결' : '진행',
+      };
+    })
     .sort((a, b) => a.projectName.localeCompare(b.projectName, 'ko'));
 }
 
@@ -670,6 +911,7 @@ export function buildSummaryRowsFromLedger(
     ? reportsForMonth(state.reports, monthKey)
     : latestReportsByProject(state.reports).filter((report) => report.projectName.trim());
   return source
+    .filter((report) => !isFundBillingClosedAsOf(state.reports, report.id, monthKey ?? report.monthKey))
     .map(reportToSummaryRow)
     .sort((a, b) => a.projectName.localeCompare(b.projectName, 'ko'));
 }

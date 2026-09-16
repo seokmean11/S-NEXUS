@@ -41,6 +41,7 @@ export interface StoredFundBillingReport {
   overheads: StoredSpendLine[];
   lines: StoredSpendLine[];
   closed?: boolean;
+  closedMonthKey?: string;
   updatedAt: string;
 }
 
@@ -95,10 +96,17 @@ export async function loadFundBillingLedger(
   root: string,
   _role: FundBillingRuntimeRole,
 ): Promise<{ ledger: StoredFundBillingLedger | null; source: 'drive' | 'sandbox' | 'local' }> {
+  const local = readFundBillingLedger(root, 'service');
   try {
     await syncNexusDriveCache(root, { force: true, subfolderKey: 'fundBilling', minIntervalMs: 0 });
     const cached = driveCachedJsonPath(root);
     if (fs.existsSync(cached)) {
+      const remote = readJsonLedgerFile(cached);
+      const localStamp = Date.parse(local?.updatedAt ?? '') || 0;
+      const remoteStamp = Date.parse(remote?.updatedAt ?? '') || 0;
+      if (local?.reports?.length && localStamp >= remoteStamp) {
+        return { ledger: local, source: 'local' };
+      }
       ensureFundBillingStoreDir(root, 'service');
       fs.copyFileSync(cached, jsonPath(root, 'service'));
       return { ledger: readFundBillingLedger(root, 'service'), source: 'drive' };
@@ -106,7 +114,6 @@ export async function loadFundBillingLedger(
   } catch {
     /* fall through to local service cache */
   }
-  const local = readFundBillingLedger(root, 'service');
   return { ledger: local, source: local ? 'local' : 'drive' };
 }
 
@@ -164,7 +171,7 @@ async function buildLedgerWorkbook(ledger: StoredFundBillingLedger): Promise<Buf
       expectedCollection: report.expectedCollection,
       directCostBudget: report.directCostBudget ?? 0,
       collectedTotal: report.collectedPrior + report.expectedCollection,
-      closed: report.closed ? 'Y' : '',
+      closed: report.closed || report.closedMonthKey ? 'Y' : '',
       updatedAt: report.updatedAt,
     });
   }
@@ -227,24 +234,29 @@ export function preserveClosedFundBillingReports(
   existing: StoredFundBillingReport[] | undefined,
 ): StoredFundBillingReport[] {
   const existingList = existing ?? [];
-  const closedIds = new Set(
-    [...incoming, ...existingList].filter((item) => item.closed).map((item) => item.id),
-  );
-  if (closedIds.size === 0) return incoming;
+  const closedById = new Map<string, { closedMonthKey?: string }>();
+  for (const item of incoming) {
+    if (!item.closed && !item.closedMonthKey) continue;
+    const prev = closedById.get(item.id);
+    const closedMonthKey = item.closedMonthKey || prev?.closedMonthKey || item.monthKey;
+    closedById.set(item.id, { closedMonthKey });
+  }
+  if (closedById.size === 0) return incoming;
 
   const existingByKey = new Map(existingList.map((item) => [storedReportKey(item), item]));
   const incomingKeys = new Set(incoming.map(storedReportKey));
   const merged = incoming.map((item) => {
-    if (!closedIds.has(item.id)) return item;
+    const meta = closedById.get(item.id);
+    if (!meta) return item;
     const prev = existingByKey.get(storedReportKey(item));
-    if (!prev) return { ...item, closed: true };
-    if (prev.closed) return { ...prev, closed: true };
-    return { ...item, closed: true };
+    const base = prev?.closed || prev?.closedMonthKey ? prev : item;
+    return { ...base, closed: true, closedMonthKey: meta.closedMonthKey };
   });
   for (const prev of existingList) {
-    if (!closedIds.has(prev.id)) continue;
+    if (!closedById.has(prev.id)) continue;
     if (!incomingKeys.has(storedReportKey(prev))) {
-      merged.push({ ...prev, closed: true });
+      const meta = closedById.get(prev.id);
+      merged.push({ ...prev, closed: true, closedMonthKey: meta?.closedMonthKey || prev.closedMonthKey || prev.monthKey });
     }
   }
   return merged;

@@ -64,13 +64,16 @@ export function summarizeFundBillingRows(rows: FundBillingProjectRow[]): FundBil
   const netCash = sum(rows.map((row) => row.netCash));
   const spentPrior = sum(rows.map((row) => row.spentPrior ?? 0));
   const monthSpendExpected = sum(rows.map((row) => row.monthSpendExpected ?? 0));
+  const monthSubcontractBilling = sum(rows.map((row) => row.monthSubcontractBilling ?? 0));
   const executionBudget = sum(rows.map((row) => row.executionBudget ?? 0));
+  const collectedPrior = sum(rows.map((row) => row.collectedPrior));
   const spentTotal = collectedTotal - netCash;
   const subcontractContractTotal = sum(rows.map((row) => row.subcontractContractTotal));
+  const confirmedNetCash = collectedPrior - spentTotal;
   return {
     projectCount: rows.length,
     contractAmount,
-    collectedPrior: sum(rows.map((row) => row.collectedPrior)),
+    collectedPrior,
     expectedCollectionMonth: sum(rows.map((row) => row.expectedCollectionMonth)),
     collectedTotal,
     uncollected: sum(rows.map((row) => row.uncollected)),
@@ -84,10 +87,13 @@ export function summarizeFundBillingRows(rows: FundBillingProjectRow[]): FundBil
     spentTotal,
     spentPrior,
     monthSpendExpected,
+    monthSubcontractBilling,
     executionBudget,
     collectionRate: contractAmount > 0 ? (collectedTotal / contractAmount) * 100 : 0,
     spendRate: executionBudget > 0 ? (spentTotal / executionBudget) * 100 : contractAmount > 0 ? (spentTotal / contractAmount) * 100 : 0,
     cashRate: contractAmount > 0 ? ((collectedTotal - spentTotal) / contractAmount) * 100 : 0,
+    confirmedNetCash,
+    confirmedCashRate: contractAmount > 0 ? (confirmedNetCash / contractAmount) * 100 : 0,
     subcontractShareRate: contractAmount > 0 ? (subcontractContractTotal / contractAmount) * 100 : 0,
   };
 }
@@ -131,7 +137,7 @@ export function filterFundBillingRows(
       case 'unpaid':
         return row.unpaid > 0;
       case 'cashShort':
-        return row.netCash < 0;
+        return row.contractAmount > 0 && row.netCash < 0;
       default:
         return true;
     }
@@ -152,8 +158,8 @@ export function buildFundBillingExportTable(rows: FundBillingProjectRow[]): Expo
       '누계 수령금액',
       '기성률(%)',
       '잔여 수령액',
-      '실행예산 직접원가',
       '전회집행누계',
+      '금월하도급기성',
       '금회집행 예정',
       '집행예산 누계',
     ],
@@ -169,8 +175,8 @@ export function buildFundBillingExportTable(rows: FundBillingProjectRow[]): Expo
       String(Math.round(row.collectedTotal)),
       row.contractAmount ? (row.collectionRate).toFixed(1) : '',
       String(Math.round(row.uncollected)),
-      String(Math.round(row.executionBudget ?? 0)),
       String(Math.round(spendPriorTotal(row))),
+      String(Math.round(row.monthSubcontractBilling ?? 0)),
       String(Math.round(row.expectedBillingMonth)),
       String(Math.round(cumulativeSubcontractBilling(row))),
     ]),

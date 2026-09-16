@@ -36,7 +36,7 @@ export function loadFundCashSearchState(): FundCashSearchState | null {
         : [],
       keyword: typeof parsed.keyword === 'string' ? parsed.keyword : '',
       selectedProjectId: typeof parsed.selectedProjectId === 'string' ? parsed.selectedProjectId : '',
-      quickFilter: isQuickFilter(parsed.quickFilter) ? parsed.quickFilter : 'all',
+      quickFilter: isQuickFilter(parsed.quickFilter) ? parsed.quickFilter : 'active',
     };
   } catch {
     return null;

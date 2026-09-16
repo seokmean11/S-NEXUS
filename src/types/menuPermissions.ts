@@ -83,8 +83,8 @@ export const PERSONNEL_MENU_PERMISSION_TREE: PersonnelMenuPermissionNode[] = [
     label: '자금관리',
     icon: '💰',
     children: [
+      { kind: 'leaf', key: 'fundCash', label: '자금수지조회', modes: ['read'] },
       { kind: 'leaf', key: 'fundBilling', label: '기성관리', modes: ['read', 'edit'] },
-      { kind: 'leaf', key: 'fundCash', label: '자금수지', modes: ['read'] },
     ],
   },
   {
