@@ -238,7 +238,13 @@ function attachRoutes(
       let syncedAt: string | undefined;
       let cachedFiles = listCachedCompetitorFiles(root, year, sector);
 
-      if (force || cachedFiles.length === 0) {
+      const { isMariaDbEnabled } = await import('./server/mariadb');
+      const { loadCompetitorDoc } = await import('./server/competitorDb');
+      const dbStructured = isMariaDbEnabled(root)
+        ? await loadCompetitorDoc(root, year, sector)
+        : null;
+
+      if (!dbStructured && (force || cachedFiles.length === 0)) {
         try {
           const meta = await syncCompetitorDriveCache(root, year, sector, { force: true });
           syncedAt = meta.syncedAt;
@@ -251,7 +257,7 @@ function attachRoutes(
       }
 
       const cacheDir = getCompetitorCacheDir(config, year, sector);
-      if (cachedFiles.length === 0 || !fs.existsSync(cacheDir)) {
+      if (!dbStructured && (cachedFiles.length === 0 || !fs.existsSync(cacheDir))) {
         sendJson(res, 200, {
           year,
           sector,

@@ -36,6 +36,8 @@ import {
   type NexusDriveConfig,
 } from './nexusGoogleDrive';
 import { probeGoogleOAuthUploadAccess } from './googleDriveOAuth';
+import { isMariaDbEnabled } from './mariadb';
+import { loadCompetitorDoc, saveCompetitorDoc } from './competitorDb';
 import {
   COMPETITOR_STRUCTURED_DATA_FILE,
   rebuildCompetitorStructuredData,
@@ -44,6 +46,7 @@ import {
   competitorSourceSignaturesMatch,
   isStructuredDataTrustworthy,
   loadStructuredDataFromCache,
+  saveStructuredDataToCache,
 } from './competitorStructuredData';
 import {
   drivePathSegments,
@@ -327,10 +330,36 @@ export async function ensureCompetitorYearCacheReady(
 ): Promise<void> {
   const config = getNexusDriveConfig(projectRoot);
   const cacheDir = getCompetitorCacheDir(config, year, sector);
+
+  if (isMariaDbEnabled(projectRoot) && !options?.force) {
+    const fromDb = await loadCompetitorDoc(projectRoot, year, sector);
+    if (fromDb) {
+      saveStructuredDataToCache(cacheDir, fromDb as never);
+      return;
+    }
+  }
+
   const hasPdfCache = listCachedCompetitorFiles(projectRoot, year, sector).length > 0;
   const hasStructured = hasPdfCache && isStructuredCacheReady(cacheDir);
 
-  if (!options?.force && hasPdfCache && hasStructured) return;
+  if (!options?.force && hasPdfCache && hasStructured) {
+    if (isMariaDbEnabled(projectRoot)) {
+      const cached = loadStructuredDataFromCache(cacheDir);
+      if (cached) await saveCompetitorDoc(projectRoot, cached);
+    }
+    return;
+  }
+
+  if (isMariaDbEnabled(projectRoot)) {
+    if (hasPdfCache) {
+      await rebuildCompetitorStructuredData(projectRoot, year, sector, cacheDir, {
+        uploadToDrive: false,
+        forceReparse: options?.force === true,
+        runValidation: false,
+      });
+    }
+    return;
+  }
 
   // structured 캐시가 없거나 신뢰할 수 없을 때만 Drive JSON hydrate
   if (hasPdfCache && !hasStructured) {
@@ -355,6 +384,31 @@ export async function listCompetitorDriveFiles(
   year: number,
   sector: CompetitorSector,
 ): Promise<CompetitorDriveFileInfo[]> {
+  if (isMariaDbEnabled(projectRoot)) {
+    const names = listCachedCompetitorFiles(projectRoot, year, sector);
+    const fromDb = names.length
+      ? null
+      : await loadCompetitorDoc<{ sourceFiles?: string[]; documents?: Array<{ fileName?: string }> }>(
+          projectRoot,
+          year,
+          sector,
+        );
+    const listed =
+      names.length > 0
+        ? names
+        : [
+            ...((fromDb?.sourceFiles as string[] | undefined) ?? []),
+            ...((fromDb?.documents ?? []).map((doc) => doc.fileName).filter(Boolean) as string[]),
+          ];
+    const unique = [...new Set(listed)];
+    return unique.map((name) => ({
+      id: `db:${year}:${sector}:${name}`,
+      name,
+      mimeType: 'application/octet-stream',
+      modifiedTime: new Date(0).toISOString(),
+    }));
+  }
+
   const config = getNexusDriveConfig(projectRoot);
   if (!config.enabled || !config.folderId || !config.keyPath) return [];
 
@@ -387,13 +441,33 @@ export async function syncCompetitorDriveCache(
   options?: { force?: boolean },
 ): Promise<CompetitorDriveSyncMeta> {
   const config = getNexusDriveConfig(projectRoot);
+  const cacheDir = getCompetitorCacheDir(config, year, sector);
+
+  if (isMariaDbEnabled(projectRoot)) {
+    const fromDb = await loadCompetitorDoc(projectRoot, year, sector);
+    if (fromDb) saveStructuredDataToCache(cacheDir, fromDb as never);
+    const files = listCachedCompetitorFiles(projectRoot, year, sector).map((name) => ({
+      name,
+      modifiedTime: new Date(0).toISOString(),
+    }));
+    const meta: CompetitorDriveSyncMeta = {
+      syncedAt: new Date().toISOString(),
+      folderId: 'mariadb',
+      year,
+      sector,
+      fileCount: files.length,
+      files,
+    };
+    saveSyncMeta(cacheDir, meta);
+    return meta;
+  }
+
   if (!config.enabled || !config.folderId || !config.keyPath) {
     throw new Error(
       'Google Drive NEXUS 폴더가 설정되지 않았습니다. GOOGLE_DRIVE_NEXUS_FOLDER_ID와 GOOGLE_SERVICE_ACCOUNT_KEY_PATH를 확인하세요.',
     );
   }
 
-  const cacheDir = getCompetitorCacheDir(config, year, sector);
   const previous = loadSyncMeta(cacheDir);
   const hasLocalDataFiles =
     fs.existsSync(cacheDir) &&
@@ -497,6 +571,25 @@ export async function uploadCompetitorDriveFile(
   mimeType: string,
 ): Promise<CompetitorDriveFileInfo> {
   const config = getNexusDriveConfig(projectRoot);
+
+  if (isMariaDbEnabled(projectRoot)) {
+    const fileInfo: CompetitorDriveFileInfo = {
+      id: `db:${year}:${sector}:${fileName}`,
+      name: fileName,
+      mimeType,
+      modifiedTime: new Date().toISOString(),
+      size: String(buffer.length),
+    };
+    cacheUploadedCompetitorFile(config, year, sector, 'mariadb', fileName, buffer, fileInfo);
+    const cacheDir = getCompetitorCacheDir(config, year, sector);
+    await rebuildCompetitorStructuredData(projectRoot, year, sector, cacheDir, {
+      uploadToDrive: false,
+      forceReparse: true,
+      runValidation: false,
+    });
+    return fileInfo;
+  }
+
   if (!config.enabled || !config.folderId || !config.keyPath) {
     throw new Error('Google Drive NEXUS 폴더 연동이 설정되지 않았습니다.');
   }
@@ -544,7 +637,6 @@ export function listCachedCompetitorFiles(
   sector: CompetitorSector,
 ): string[] {
   const config = getNexusDriveConfig(projectRoot);
-  if (!config.enabled) return [];
   const cacheDir = getCompetitorCacheDir(config, year, sector);
   if (!fs.existsSync(cacheDir)) return [];
   return fs
@@ -558,18 +650,18 @@ export function getCompetitorSyncMeta(
   sector: CompetitorSector,
 ): CompetitorDriveSyncMeta | null {
   const config = getNexusDriveConfig(projectRoot);
-  if (!config.enabled) return null;
   const cacheDir = getCompetitorCacheDir(config, year, sector);
   return loadSyncMeta(cacheDir);
 }
 
 export function getCompetitorDriveStatus(projectRoot: string) {
   const config = getNexusDriveConfig(projectRoot);
+  const dbEnabled = isMariaDbEnabled(projectRoot);
   return {
-    configured: config.enabled,
+    configured: dbEnabled || config.enabled,
     folderId: config.folderId ?? undefined,
     cacheDir: config.cacheDir,
-    uploadConfigured: isNexusDriveUploadConfigured(projectRoot),
+    uploadConfigured: dbEnabled || isNexusDriveUploadConfigured(projectRoot),
     rootFolder: COMPETITOR_DRIVE_ROOT_FOLDER,
     folderPattern: `${COMPETITOR_DRIVE_ROOT_FOLDER}/{연도}/{전시사업|인테리어}`,
   };
@@ -577,6 +669,9 @@ export function getCompetitorDriveStatus(projectRoot: string) {
 
 export async function getCompetitorDriveStatusLive(projectRoot: string) {
   const base = getCompetitorDriveStatus(projectRoot);
+  if (isMariaDbEnabled(projectRoot)) {
+    return { ...base, uploadConfigured: true, uploadError: undefined };
+  }
   if (!base.configured) return base;
 
   const probe = await probeGoogleOAuthUploadAccess(projectRoot);

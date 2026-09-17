@@ -72,6 +72,21 @@ async function resolveOutsourcingDataPath(
   root: string,
   force = false,
 ): Promise<{ path: string; source: 'google-drive' | 'local' } | null> {
+  const { loadOutsourcingDoc } = await import('./server/outsourcingStore');
+  const fromDb = await loadOutsourcingDoc(root);
+  if (fromDb) {
+    const { getNexusDriveConfig, NEXUS_DRIVE_SUBFOLDERS } = await import('./server/nexusGoogleDrive');
+    const config = getNexusDriveConfig(root);
+    const cacheDir = path.join(config.cacheDir, NEXUS_DRIVE_SUBFOLDERS.outsourcing);
+    fs.mkdirSync(cacheDir, { recursive: true });
+    const fileName = fromDb.fileName.toLowerCase().endsWith('.csv')
+      ? fromDb.fileName
+      : `${fromDb.fileName.replace(/\.[^.]+$/, '')}.csv`;
+    const filePath = path.join(cacheDir, fileName);
+    fs.writeFileSync(filePath, fromDb.csv, 'utf8');
+    return { path: cacheDir, source: 'local' };
+  }
+
   try {
     const { getNexusDriveConfig, syncNexusDriveCache, resolveNexusOutsourcingCacheDir } =
       await import('./server/nexusGoogleDrive');

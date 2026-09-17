@@ -8,6 +8,7 @@ import {
   syncNexusDriveCache,
   uploadOrUpdateNexusDriveFile,
 } from './nexusGoogleDrive';
+import { getDocument, isMariaDbEnabled, putDocument } from './mariadb';
 
 export interface StoredSpendLine {
   id: string;
@@ -96,6 +97,10 @@ export async function loadFundBillingLedger(
   root: string,
   _role: FundBillingRuntimeRole,
 ): Promise<{ ledger: StoredFundBillingLedger | null; source: 'drive' | 'sandbox' | 'local' }> {
+  if (isMariaDbEnabled(root)) {
+    const fromDb = await getDocument<StoredFundBillingLedger>(root, 'fund_billing');
+    if (fromDb?.reports) return { ledger: fromDb, source: 'local' };
+  }
   const local = readFundBillingLedger(root, 'service');
   try {
     await syncNexusDriveCache(root, { force: true, subfolderKey: 'fundBilling', minIntervalMs: 0 });
@@ -275,6 +280,10 @@ async function loadExistingLedgerForMerge(
   root: string,
   role: FundBillingRuntimeRole,
 ): Promise<StoredFundBillingLedger | null> {
+  if (isMariaDbEnabled(root)) {
+    const fromDb = await getDocument<StoredFundBillingLedger>(root, 'fund_billing');
+    if (fromDb?.reports) return fromDb;
+  }
   try {
     await syncNexusDriveCache(root, { force: true, subfolderKey: 'fundBilling', minIntervalMs: 0 });
     const cached = readJsonLedgerFile(driveCachedJsonPath(root));
@@ -305,12 +314,21 @@ export async function writeFundBillingLedger(
   fs.writeFileSync(jsonPath(root, role), JSON.stringify(stamped, null, 2), 'utf8');
   const xlsx = await buildLedgerWorkbook(stamped);
   fs.writeFileSync(xlsxPath(root, role), xlsx);
+  await putDocument(root, 'fund_billing', stamped, stamped.updatedAt ?? new Date().toISOString());
 
   if (!writable) {
     return {
       updatedAt: stamped.updatedAt ?? new Date().toISOString(),
       driveSaved: false,
       writable: false,
+    };
+  }
+
+  if (isMariaDbEnabled(root)) {
+    return {
+      updatedAt: stamped.updatedAt ?? new Date().toISOString(),
+      driveSaved: false,
+      writable: true,
     };
   }
 

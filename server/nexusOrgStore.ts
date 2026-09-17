@@ -9,6 +9,7 @@ import {
   uploadOrUpdateNexusDriveFile,
 } from './nexusGoogleDrive';
 import type { StoredOrgState } from '../src/utils/orgStorage';
+import { getDocument, isMariaDbEnabled, putDocument } from './mariadb';
 
 export type OrgRuntimeRole = 'dev' | 'service';
 
@@ -146,6 +147,10 @@ export async function syncAndReadServerOrgState(
   projectRoot: string,
   role: OrgRuntimeRole = 'service',
 ): Promise<{ state: StoredOrgState | null; source: ServerOrgMeta['source'] }> {
+  if (isMariaDbEnabled(projectRoot)) {
+    const fromDb = await getDocument<StoredOrgState>(projectRoot, 'org');
+    if (fromDb) return { state: fromDb, source: 'local' };
+  }
   const config = getNexusDriveConfig(projectRoot);
   if (config.enabled) {
     try {
@@ -187,9 +192,14 @@ export async function writeServerOrgStateWithDriveSync(
 ): Promise<ServerOrgMeta> {
   const stamped = state.savedAt ? state : withOrgStateSavedAt(state);
   writeServerOrgState(projectRoot, stamped, role);
+  await putDocument(projectRoot, 'org', stamped, stamped.savedAt || new Date().toISOString());
 
   if (role !== 'service') {
     return getServerOrgMeta(projectRoot, role, 'sandbox');
+  }
+
+  if (isMariaDbEnabled(projectRoot)) {
+    return getServerOrgMeta(projectRoot, role, 'local');
   }
 
   const serialized = JSON.stringify(stamped, null, 2);

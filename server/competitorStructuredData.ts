@@ -38,6 +38,8 @@ import {
   getNexusDriveConfig,
   isNexusDriveUploadConfigured,
 } from './nexusGoogleDrive';
+import { isMariaDbEnabled } from './mariadb';
+import { loadCompetitorDoc, saveCompetitorDoc } from './competitorDb';
 export const COMPETITOR_STRUCTURED_DATA_FILE = 'competitor-data.json';
 export const COMPETITOR_STRUCTURED_DATA_VERSION = 8;
 
@@ -478,7 +480,9 @@ export async function rebuildCompetitorStructuredData(
     saveStructuredDataToCache(cacheDir, structured);
   }
 
-  if (options?.uploadToDrive !== false && options?.folderId) {
+  if (isMariaDbEnabled(projectRoot)) {
+    await saveCompetitorDoc(projectRoot, structured);
+  } else if (options?.uploadToDrive !== false && options?.folderId) {
     await uploadStructuredDataToDrive(projectRoot, options.folderId, cacheDir);
   }
 
@@ -538,6 +542,14 @@ export async function loadCompetitorAnalysisData(
   cacheDir: string,
   options?: { rebuild?: boolean; uploadToDrive?: boolean; folderId?: string },
 ): Promise<CompetitorStructuredData | null> {
+  if (!options?.rebuild && isMariaDbEnabled(projectRoot)) {
+    const fromDb = await loadCompetitorDoc<CompetitorStructuredData>(projectRoot, year, sector);
+    if (fromDb?.companies && Array.isArray(fromDb.companies)) {
+      saveStructuredDataToCache(cacheDir, fromDb);
+      return fromDb;
+    }
+  }
+
   const sourceSignature = buildCompetitorSourceSignature(cacheDir);
   if (!sourceSignature) return null;
 

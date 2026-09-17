@@ -60,8 +60,14 @@ import {
   repairStoredData,
   saveAppState,
   saveOrgState,
+  type StoredAppState,
   type StoredOrgState,
 } from '@/utils/orgStorage';
+import {
+  fetchNexusAppBundle,
+  saveNexusAppBundle,
+  type NexusAppBundle,
+} from '@/services/nexusAppApi';
 import {
   buildContributionCards,
   filterProjectsByRole,
@@ -235,6 +241,30 @@ function createInitialAppState(divisions: Division[]) {
     projectTeamAllocations: buildInitialProjectTeamAllocations(projects),
     contractAmendments: [],
     historySeeded: false,
+  };
+}
+
+function preferLocalAppBundle(
+  local: NexusAppBundle | null,
+  remote: NexusAppBundle | null,
+  hadBrowser: boolean,
+): boolean {
+  if (!remote?.app?.projects?.length) return hadBrowser && Boolean(local?.app);
+  if (!local?.app) return false;
+  const localCount = local.app.projects.length;
+  const remoteCount = remote.app.projects.length;
+  if (localCount !== remoteCount) return localCount > remoteCount;
+  const localAt = Date.parse(local.savedAt || local.app.savedAt || '') || 0;
+  const remoteAt = Date.parse(remote.savedAt || remote.app.savedAt || '') || 0;
+  return localAt >= remoteAt;
+}
+
+function toAppBundle(app: StoredAppState, history: HistoryEvent[]): NexusAppBundle {
+  const savedAt = app.savedAt || new Date().toISOString();
+  return {
+    savedAt,
+    app: { ...app, savedAt, historySeeded: true },
+    history,
   };
 }
 
@@ -416,6 +446,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const lastLocalOrgSaveAtRef = useRef(0);
   const skipRemoteOrgSaveRef = useRef(true);
   const orgDriveWritableRef = useRef(false);
+  const hadBrowserAppRef = useRef(Boolean(loadAppState()));
+  const skipAppDiskSaveRef = useRef(true);
+  const [appDiskReady, setAppDiskReady] = useState(false);
   const orgSavedAtRef = useRef<string | undefined>(
     (initialOrg as StoredOrgState).savedAt ?? loadOrgState()?.savedAt,
   );
@@ -431,6 +464,30 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setEmployees(withAuth.employees);
     setPersonnelAuth(withAuth.personnelAuth);
   }, []);
+
+  const applyAppBundle = useCallback(
+    (bundle: NexusAppBundle) => {
+      skipAppDiskSaveRef.current = true;
+      const nextProjects = mergeErpProjects(divisions, bundle.app.projects);
+      const nextApp: StoredAppState = {
+        ...bundle.app,
+        projects: nextProjects,
+        projectTeamAllocations:
+          bundle.app.projectTeamAllocations ?? buildInitialProjectTeamAllocations(nextProjects),
+        contractAmendments: bundle.app.contractAmendments ?? [],
+        historySeeded: true,
+        savedAt: bundle.savedAt || bundle.app.savedAt,
+      };
+      setProjects(nextApp.projects);
+      setAllocations(nextApp.allocations);
+      setProjectTeamAllocations(nextApp.projectTeamAllocations ?? []);
+      setContractAmendments(nextApp.contractAmendments ?? []);
+      saveAppState(nextApp);
+      saveHistoryEvents(bundle.history ?? []);
+      setHistoryEvents(bundle.history ?? []);
+    },
+    [divisions],
+  );
 
   const refreshHistory = useCallback(() => {
     setHistoryEvents(loadHistoryEvents());
@@ -580,6 +637,52 @@ export function AppProvider({ children }: { children: ReactNode }) {
       historySeeded: true,
     });
   }, [projects, allocations, projectTeamAllocations, contractAmendments]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const localApp = loadAppState();
+      const localHistory = loadHistoryEvents();
+      const { bundle: remote } = await fetchNexusAppBundle();
+      if (cancelled) return;
+      const localBundle = localApp ? toAppBundle(localApp, localHistory) : null;
+      if (preferLocalAppBundle(localBundle, remote, hadBrowserAppRef.current) && localBundle) {
+        await saveNexusAppBundle(localBundle);
+      } else if (remote?.app) {
+        applyAppBundle(remote);
+      }
+      if (!cancelled) setAppDiskReady(true);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [applyAppBundle]);
+
+  useEffect(() => {
+    if (!appDiskReady) return;
+    if (skipAppDiskSaveRef.current) {
+      skipAppDiskSaveRef.current = false;
+      return;
+    }
+    const savedAt = new Date().toISOString();
+    const app: StoredAppState = {
+      projects,
+      allocations,
+      projectTeamAllocations,
+      contractAmendments,
+      historySeeded: true,
+      savedAt,
+    };
+    saveAppState(app);
+    void saveNexusAppBundle(toAppBundle(app, loadHistoryEvents()));
+  }, [
+    appDiskReady,
+    projects,
+    allocations,
+    projectTeamAllocations,
+    contractAmendments,
+    historyEvents,
+  ]);
 
   useEffect(() => {
     setProjects((prev) => syncProjectsWithOrg(prev, divisions, teams));

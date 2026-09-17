@@ -79,6 +79,7 @@ export interface StoredAppState {
   projectTeamAllocations?: ProjectTeamAllocation[];
   contractAmendments?: ContractAmendment[];
   historySeeded?: boolean;
+  savedAt?: string;
 }
 
 export function normalizeExecutiveOffice(

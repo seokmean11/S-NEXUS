@@ -7,6 +7,7 @@ import { nexusDataFolderPlugin } from './vite-plugin-nexus-data-folder';
 import { nexusOrgPlugin } from './vite-plugin-nexus-org';
 import { fundBillingPlugin } from './vite-plugin-fund-billing';
 import { competitorDrivePlugin } from './vite-plugin-competitor-drive';
+import { nexusAppPlugin } from './vite-plugin-nexus-app';
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
@@ -31,9 +32,18 @@ export default defineConfig(({ mode }) => {
   if (env.GOOGLE_OAUTH_REFRESH_TOKEN) {
     process.env.GOOGLE_OAUTH_REFRESH_TOKEN = env.GOOGLE_OAUTH_REFRESH_TOKEN;
   }
+  for (const key of [
+    'MARIADB_HOST',
+    'MARIADB_PORT',
+    'MARIADB_USER',
+    'MARIADB_PASSWORD',
+    'MARIADB_DATABASE',
+  ]) {
+    if (env[key]) process.env[key] = env[key];
+  }
 
   return {
-    plugins: [react(), claudeProxyPlugin(), nexusDataFolderPlugin(), nexusOrgPlugin(), fundBillingPlugin(), outsourcingLocalPlugin(), competitorDrivePlugin()],
+    plugins: [react(), claudeProxyPlugin(), nexusDataFolderPlugin(), nexusOrgPlugin(), nexusAppPlugin(), fundBillingPlugin(), outsourcingLocalPlugin(), competitorDrivePlugin()],
     resolve: {
       alias: {
         '@': fileURLToPath(new URL('./src', import.meta.url)),

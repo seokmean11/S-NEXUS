@@ -9,6 +9,7 @@ import {
   hasGoogleOAuthCredentials,
   probeGoogleOAuthUploadAccess,
 } from './googleDriveOAuth';
+import { isMariaDbEnabled } from './mariadb';
 
 const DATA_EXTENSIONS = ['.csv', '.xlsx', '.xls'] as const;
 const SYNC_META_FILE = '.sync-meta.json';
@@ -397,6 +398,20 @@ export async function uploadToNexusDriveFolder(
   mimeType: string,
   options?: { subfolderKey?: NexusDriveSubfolderKey },
 ): Promise<NexusDriveFileInfo> {
+  const subfolderKey = options?.subfolderKey ?? 'outsourcing';
+  if (isMariaDbEnabled(projectRoot) && subfolderKey === 'outsourcing') {
+    const { bufferToOutsourcingCsv, saveOutsourcingDoc } = await import('./outsourcingStore');
+    const csv = bufferToOutsourcingCsv(fileName, buffer);
+    const doc = await saveOutsourcingDoc(projectRoot, fileName, csv);
+    return {
+      id: 'db:outsourcing',
+      name: `${NEXUS_DRIVE_SUBFOLDERS.outsourcing}/${doc.fileName}`,
+      mimeType: 'text/csv',
+      modifiedTime: doc.updatedAt,
+      size: String(Buffer.byteLength(doc.csv, 'utf8')),
+    };
+  }
+
   const config = getNexusDriveConfig(projectRoot);
   if (!config.enabled || !config.folderId || !config.keyPath) {
     throw new Error('Google Drive NEXUS 폴더 연동이 설정되지 않았습니다.');
@@ -405,7 +420,6 @@ export async function uploadToNexusDriveFolder(
     throw new Error(formatDriveUploadError('Service Accounts do not have storage quota'));
   }
 
-  const subfolderKey = options?.subfolderKey ?? 'outsourcing';
   const drive = await createOAuthDriveClient(projectRoot);
   const subfolderId = await resolveSubfolderIdWithDrive(drive, config, subfolderKey);
   const response = await drive.files.create({
@@ -540,6 +554,15 @@ export function getNexusDriveStatus(projectRoot: string): NexusDriveStatus {
 /** 상태 API용 — OAuth 토큰 유효성까지 확인 (팀 공용 업로드 가능 여부). */
 export async function getNexusDriveStatusLive(projectRoot: string): Promise<NexusDriveStatus> {
   const base = getNexusDriveStatus(projectRoot);
+  if (isMariaDbEnabled(projectRoot)) {
+    return {
+      ...base,
+      configured: true,
+      uploadConfigured: true,
+      uploadMethod: 'oauth',
+      uploadError: undefined,
+    };
+  }
   if (!base.configured) return base;
 
   const probe = await probeGoogleOAuthUploadAccess(projectRoot);
